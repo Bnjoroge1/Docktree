@@ -89,14 +89,11 @@ func InstanceName(repoName, worktreeName, repoPath, worktreePath string) string 
 	hash := hex.EncodeToString(sum[:])[:6]
 	suffix := "-" + hash
 
-	//docker compose spec has a project limit of 64 chars
-	maxWorktree := 64 - len(repo) - 1 - len(suffix)
-	if maxWorktree < 1 {
-		maxRepo := 64 - 1 - len("w") - len(suffix)
-		repo = truncateSlug(repo, maxRepo)
-		maxWorktree = 1
-	}
-	worktree = truncateSlug(worktree, maxWorktree)
+	// docker compose spec has a project limit of 64 chars so we divide the remainder of 
+	//name(after the hash) by 2 and share between the repo name and worktree
+	avail := 64 - 1 - len(suffix)
+	repo = truncateSlug(repo, avail/2)
+	worktree = truncateSlug(worktree, avail/2)
 	return repo + "-" + worktree + suffix
 }
 
