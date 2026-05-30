@@ -15,7 +15,7 @@ type Warning struct {
 	Message string `json:"message"`
 }
 
-var numericPortKey = regexp.MustCompile(`(^|_)(PORT|PUBLISHED)$`)
+var numericPortKey = regexp.MustCompile(`(^|_)(PORT|PUBLISHED)`)
 var numericValue = regexp.MustCompile(`^[0-9]+$`)
 
 func CheckEnvFile(dir string) ([]Warning, error) {
