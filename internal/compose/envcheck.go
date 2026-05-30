@@ -40,14 +40,20 @@ func CheckEnvFile(dir string) ([]Warning, error) {
 			continue
 		}
 		key = strings.TrimSpace(key)
-		value = strings.Trim(strings.TrimSpace(value), `"'`)
+		value = strings.TrimSpace(value)
+		if !strings.HasPrefix(value, `"`) && !strings.HasPrefix(value, `'`) {
+			if before, _, ok := strings.Cut(value, " #"); ok {
+				value = strings.TrimSpace(before)
+			}
+		}
+		value = strings.Trim(value, `"'`)
 		switch {
 		case key == "COMPOSE_PROJECT_NAME":
 			warnings = append(warnings, Warning{Key: key, Value: value, Message: "COMPOSE_PROJECT_NAME is set; Docktree will pass -p so the generated project name wins."})
 		case key == "COMPOSE_FILE":
 			warnings = append(warnings, Warning{Key: key, Value: value, Message: "COMPOSE_FILE is set; Docktree will use it when selecting Compose files."})
 		case numericPortKey.MatchString(key) && numericValue.MatchString(value):
-			warnings = append(warnings, Warning{Key: key, Value: value, Message: "port-like environment variable may need app-level updates after Docktree remaps host ports."})
+			warnings = append(warnings, Warning{Key: key, Value: value, Message: "if you set a port in your env, you might need to update the app after docktree remaps your ports."})
 		}
 	}
 	return warnings, scanner.Err()
