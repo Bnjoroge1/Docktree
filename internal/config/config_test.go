@@ -14,6 +14,12 @@ func TestLoadMissingUsesDefaults(t *testing.T) {
 	if cfg.Ports.Range != "41000-49999" {
 		t.Fatalf("unexpected default range: %q", cfg.Ports.Range)
 	}
+	if len(cfg.Setup.Copy) != 1 || cfg.Setup.Copy[0] != ".env" {
+		t.Fatalf("unexpected default setup.copy: %#v", cfg.Setup.Copy)
+	}
+	if len(cfg.Setup.Symlink) != 1 || cfg.Setup.Symlink[0] != "node_modules" {
+		t.Fatalf("unexpected default setup.symlink: %#v", cfg.Setup.Symlink)
+	}
 	if cfg.Compose.Files != nil {
 		t.Fatalf("compose files default should mean auto-detect, got %#v", cfg.Compose.Files)
 	}
