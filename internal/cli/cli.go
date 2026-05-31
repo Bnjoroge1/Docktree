@@ -45,12 +45,13 @@ type InitResult struct {
 }
 
 type UpResult struct {
-	Instance       *state.Instance    `json:"instance"`
-	ComposeFiles   []string           `json:"compose_files"`
-	OverrideFile   string             `json:"override_file"`
-	Ports          []ports.Assignment `json:"ports,omitempty"`
-	Services       []string           `json:"services"`
-	AlreadyRunning bool               `json:"already_running,omitempty"`
+	Instance         *state.Instance    `json:"instance"`
+	ComposeFiles     []string           `json:"compose_files"`
+	OverrideFile     string             `json:"override_file"`
+	Ports            []ports.Assignment `json:"ports,omitempty"`
+	Services         []string           `json:"services"`
+	IsolatedVolumes  []string           `json:"isolated_volumes,omitempty"`
+	AlreadyRunning   bool               `json:"already_running,omitempty"`
 }
 
 type DownResult struct {
@@ -267,7 +268,7 @@ func runUp(ctx *Context) (any, int, error) {
 		}
 		break
 	}
-	return UpResult{Instance: inst, ComposeFiles: files, OverrideFile: overrideFile, Ports: assignments, Services: serviceNames(project)}, output.ExitOK, nil
+	return UpResult{Instance: inst, ComposeFiles: files, OverrideFile: overrideFile, Ports: assignments, Services: serviceNames(project), IsolatedVolumes: isolatedVolumes(project, cfg.Volumes.Share)}, output.ExitOK, nil
 }
 
 func runDown(ctx *Context) (any, int, error) {
@@ -521,6 +522,21 @@ func builtImages(project *compose.ComposeProject) []string {
 	return images
 }
 
+func isolatedVolumes(project *compose.ComposeProject, shareList []string) []string {
+	shared := map[string]bool{}
+	for _, v := range shareList {
+		shared[v] = true
+	}
+	var isolated []string
+	for name, vol := range project.Volumes {
+		if vol.External && !shared[name] {
+			isolated = append(isolated, name)
+		}
+	}
+	slices.Sort(isolated)
+	return isolated
+}
+
 func humanRenderer() func(io.Writer, any) {
 	return func(w io.Writer, data any) {
 		switch v := data.(type) {
@@ -536,6 +552,15 @@ func humanRenderer() func(io.Writer, any) {
 			fmt.Fprintf(w, "Docktree started %s\n", v.Instance.ProjectName)
 			for _, assignment := range v.Ports {
 				fmt.Fprintf(w, "  %s %s:%d -> %d\n", assignment.Service, assignment.HostIP, assignment.HostPort, assignment.ContainerPort)
+			}
+			if len(v.IsolatedVolumes) > 0 {
+				fmt.Fprintf(w, "  External volumes isolated: %s\n", strings.Join(v.IsolatedVolumes, ", "))
+				fmt.Fprintf(w, "  To share a volume across worktrees, add to docktree.yml:\n")
+				fmt.Fprintf(w, "    volumes:\n")
+				fmt.Fprintf(w, "      share:\n")
+				for _, vol := range v.IsolatedVolumes {
+					fmt.Fprintf(w, "        - %s\n", vol)
+				}
 			}
 		case DownResult:
 			if v.AlreadyStopped {
