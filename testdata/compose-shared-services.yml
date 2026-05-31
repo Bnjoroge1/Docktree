@@ -1,0 +1,73 @@
+version: '3.9'
+
+services:
+  ui:
+    image: my-ui:latest
+    ports:
+      - "127.0.0.1:3000:80"
+    environment:
+      API_URL: "http://api:8080"
+      REDIS_URL: "redis://redis:6379"
+    depends_on:
+      - api
+      - redis
+
+  api:
+    image: my-api:latest
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      DATABASE_URL: "postgres://db:5432/myapp"
+      REDIS_URL: "redis://redis:6379"
+      S3_ENDPOINT: "http://garage:3900"
+    depends_on:
+      - db
+      - redis
+      - garage
+
+  db:
+    image: postgres:15-alpine
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_DB: myapp
+      POSTGRES_PASSWORD: password
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  # Shared services (would be isolated in different Compose project in actual setup)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:6379:6379"
+    networks:
+      - shared_network
+
+  garage:
+    image: dxkite/garage:latest
+    ports:
+      - "127.0.0.1:3900:3900"
+      - "127.0.0.1:3901:3901"
+    networks:
+      - shared_network
+    environment:
+      GARAGE_RPC_BIND_ADDR: "0.0.0.0:3901"
+
+  infisical:
+    image: infisical:latest
+    profiles:
+      - infisical
+    ports:
+      - "127.0.0.1:8000:8000"
+    networks:
+      - shared_network
+    environment:
+      DATABASE_URL: "postgres://db:5432/infisical"
+
+networks:
+  shared_network:
+    external: true
+    name: docktree-platform-shared
+
+volumes:
+  db_data:

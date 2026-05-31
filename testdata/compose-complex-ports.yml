@@ -1,0 +1,55 @@
+version: '3.9'
+
+services:
+  web:
+    image: nginx:latest
+    ports:
+      - "127.0.0.1:80:80"
+      - "127.0.0.1:443:443"
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      - api
+
+  api:
+    image: my-api:latest
+    ports:
+      # Short syntax
+      - "127.0.0.1:8080:8080"
+      - "0.0.0.0:9090:9090"
+      # Long syntax
+      - target: 8081
+        published: 18081
+        protocol: tcp
+        host_ip: 127.0.0.1
+      - target: 8082
+        published: 18082
+        protocol: tcp
+
+  db:
+    image: postgres:15-alpine
+    ports:
+      - target: 5432
+        published: 5432
+        host_ip: 127.0.0.1
+    environment:
+      POSTGRES_DB: myapp
+      POSTGRES_PASSWORD: password
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  cache:
+    image: redis:7-alpine
+    ports:
+      - "6379"  # Random port assignment
+
+  monitoring:
+    image: prom/prometheus:latest
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+
+volumes:
+  db_data:
+  prometheus_data:
