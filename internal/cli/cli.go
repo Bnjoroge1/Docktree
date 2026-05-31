@@ -185,13 +185,19 @@ func runUp(ctx *Context) (any, int, error) {
 		return nil, output.ExitConfig, err
 	}
 	stateDir := state.StatePath(repo.WorktreeRoot, cfg.State.Directory)
-	inst, _ := state.LoadInstance(stateDir)
-	if inst != nil && isRunning(inst, cfg) {
-		return UpResult{Instance: inst, AlreadyRunning: true}, output.ExitNoop, nil
-	}
 	files, err := composeFiles(repo.WorktreeRoot, cfg)
 	if err != nil {
 		return nil, output.ExitConfig, err
+	}
+	inst, _ := state.LoadInstance(stateDir)
+	if inst != nil && isRunning(inst, cfg) {
+		currentHash, err := state.HashFiles(files)
+		if err != nil {
+			return nil, output.ExitConfig, err
+		}
+		if currentHash == inst.ComposeFileHash {
+			return UpResult{Instance: inst, AlreadyRunning: true}, output.ExitNoop, nil
+		}
 	}
 	project, err := parseAll(files)
 	if err != nil {
