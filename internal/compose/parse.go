@@ -26,10 +26,12 @@ func FindComposeFiles(dir string) ([]string, error) {
 		}
 		return files, nil
 	}
-	candidates := []string{"compose.yml", "docker-compose.yml"}
+	candidates := []string{"compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml"}
 	overrides := map[string]string{
-		"compose.yml":        "compose.override.yml",
-		"docker-compose.yml": "docker-compose.override.yml",
+		"compose.yaml":        "compose.override.yaml",
+		"compose.yml":         "compose.override.yml",
+		"docker-compose.yaml": "docker-compose.override.yaml",
+		"docker-compose.yml":  "docker-compose.override.yml",
 	}
 	for _, candidate := range candidates {
 		path := filepath.Join(dir, candidate)
@@ -42,7 +44,7 @@ func FindComposeFiles(dir string) ([]string, error) {
 			return files, nil
 		}
 	}
-	return nil, fmt.Errorf("no compose.yml or docker-compose.yml found in %s", dir)
+	return nil, fmt.Errorf("no compose.yaml, compose.yml, docker-compose.yaml, or docker-compose.yml found in %s", dir)
 }
 
 func PortRequests(project *ComposeProject, defaultHostIP string) []PortMapping {
