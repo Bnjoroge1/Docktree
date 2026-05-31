@@ -46,13 +46,19 @@ docktree clean
    - Generates an override file with isolated container names and ports
    - Starts the project with `docker compose up -d`
 
-Each worktree runs independently — no port conflicts, no name collisions.
+Each worktree runs independently without any port conflicts, or name collisions.
 
 ## Configuration
 
 Docktree works without configuration. If you need to customize behavior, create `docktree.yml`:
 
 ```yaml
+setup:
+  copy:
+    - .env
+  symlink:
+    - node_modules
+
 compose:
   files:
     - docker-compose.yml

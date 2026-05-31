@@ -67,6 +67,10 @@ func Defaults() Config {
 		Compose: ComposeConfig{
 			Files: nil,
 		},
+		Setup: SetupConfig{
+			Copy:    []string{".env"},
+			Symlink: []string{"node_modules"},
+		},
 		Ports: PortsConfig{
 			Mode:     "dynamic",
 			BindHost: "127.0.0.1",
