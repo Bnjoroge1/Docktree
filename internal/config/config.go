@@ -94,6 +94,18 @@ func Load(dir string) (*Config, error) {
 	return &cfg, nil
 }
 
+func Scaffold(dir string, cfg *Config) (bool, error) {
+	path := filepath.Join(dir, "docktree.yml")
+	if _, err := os.Stat(path); err == nil {
+		return false, nil
+	}
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return false, err
+	}
+	return true, os.WriteFile(path, data, 0o644)
+}
+
 func merge(base *Config, user Config) {
 	if user.Compose.Files != nil {
 		base.Compose.Files = user.Compose.Files
