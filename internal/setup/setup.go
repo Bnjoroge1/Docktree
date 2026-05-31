@@ -28,6 +28,9 @@ func Prepare(opts Options) error {
 	if opts.TargetDir == "" {
 		return fmt.Errorf("target dir is required")
 	}
+	if samePath(opts.SourceDir, opts.TargetDir) {
+		return runCommands(opts.TargetDir, opts.Config.Setup.Run, opts.Stdout, opts.Stderr)
+	}
 	for _, rel := range opts.Config.Setup.Copy {
 		if err := copyPath(opts.SourceDir, opts.TargetDir, rel); err != nil {
 			return err
@@ -38,8 +41,12 @@ func Prepare(opts Options) error {
 			return err
 		}
 	}
-	for _, command := range opts.Config.Setup.Run {
-		if err := runCommand(opts.TargetDir, command, opts.Stdout, opts.Stderr); err != nil {
+	return runCommands(opts.TargetDir, opts.Config.Setup.Run, opts.Stdout, opts.Stderr)
+}
+
+func runCommands(dir string, commands []string, stdout, stderr io.Writer) error {
+	for _, command := range commands {
+		if err := runCommand(dir, command, stdout, stderr); err != nil {
 			return err
 		}
 	}
@@ -50,6 +57,9 @@ func copyPath(sourceDir, targetDir, rel string) error {
 	source := filepath.Join(sourceDir, rel)
 	info, err := os.Stat(source)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
 		return fmt.Errorf("copy %s: %w", rel, err)
 	}
 	target := filepath.Join(targetDir, rel)
@@ -110,6 +120,9 @@ func copyFileWithMode(source, target string, mode os.FileMode) error {
 func symlinkPath(sourceDir, targetDir, rel string) error {
 	source := filepath.Join(sourceDir, rel)
 	if _, err := os.Stat(source); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
 		return fmt.Errorf("symlink %s: %w", rel, err)
 	}
 	target := filepath.Join(targetDir, rel)
@@ -139,4 +152,16 @@ func runCommand(dir, command string, stdout, stderr io.Writer) error {
 		return fmt.Errorf("run %q: %w", command, err)
 	}
 	return nil
+}
+
+func samePath(a, b string) bool {
+	aa, errA := filepath.EvalSymlinks(a)
+	bb, errB := filepath.EvalSymlinks(b)
+	if errA == nil {
+		a = aa
+	}
+	if errB == nil {
+		b = bb
+	}
+	return filepath.Clean(a) == filepath.Clean(b)
 }
