@@ -36,3 +36,24 @@ func TestLoadMergesPartialConfig(t *testing.T) {
 		t.Fatalf("defaults not merged: %#v", cfg)
 	}
 }
+
+func TestLoadMergesSetupConfig(t *testing.T) {
+	dir := t.TempDir()
+	err := os.WriteFile(filepath.Join(dir, "docktree.yml"), []byte("setup:\n  copy:\n    - .env\n  symlink:\n    - node_modules\n  run:\n    - git submodule update --init --recursive\n"), 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Setup.Copy) != 1 || cfg.Setup.Copy[0] != ".env" {
+		t.Fatalf("setup.copy not loaded: %#v", cfg.Setup.Copy)
+	}
+	if len(cfg.Setup.Symlink) != 1 || cfg.Setup.Symlink[0] != "node_modules" {
+		t.Fatalf("setup.symlink not loaded: %#v", cfg.Setup.Symlink)
+	}
+	if len(cfg.Setup.Run) != 1 || cfg.Setup.Run[0] != "git submodule update --init --recursive" {
+		t.Fatalf("setup.run not loaded: %#v", cfg.Setup.Run)
+	}
+}

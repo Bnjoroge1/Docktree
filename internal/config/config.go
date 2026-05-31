@@ -12,6 +12,7 @@ import (
 type Config struct {
 	Compose    ComposeConfig    `yaml:"compose"`
 	Identity   IdentityConfig   `yaml:"identity"`
+	Setup      SetupConfig      `yaml:"setup"`
 	Shared     ServiceSetConfig `yaml:"shared"`
 	Isolated   ServiceSetConfig `yaml:"isolated"`
 	Volumes    VolumeSetConfig  `yaml:"volumes"`
@@ -26,6 +27,12 @@ type ComposeConfig struct {
 
 type IdentityConfig struct {
 	ProjectPrefix string `yaml:"project_prefix"`
+}
+
+type SetupConfig struct {
+	Copy    []string `yaml:"copy"`
+	Symlink []string `yaml:"symlink"`
+	Run     []string `yaml:"run"`
 }
 
 type ServiceSetConfig struct {
@@ -112,6 +119,15 @@ func merge(base *Config, user Config) {
 	}
 	if user.Identity.ProjectPrefix != "" {
 		base.Identity.ProjectPrefix = user.Identity.ProjectPrefix
+	}
+	if user.Setup.Copy != nil {
+		base.Setup.Copy = user.Setup.Copy
+	}
+	if user.Setup.Symlink != nil {
+		base.Setup.Symlink = user.Setup.Symlink
+	}
+	if user.Setup.Run != nil {
+		base.Setup.Run = user.Setup.Run
 	}
 	if user.Shared.Services != nil {
 		base.Shared.Services = user.Shared.Services
