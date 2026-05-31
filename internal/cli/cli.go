@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -70,6 +71,15 @@ type PrepareResult struct {
 	Ran          []string `json:"ran,omitempty"`
 }
 
+type CreateResult struct {
+	RepoRoot     string   `json:"repo_root"`
+	WorktreeRoot string   `json:"worktree_root"`
+	Branch       string   `json:"branch"`
+	Copied       []string `json:"copied,omitempty"`
+	Symlinked    []string `json:"symlinked,omitempty"`
+	Ran          []string `json:"ran,omitempty"`
+}
+
 // helps us track stale/orphaned docktree instances
 type CleanItem struct {
 	Instance   string `json:"instance"`
@@ -106,6 +116,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	}
 	commands := map[string]commandFunc{
 		"up":      runUp,
+		"create":  runCreate,
 		"down":    runDown,
 		"status":  runStatus,
 		"ports":   runPorts,
@@ -401,6 +412,46 @@ func runPrepare(ctx *Context) (any, int, error) {
 	}, output.ExitOK, nil
 }
 
+func runCreate(ctx *Context) (any, int, error) {
+	options, err := parseCreateOptions(ctx.Args[1:])
+	if err != nil {
+		return nil, output.ExitUsage, err
+	}
+	repo, err := dockgit.DetectRepo()
+	if err != nil {
+		return nil, output.ExitConfig, err
+	}
+	cfg, err := config.Load(repo.RepoRoot)
+	if err != nil {
+		return nil, output.ExitConfig, err
+	}
+	worktreeRoot := filepath.Join(filepath.Dir(repo.RepoRoot), dockgit.RepoName(repo.RepoRoot)+"."+options.branch)
+	cmd := exec.Command("git", "worktree", "add", "-b", options.branch, worktreeRoot)
+	cmd.Dir = repo.RepoRoot
+	cmd.Stdout = ctx.Stdout
+	cmd.Stderr = ctx.Stderr
+	if err := cmd.Run(); err != nil {
+		return nil, output.ExitConfig, err
+	}
+	if err := setup.Prepare(setup.Options{
+		SourceDir: repo.RepoRoot,
+		TargetDir: worktreeRoot,
+		Config:    cfg,
+		Stdout:    ctx.Stdout,
+		Stderr:    ctx.Stderr,
+	}); err != nil {
+		return nil, output.ExitConfig, err
+	}
+	return CreateResult{
+		RepoRoot:     repo.RepoRoot,
+		WorktreeRoot: worktreeRoot,
+		Branch:       options.branch,
+		Copied:       append([]string(nil), cfg.Setup.Copy...),
+		Symlinked:    append([]string(nil), cfg.Setup.Symlink...),
+		Ran:          append([]string(nil), cfg.Setup.Run...),
+	}, output.ExitOK, nil
+}
+
 func commonIdentity() (dockgit.RepoInfo, *config.Config, string, error) {
 	repo, err := dockgit.DetectRepo()
 	if err != nil {
@@ -604,6 +655,10 @@ func humanRenderer() func(io.Writer, any) {
 			for _, assignment := range v.Ports {
 				fmt.Fprintf(w, "  %s %s:%d -> %d\n", assignment.Service, assignment.HostIP, assignment.HostPort, assignment.ContainerPort)
 			}
+		case PrepareResult:
+			fmt.Fprintf(w, "Docktree prepared %s\n", v.WorktreeRoot)
+		case CreateResult:
+			fmt.Fprintf(w, "Docktree created worktree %s for %s\n", v.WorktreeRoot, v.Branch)
 		case CleanResult:
 			if len(v.Instances) == 0 {
 				fmt.Fprintln(w, "Docktree found no stale resources.")
@@ -653,6 +708,7 @@ Usage:
   docktree [--json] <command>
 
 Commands:
+  create     Create a worktree and prepare its local Docker setup
   up         Start the current worktree's Compose project
   down       Stop the current worktree's Compose project
   status     Show managed worktree services
@@ -682,6 +738,10 @@ type upOptions struct {
 	file string
 }
 
+type createOptions struct {
+	branch string
+}
+
 func parseUpOptions(args []string) (upOptions, error) {
 	var options upOptions
 	for i := 0; i < len(args); i++ {
@@ -700,6 +760,16 @@ func parseUpOptions(args []string) (upOptions, error) {
 		}
 	}
 	return options, nil
+}
+
+func parseCreateOptions(args []string) (createOptions, error) {
+	if len(args) != 1 {
+		return createOptions{}, fmt.Errorf("usage: docktree create <branch>")
+	}
+	if strings.HasPrefix(args[0], "-") {
+		return createOptions{}, fmt.Errorf("usage: docktree create <branch>")
+	}
+	return createOptions{branch: args[0]}, nil
 }
 
 func parseCleanOptions(args []string) (cleanOptions, error) {
