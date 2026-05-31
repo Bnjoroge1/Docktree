@@ -88,7 +88,12 @@ func (r *Registry) Allocate(instanceName string, needed []PortRequest, portRange
 		return nil, err
 	}
 	existing := registry[instanceName]
+	existing = pruneUnavailable(existing, needed)
 	if covers(existing, needed) {
+		registry[instanceName] = existing
+		if err := r.Save(registry); err != nil {
+			return nil, err
+		}
 		return filterExisting(existing, needed), nil
 	}
 	used := usedPorts(registry)
@@ -197,6 +202,24 @@ func filterExisting(assignments []Assignment, needed []PortRequest) []Assignment
 	return filtered
 }
 
+func pruneUnavailable(assignments []Assignment, needed []PortRequest) []Assignment {
+	var kept []Assignment
+	for _, assignment := range assignments {
+		neededAssignment := false
+		for _, request := range needed {
+			if assignment.Service == request.Service && assignment.ContainerPort == request.ContainerPort && sameHost(assignment.HostIP, request.HostIP) {
+				neededAssignment = true
+				break
+			}
+		}
+		if neededAssignment && !portAvailable(assignment.HostIP, assignment.HostPort) {
+			continue
+		}
+		kept = append(kept, assignment)
+	}
+	return kept
+}
+
 func usedPorts(registry map[string][]Assignment) map[int]bool {
 	used := map[int]bool{}
 	for _, assignments := range registry {
@@ -212,14 +235,24 @@ func firstFree(hostIP string, portRange Range, used map[int]bool) (int, error) {
 		if used[port] {
 			continue
 		}
-		listener, err := net.Listen("tcp", net.JoinHostPort(hostIP, strconv.Itoa(port)))
-		if err != nil {
+		if !portAvailable(hostIP, port) {
 			continue
 		}
-		listener.Close()
 		return port, nil
 	}
 	return 0, fmt.Errorf("no free ports in range %d-%d", portRange.Min, portRange.Max)
+}
+
+func portAvailable(hostIP string, port int) bool {
+	if hostIP == "" {
+		hostIP = "127.0.0.1"
+	}
+	listener, err := net.Listen("tcp", net.JoinHostPort(hostIP, strconv.Itoa(port)))
+	if err != nil {
+		return false
+	}
+	listener.Close()
+	return true
 }
 
 func sameHost(a, b string) bool {

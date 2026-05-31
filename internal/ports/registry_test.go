@@ -2,6 +2,7 @@ package ports
 
 import (
 	"net"
+	"strconv"
 	"testing"
 )
 
@@ -66,5 +67,27 @@ func TestAllocateSkipsBoundPort(t *testing.T) {
 	}
 	if got[0].HostPort == port {
 		t.Fatalf("allocated already-bound port %d", port)
+	}
+}
+
+func TestAllocateReplacesTakenExistingPort(t *testing.T) {
+	reg := &Registry{Dir: t.TempDir()}
+	requests := []PortRequest{{Service: "web", ContainerPort: 80, HostIP: "127.0.0.1"}}
+	first, err := reg.Allocate("one", requests, Range{Min: 41000, Max: 41010})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(first[0].HostPort)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+
+	second, err := reg.Allocate("one", requests, Range{Min: first[0].HostPort, Max: first[0].HostPort + 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second[0].HostPort == first[0].HostPort {
+		t.Fatalf("reused taken port %d", first[0].HostPort)
 	}
 }
