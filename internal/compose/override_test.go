@@ -1,0 +1,227 @@
+package compose
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/bnjoroge/docktree/internal/ports"
+)
+
+func TestGenerateOverride(t *testing.T) {
+	tests := []struct {
+		name        string
+		project     *ComposeProject
+		instance    string
+		assignments []ports.Assignment
+		check       func(t *testing.T, override *Override)
+		wantErr     bool
+	}{
+		{
+			name: "full_rewrite",
+			project: &ComposeProject{Services: map[string]Service{
+				"web": {
+					ContainerName: "myapp_web",
+					Image:         "myapp/web:v1",
+					Build:         &BuildConfig{Context: "."},
+					Ports:         []PortMapping{{Target: 80, Published: 8080, HostIP: "127.0.0.1", Protocol: "tcp"}},
+				},
+				"redis": {Image: "redis:7"},
+			}},
+			instance:    "repo-branch-abcdef",
+			assignments: []ports.Assignment{{Service: "web", ContainerPort: 80, HostIP: "127.0.0.1", HostPort: 41000}},
+			check: func(t *testing.T, o *Override) {
+				web := o.Services["web"]
+				if web.ContainerName == nil || *web.ContainerName != "repo-branch-abcdef-web" {
+					t.Fatalf("container_name: got %#v", web.ContainerName)
+				}
+				if web.Image != "docktree/repo-branch-abcdef/web:v1" {
+					t.Fatalf("image: got %q", web.Image)
+				}
+				if web.Ports[0].Published != 41000 {
+					t.Fatalf("port: got %#v", web.Ports)
+				}
+				if web.Labels["docktree.managed"] != "true" || web.Labels["docktree.instance"] != "repo-branch-abcdef" {
+					t.Fatalf("labels: got %#v", web.Labels)
+				}
+				redis := o.Services["redis"]
+				if redis.Image != "" {
+					t.Fatalf("pull-only image should be untouched: %#v", redis)
+				}
+				if redis.Labels["docktree.managed"] != "true" {
+					t.Fatalf("labels missing from pull-only service")
+				}
+			},
+		},
+		{
+			name: "build_image_tags",
+			project: &ComposeProject{Services: map[string]Service{
+				"untagged": {Image: "local/worker", Build: &BuildConfig{Context: "./worker"}},
+				"registry": {Image: "registry.local:5000/team/api:v2", Build: &BuildConfig{Context: "./api"}},
+				"buildonly": {Build: &BuildConfig{Context: "./app"}},
+			}},
+			instance: "repo-feature-abcdef",
+			check: func(t *testing.T, o *Override) {
+				for svc, want := range map[string]string{
+					"untagged": "docktree/repo-feature-abcdef/untagged:latest",
+					"registry": "docktree/repo-feature-abcdef/registry:v2",
+					"buildonly": "docktree/repo-feature-abcdef/buildonly:latest",
+				} {
+					if got := o.Services[svc].Image; got != want {
+						t.Fatalf("%s image = %q, want %q", svc, got, want)
+					}
+				}
+			},
+		},
+		{
+			name: "no_container_name",
+			project: &ComposeProject{Services: map[string]Service{
+				"web": {Image: "nginx", Ports: []PortMapping{{Target: 80, Published: 8080}}},
+			}},
+			instance:    "repo-main-abc",
+			assignments: []ports.Assignment{{Service: "web", ContainerPort: 80, HostPort: 41000}},
+			check: func(t *testing.T, o *Override) {
+				if o.Services["web"].ContainerName != nil {
+					t.Fatalf("container_name should be nil: got %#v", o.Services["web"].ContainerName)
+				}
+			},
+		},
+		{
+			name: "no_assignments",
+			project: &ComposeProject{Services: map[string]Service{
+				"web": {Ports: []PortMapping{{Target: 80, Published: 8080}}},
+			}},
+			instance: "repo-main-abc",
+			check: func(t *testing.T, o *Override) {
+				if len(o.Services["web"].Ports) != 0 {
+					t.Fatalf("expected no port overrides, got %#v", o.Services["web"].Ports)
+				}
+			},
+		},
+		{
+			name: "service_without_ports",
+			project: &ComposeProject{Services: map[string]Service{
+				"worker": {Image: "myapp/worker", Build: &BuildConfig{Context: "."}},
+			}},
+			instance: "repo-main-abc",
+			check: func(t *testing.T, o *Override) {
+				if len(o.Services["worker"].Ports) != 0 {
+					t.Fatalf("expected no port overrides, got %#v", o.Services["worker"].Ports)
+				}
+			},
+		},
+		{
+			name:     "nil_project",
+			project:  nil,
+			instance: "repo-main-abc",
+			wantErr:  true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			override, err := GenerateOverride(tt.project, tt.instance, tt.assignments)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			tt.check(t, override)
+		})
+	}
+}
+
+func TestRewritePorts(t *testing.T) {
+	tests := []struct {
+		name        string
+		original    []PortMapping
+		assignments []ports.Assignment
+		want        []PortMapping
+	}{
+		{
+			name: "multiple_ports",
+			original: []PortMapping{
+				{Target: 80, Published: 8080, HostIP: "127.0.0.1"},
+				{Target: 443, Published: 8443, HostIP: "127.0.0.1"},
+			},
+			assignments: []ports.Assignment{
+				{Service: "web", ContainerPort: 80, HostIP: "127.0.0.1", HostPort: 41000},
+				{Service: "web", ContainerPort: 443, HostIP: "127.0.0.1", HostPort: 41001},
+			},
+			want: []PortMapping{
+				{Target: 80, Published: 41000, HostIP: "127.0.0.1", Protocol: "tcp"},
+				{Target: 443, Published: 41001, HostIP: "127.0.0.1", Protocol: "tcp"},
+			},
+		},
+		{
+			name:        "protocol_defaults_to_tcp",
+			original:    []PortMapping{{Target: 80, Published: 8080}},
+			assignments: []ports.Assignment{{Service: "web", ContainerPort: 80, HostPort: 41000}},
+			want:        []PortMapping{{Target: 80, Published: 41000, HostIP: "", Protocol: "tcp"}},
+		},
+		{
+			name:        "hostip_empty_matches_127",
+			original:    []PortMapping{{Target: 80, Published: 8080, HostIP: ""}},
+			assignments: []ports.Assignment{{Service: "web", ContainerPort: 80, HostIP: "127.0.0.1", HostPort: 41000}},
+			want:        []PortMapping{{Target: 80, Published: 41000, HostIP: "127.0.0.1", Protocol: "tcp"}},
+		},
+		{
+			name: "unmatched_port_skipped",
+			original: []PortMapping{
+				{Target: 80, Published: 8080},
+				{Target: 3306, Published: 33060},
+			},
+			assignments: []ports.Assignment{
+				{Service: "web", ContainerPort: 80, HostPort: 41000},
+			},
+			want: []PortMapping{
+				{Target: 80, Published: 41000, Protocol: "tcp"},
+			},
+		},
+		{
+			name:        "empty_original_returns_nil",
+			original:    nil,
+			assignments: []ports.Assignment{{Service: "web", ContainerPort: 80, HostPort: 41000}},
+			want:        nil,
+		},
+		{
+			name:        "empty_assignments_returns_nil",
+			original:    []PortMapping{{Target: 80, Published: 8080}},
+			assignments: nil,
+			want:        nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := rewritePorts(tt.original, tt.assignments)
+			if len(got) != len(tt.want) {
+				t.Fatalf("length: got %d, want %d (got %#v)", len(got), len(tt.want), got)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Fatalf("port %d: got %#v, want %#v", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestWriteOverride(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".docktree", "generated", "x.yml")
+	name := "instance-web"
+	err := WriteOverride(&Override{Services: map[string]ServiceOverride{"web": {ContainerName: &name, Ports: PortOverride{{Target: 80, Published: 41000, HostIP: "127.0.0.1", Protocol: "tcp"}}}}}, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "instance-web") || !strings.Contains(string(data), "!override") {
+		t.Fatalf("override not written: %s", data)
+	}
+}
