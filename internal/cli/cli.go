@@ -18,6 +18,7 @@ import (
 	dockgit "github.com/bnjoroge/docktree/internal/git"
 	"github.com/bnjoroge/docktree/internal/output"
 	"github.com/bnjoroge/docktree/internal/ports"
+	"github.com/bnjoroge/docktree/internal/setup"
 	"github.com/bnjoroge/docktree/internal/state"
 )
 
@@ -33,15 +34,15 @@ type Context struct {
 }
 
 type UpResult struct {
-	Instance         *state.Instance    `json:"instance"`
-	ComposeFiles     []string           `json:"compose_files"`
-	OverrideFile     string             `json:"override_file"`
-	Ports            []ports.Assignment `json:"ports,omitempty"`
-	Services         []string           `json:"services"`
-	IsolatedVolumes  []string           `json:"isolated_volumes,omitempty"`
-	EnvWarnings      []compose.Warning  `json:"env_warnings,omitempty"`
-	Scaffolded       bool               `json:"scaffolded,omitempty"`
-	AlreadyRunning   bool               `json:"already_running,omitempty"`
+	Instance        *state.Instance    `json:"instance"`
+	ComposeFiles    []string           `json:"compose_files"`
+	OverrideFile    string             `json:"override_file"`
+	Ports           []ports.Assignment `json:"ports,omitempty"`
+	Services        []string           `json:"services"`
+	IsolatedVolumes []string           `json:"isolated_volumes,omitempty"`
+	EnvWarnings     []compose.Warning  `json:"env_warnings,omitempty"`
+	Scaffolded      bool               `json:"scaffolded,omitempty"`
+	AlreadyRunning  bool               `json:"already_running,omitempty"`
 }
 
 type DownResult struct {
@@ -61,7 +62,15 @@ type PortsResult struct {
 	Ports    []ports.Assignment `json:"ports"`
 }
 
-//helps us track stale/orphaned docktree instances
+type PrepareResult struct {
+	RepoRoot     string   `json:"repo_root"`
+	WorktreeRoot string   `json:"worktree_root"`
+	Copied       []string `json:"copied,omitempty"`
+	Symlinked    []string `json:"symlinked,omitempty"`
+	Ran          []string `json:"ran,omitempty"`
+}
+
+// helps us track stale/orphaned docktree instances
 type CleanItem struct {
 	Instance   string `json:"instance"`
 	Reason     string `json:"reason"`
@@ -96,11 +105,12 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return output.ExitOK
 	}
 	commands := map[string]commandFunc{
-		"up":     runUp,
-		"down":   runDown,
-		"status": runStatus,
-		"ports":  runPorts,
-		"clean":  runClean,
+		"up":      runUp,
+		"down":    runDown,
+		"status":  runStatus,
+		"ports":   runPorts,
+		"clean":   runClean,
+		"prepare": runPrepare,
 	}
 	switch rest[0] {
 	case "help", "-h", "--help":
@@ -364,6 +374,33 @@ func runClean(ctx *Context) (any, int, error) {
 	return cleanResultFromCandidates(candidates, false, options.volumes, true), output.ExitOK, nil
 }
 
+func runPrepare(ctx *Context) (any, int, error) {
+	repo, err := dockgit.DetectRepo()
+	if err != nil {
+		return nil, output.ExitConfig, err
+	}
+	cfg, err := config.Load(repo.RepoRoot)
+	if err != nil {
+		return nil, output.ExitConfig, err
+	}
+	if err := setup.Prepare(setup.Options{
+		SourceDir: repo.RepoRoot,
+		TargetDir: repo.WorktreeRoot,
+		Config:    cfg,
+		Stdout:    ctx.Stdout,
+		Stderr:    ctx.Stderr,
+	}); err != nil {
+		return nil, output.ExitConfig, err
+	}
+	return PrepareResult{
+		RepoRoot:     repo.RepoRoot,
+		WorktreeRoot: repo.WorktreeRoot,
+		Copied:       append([]string(nil), cfg.Setup.Copy...),
+		Symlinked:    append([]string(nil), cfg.Setup.Symlink...),
+		Ran:          append([]string(nil), cfg.Setup.Run...),
+	}, output.ExitOK, nil
+}
+
 func commonIdentity() (dockgit.RepoInfo, *config.Config, string, error) {
 	repo, err := dockgit.DetectRepo()
 	if err != nil {
@@ -620,6 +657,7 @@ Commands:
   down       Stop the current worktree's Compose project
   status     Show managed worktree services
   ports      Show allocated host ports
+  prepare    Prepare the current worktree's local Docker setup
   clean      Remove stale Docktree-managed resources
   help       Show this help text
   version    Print the docktree version`)
