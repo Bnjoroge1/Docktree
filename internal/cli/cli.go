@@ -32,19 +32,6 @@ type Context struct {
 	Stderr   io.Writer
 }
 
-type InitResult struct {
-	RepoRoot       string              `json:"repo_root"`
-	WorktreeRoot   string              `json:"worktree_root"`
-	ComposeFiles   []string            `json:"compose_files"`
-	Services       []string            `json:"services"`
-	ContainerNames map[string]string   `json:"container_names,omitempty"`
-	PublishedPorts []ports.PortRequest `json:"published_ports,omitempty"`
-	BuiltImages    []string            `json:"built_images,omitempty"`
-	EnvWarnings    []compose.Warning   `json:"env_warnings,omitempty"`
-	StateDirectory string              `json:"state_directory"`
-	Scaffolded     bool                `json:"scaffolded,omitempty"`
-}
-
 type UpResult struct {
 	Instance         *state.Instance    `json:"instance"`
 	ComposeFiles     []string           `json:"compose_files"`
@@ -52,6 +39,8 @@ type UpResult struct {
 	Ports            []ports.Assignment `json:"ports,omitempty"`
 	Services         []string           `json:"services"`
 	IsolatedVolumes  []string           `json:"isolated_volumes,omitempty"`
+	EnvWarnings      []compose.Warning  `json:"env_warnings,omitempty"`
+	Scaffolded       bool               `json:"scaffolded,omitempty"`
 	AlreadyRunning   bool               `json:"already_running,omitempty"`
 }
 
@@ -107,7 +96,6 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return output.ExitOK
 	}
 	commands := map[string]commandFunc{
-		"init":   runInit,
 		"up":     runUp,
 		"down":   runDown,
 		"status": runStatus,
@@ -141,54 +129,6 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	return code
 }
 
-func runInit(ctx *Context) (any, int, error) {
-	repo, err := dockgit.DetectRepo()
-	if err != nil {
-		return nil, output.ExitConfig, err
-	}
-	cfg, err := config.Load(repo.RepoRoot)
-	if err != nil {
-		return nil, output.ExitConfig, err
-	}
-	files, err := composeFiles(repo.WorktreeRoot, cfg)
-	if err != nil {
-		return nil, output.ExitConfig, err
-	}
-	if len(cfg.Compose.Files) == 0 {
-		cfg.Compose.Files = files
-	}
-	scaffolded, err := config.Scaffold(repo.RepoRoot, cfg)
-	if err != nil {
-		return nil, output.ExitConfig, err
-	}
-	project, err := parseAll(files)
-	if err != nil {
-		return nil, output.ExitConfig, err
-	}
-	warnings, err := compose.CheckEnvFile(repo.WorktreeRoot)
-	if err != nil {
-		return nil, output.ExitConfig, err
-	}
-	if err := state.EnsureStateDir(repo.WorktreeRoot, cfg.State.Directory); err != nil {
-		return nil, output.ExitConfig, err
-	}
-	if err := ensureGitignore(repo.WorktreeRoot, cfg.State.Directory); err != nil {
-		return nil, output.ExitConfig, err
-	}
-	return InitResult{
-		RepoRoot:       repo.RepoRoot,
-		WorktreeRoot:   repo.WorktreeRoot,
-		ComposeFiles:   files,
-		Services:       serviceNames(project),
-		ContainerNames: containerNames(project),
-		PublishedPorts: portRequests(project, cfg.Ports.BindHost),
-		BuiltImages:    builtImages(project),
-		EnvWarnings:    warnings,
-		StateDirectory: state.StatePath(repo.WorktreeRoot, cfg.State.Directory),
-		Scaffolded:     scaffolded,
-	}, output.ExitOK, nil
-}
-
 func runUp(ctx *Context) (any, int, error) {
 	repo, cfg, instanceName, err := commonIdentity()
 	if err != nil {
@@ -212,6 +152,24 @@ func runUp(ctx *Context) (any, int, error) {
 	project, err := parseAll(files)
 	if err != nil {
 		return nil, output.ExitConfig, err
+	}
+	var scaffolded bool
+	var envWarnings []compose.Warning
+	if inst == nil {
+		if len(cfg.Compose.Files) == 0 {
+			cfg.Compose.Files = files
+		}
+		scaffolded, err = config.Scaffold(repo.RepoRoot, cfg)
+		if err != nil {
+			return nil, output.ExitConfig, err
+		}
+		envWarnings, err = compose.CheckEnvFile(repo.WorktreeRoot)
+		if err != nil {
+			return nil, output.ExitConfig, err
+		}
+		if err := ensureGitignore(repo.WorktreeRoot, cfg.State.Directory); err != nil {
+			return nil, output.ExitConfig, err
+		}
 	}
 	portRange, err := ports.ParseRange(cfg.Ports.Range)
 	if err != nil {
@@ -277,7 +235,7 @@ func runUp(ctx *Context) (any, int, error) {
 		}
 		break
 	}
-	return UpResult{Instance: inst, ComposeFiles: files, OverrideFile: overrideFile, Ports: assignments, Services: serviceNames(project), IsolatedVolumes: isolatedVolumes(project, cfg.Volumes.Share)}, output.ExitOK, nil
+	return UpResult{Instance: inst, ComposeFiles: files, OverrideFile: overrideFile, Ports: assignments, Services: serviceNames(project), IsolatedVolumes: isolatedVolumes(project, cfg.Volumes.Share), EnvWarnings: envWarnings, Scaffolded: scaffolded}, output.ExitOK, nil
 }
 
 func runDown(ctx *Context) (any, int, error) {
@@ -549,13 +507,6 @@ func isolatedVolumes(project *compose.ComposeProject, shareList []string) []stri
 func humanRenderer() func(io.Writer, any) {
 	return func(w io.Writer, data any) {
 		switch v := data.(type) {
-		case InitResult:
-			fmt.Fprintf(w, "Docktree initialized in %s\n", v.WorktreeRoot)
-			fmt.Fprintf(w, "Compose files: %s\n", strings.Join(v.ComposeFiles, ", "))
-			fmt.Fprintf(w, "Services: %s\n", strings.Join(v.Services, ", "))
-			if v.Scaffolded {
-				fmt.Fprintln(w, "Created docktree.yml with defaults")
-			}
 		case UpResult:
 			if v.AlreadyRunning {
 				fmt.Fprintf(w, "Docktree %s is already running.\n", v.Instance.ProjectName)
@@ -573,6 +524,12 @@ func humanRenderer() func(io.Writer, any) {
 				for _, vol := range v.IsolatedVolumes {
 					fmt.Fprintf(w, "        - %s\n", vol)
 				}
+			}
+			if v.Scaffolded {
+				fmt.Fprintln(w, "  Created docktree.yml with defaults")
+			}
+			for _, warning := range v.EnvWarnings {
+				fmt.Fprintf(w, "  Warning: %s\n", warning.Message)
 			}
 		case DownResult:
 			if v.AlreadyStopped {
@@ -640,7 +597,6 @@ Usage:
   docktree [--json] <command>
 
 Commands:
-  init       Create Docktree state and report Compose collision handling
   up         Start the current worktree's Compose project
   down       Stop the current worktree's Compose project
   status     Show managed worktree services
