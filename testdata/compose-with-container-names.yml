@@ -1,0 +1,44 @@
+version: '3.9'
+
+services:
+  ui:
+    image: my-ui:latest
+    container_name: myapp-ui
+    ports:
+      - "127.0.0.1:3000:80"
+    depends_on:
+      - api
+
+  api:
+    image: my-api:latest
+    container_name: myapp-api
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      DATABASE_URL: "postgres://db:5432/myapp"
+    depends_on:
+      - db
+
+  db:
+    image: postgres:15-alpine
+    container_name: myapp-db
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_DB: myapp
+      POSTGRES_PASSWORD: password
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  worker:
+    image: my-worker:latest
+    container_name: myapp-worker
+    environment:
+      QUEUE_URL: "postgres://db:5432/myapp"
+      API_URL: "http://api:8080"
+    depends_on:
+      - db
+      - api
+
+volumes:
+  db_data:

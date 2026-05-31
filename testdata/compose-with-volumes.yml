@@ -1,0 +1,50 @@
+version: '3.9'
+
+services:
+  api:
+    image: my-api:latest
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./src:/app/src
+      - api_cache:/app/.cache
+    depends_on:
+      - db
+
+  db:
+    image: postgres:15-alpine
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_DB: myapp
+      POSTGRES_PASSWORD: password
+    volumes:
+      - type: volume
+        source: db_data
+        target: /var/lib/postgresql/data
+
+  storage:
+    image: minio:latest
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_storage:/data
+
+  backup:
+    image: my-backup:latest
+    volumes:
+      - db_data:/db
+      - minio_storage:/minio
+      - backup_data:/backup
+
+volumes:
+  db_data:
+    name: app-db-data
+  minio_storage:
+    name: app-storage
+  backup_data:
+  api_cache:

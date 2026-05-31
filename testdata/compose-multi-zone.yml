@@ -1,0 +1,86 @@
+version: '3.9'
+
+services:
+  ui:
+    image: my-ui:latest
+    ports:
+      - "127.0.0.1:3000:80"
+    environment:
+      API_URL_A: "http://api-zone-a:8080"
+      API_URL_B: "http://api-zone-b:8080"
+    depends_on:
+      - api-zone-a
+      - api-zone-b
+
+  api-zone-a:
+    image: my-api:latest
+    container_name: platform-api-zone-a
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      ZONE: zone-a
+      DATABASE_URL: "postgres://db:5432/myapp"
+      REDIS_URL: "redis://redis:6379"
+      PEER_ENDPOINT: "http://api-zone-b:8080"
+    depends_on:
+      - db
+      - redis
+
+  api-zone-b:
+    image: my-api:latest
+    container_name: platform-api-zone-b
+    ports:
+      - "127.0.0.1:8081:8080"
+    environment:
+      ZONE: zone-b
+      DATABASE_URL: "postgres://db:5432/myapp"
+      REDIS_URL: "redis://redis:6379"
+      PEER_ENDPOINT: "http://api-zone-a:8080"
+    depends_on:
+      - db
+      - redis
+
+  db:
+    image: postgres:15-alpine
+    container_name: platform-db
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_DB: myapp
+      POSTGRES_PASSWORD: password
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: platform-redis
+    ports:
+      - "127.0.0.1:6379:6379"
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: platform-caddy
+    ports:
+      - "127.0.0.1:443:443"
+      - "127.0.0.1:80:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+    depends_on:
+      - api-zone-a
+      - api-zone-b
+      - ui
+
+  migrate:
+    image: my-migrate:latest
+    profiles:
+      - migrate
+    environment:
+      DATABASE_URL: "postgres://db:5432/myapp"
+    depends_on:
+      - db
+    command: migrate up
+
+volumes:
+  db_data:
+  caddy_data:

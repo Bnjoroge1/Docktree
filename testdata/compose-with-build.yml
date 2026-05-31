@@ -1,0 +1,48 @@
+version: '3.9'
+
+services:
+  ui:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+    image: myrepo/ui:latest
+    ports:
+      - "127.0.0.1:3000:80"
+    depends_on:
+      - api
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile.dev
+    image: myrepo/api:latest
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      DATABASE_URL: "postgres://db:5432/myapp"
+    depends_on:
+      - db
+
+  db:
+    image: postgres:15-alpine
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_DB: myapp
+      POSTGRES_PASSWORD: password
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  worker:
+    build:
+      context: ./worker
+      args:
+        BUILD_ENV: dev
+    image: myrepo/worker:latest
+    environment:
+      DATABASE_URL: "postgres://db:5432/myapp"
+    depends_on:
+      - db
+
+volumes:
+  db_data:
