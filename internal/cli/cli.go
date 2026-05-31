@@ -42,6 +42,7 @@ type InitResult struct {
 	BuiltImages    []string            `json:"built_images,omitempty"`
 	EnvWarnings    []compose.Warning   `json:"env_warnings,omitempty"`
 	StateDirectory string              `json:"state_directory"`
+	Scaffolded     bool                `json:"scaffolded,omitempty"`
 }
 
 type UpResult struct {
@@ -153,6 +154,13 @@ func runInit(ctx *Context) (any, int, error) {
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
+	if len(cfg.Compose.Files) == 0 {
+		cfg.Compose.Files = files
+	}
+	scaffolded, err := config.Scaffold(repo.RepoRoot, cfg)
+	if err != nil {
+		return nil, output.ExitConfig, err
+	}
 	project, err := parseAll(files)
 	if err != nil {
 		return nil, output.ExitConfig, err
@@ -177,6 +185,7 @@ func runInit(ctx *Context) (any, int, error) {
 		BuiltImages:    builtImages(project),
 		EnvWarnings:    warnings,
 		StateDirectory: state.StatePath(repo.WorktreeRoot, cfg.State.Directory),
+		Scaffolded:     scaffolded,
 	}, output.ExitOK, nil
 }
 
@@ -544,6 +553,9 @@ func humanRenderer() func(io.Writer, any) {
 			fmt.Fprintf(w, "Docktree initialized in %s\n", v.WorktreeRoot)
 			fmt.Fprintf(w, "Compose files: %s\n", strings.Join(v.ComposeFiles, ", "))
 			fmt.Fprintf(w, "Services: %s\n", strings.Join(v.Services, ", "))
+			if v.Scaffolded {
+				fmt.Fprintln(w, "Created docktree.yml with defaults")
+			}
 		case UpResult:
 			if v.AlreadyRunning {
 				fmt.Fprintf(w, "Docktree %s is already running.\n", v.Instance.ProjectName)
