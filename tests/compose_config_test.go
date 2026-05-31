@@ -27,7 +27,7 @@ func TestGeneratedOverridesPassDockerComposeConfig(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			override, err := compose.GenerateOverride(project, "docktree-config-test", assignmentsFor(project))
+			override, err := compose.GenerateOverride(project, "docktree-config-test", assignmentsFor(project), nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -141,7 +141,7 @@ CMD ["sh", "-c", "sleep 300"]
 	if err != nil {
 		t.Fatal(err)
 	}
-	override, err := compose.GenerateOverride(projectModel, project, nil)
+	override, err := compose.GenerateOverride(projectModel, project, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
