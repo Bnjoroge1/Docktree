@@ -56,6 +56,10 @@ func LoadGlobalInstances(configDir string) (map[string]Instance, error) {
 	return instances, nil
 }
 
+func LoadGlobalState(configDir string) (map[string]Instance, error) {
+	return LoadGlobalInstances(configDir)
+}
+
 func SaveGlobalInstances(configDir string, instances map[string]Instance) error {
 	if configDir == "" {
 		configDir = GlobalConfigDir()
