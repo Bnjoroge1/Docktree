@@ -37,3 +37,4 @@ Thumbs.db
 # Environment
 .env
 .env.*
+.docktree/
