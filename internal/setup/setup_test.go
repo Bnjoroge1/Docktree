@@ -62,3 +62,24 @@ func TestPrepareRunsCommandsInTargetDir(t *testing.T) {
 		t.Fatalf("prepared.txt = %q, want ok", string(data))
 	}
 }
+
+func TestPrepareSkipsCopyAndSymlinkForSameDir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("PORT=3000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "node_modules"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Defaults()
+	cfg.Setup.Run = []string{"printf 'ok' > prepared.txt"}
+	if err := Prepare(Options{SourceDir: dir, TargetDir: dir, Config: &cfg}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "prepared.txt")); err != nil {
+		t.Fatalf("prepared.txt missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".env")); err != nil {
+		t.Fatalf(".env missing after prepare: %v", err)
+	}
+}
