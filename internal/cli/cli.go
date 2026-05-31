@@ -135,11 +135,35 @@ func runUp(ctx *Context) (any, int, error) {
 		return nil, output.ExitConfig, err
 	}
 	stateDir := state.StatePath(repo.WorktreeRoot, cfg.State.Directory)
+	inst, _ := state.LoadInstance(stateDir)
+	var scaffolded bool
+	var envWarnings []compose.Warning
+	if inst == nil {
+		scaffolded, err = config.Scaffold(repo.RepoRoot, cfg)
+		if err != nil {
+			return nil, output.ExitConfig, err
+		}
+		if scaffolded {
+			cfg, err = config.Load(repo.RepoRoot)
+			if err != nil {
+				return nil, output.ExitConfig, err
+			}
+		}
+		envWarnings, err = compose.CheckEnvFile(repo.WorktreeRoot)
+		if err != nil {
+			return nil, output.ExitConfig, err
+		}
+		if err := ensureGitignore(repo.WorktreeRoot, cfg.State.Directory); err != nil {
+			return nil, output.ExitConfig, err
+		}
+	}
 	files, err := composeFiles(repo.WorktreeRoot, cfg)
 	if err != nil {
+		if scaffolded {
+			return nil, output.ExitConfig, fmt.Errorf("no compose file found: create docker-compose.yml or set compose.files in docktree.yml")
+		}
 		return nil, output.ExitConfig, err
 	}
-	inst, _ := state.LoadInstance(stateDir)
 	if inst != nil && isRunning(inst, cfg) {
 		currentHash, err := state.HashFiles(files)
 		if err != nil {
@@ -152,24 +176,6 @@ func runUp(ctx *Context) (any, int, error) {
 	project, err := parseAll(files)
 	if err != nil {
 		return nil, output.ExitConfig, err
-	}
-	var scaffolded bool
-	var envWarnings []compose.Warning
-	if inst == nil {
-		if len(cfg.Compose.Files) == 0 {
-			cfg.Compose.Files = files
-		}
-		scaffolded, err = config.Scaffold(repo.RepoRoot, cfg)
-		if err != nil {
-			return nil, output.ExitConfig, err
-		}
-		envWarnings, err = compose.CheckEnvFile(repo.WorktreeRoot)
-		if err != nil {
-			return nil, output.ExitConfig, err
-		}
-		if err := ensureGitignore(repo.WorktreeRoot, cfg.State.Directory); err != nil {
-			return nil, output.ExitConfig, err
-		}
 	}
 	portRange, err := ports.ParseRange(cfg.Ports.Range)
 	if err != nil {
