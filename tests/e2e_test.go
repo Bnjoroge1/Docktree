@@ -55,6 +55,9 @@ func TestCommandFlowWithFakeDockerAndTwoWorktrees(t *testing.T) {
 	if code, stdout, errText := runCLI("init", "--json"); code != output.ExitOK || errText != "" || !json.Valid([]byte(stdout)) {
 		t.Fatalf("init code=%d err=%s", code, errText)
 	}
+	if code, stdout, errText := runCLI("up", "-h"); code != output.ExitOK || errText != "" || !strings.Contains(stdout, "--sync") || !strings.Contains(stdout, "--create") {
+		t.Fatalf("up help code=%d err=%s out=%s", code, errText, stdout)
+	}
 	if _, err := os.Stat(filepath.Join(repo, ".docktree", "generated")); err != nil {
 		t.Fatalf("state dir not created: %v", err)
 	}
@@ -140,6 +143,60 @@ func TestCommandFlowWithFakeDockerAndTwoWorktrees(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "feature-auth") || strings.Contains(string(data), "myapp_web") || !strings.Contains(string(data), "docktree/") {
 		t.Fatalf("override did not rewrite names correctly:\n%s", data)
+	}
+}
+
+func TestUpSyncRunsSetupInPlace(t *testing.T) {
+	sourceCompose, err := filepath.Abs(filepath.Join("..", "testdata", "docker-compose.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	copyFile(t, sourceCompose, filepath.Join(repo, "compose.yml"))
+	if err := os.WriteFile(filepath.Join(repo, "docktree.yml"), []byte("setup:\n  run:\n    - printf sync > synced.txt\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(t, repo, "git", "init", "-b", "main")
+	run(t, repo, "git", "config", "user.email", "docktree@example.test")
+	run(t, repo, "git", "config", "user.name", "Docktree Test")
+	run(t, repo, "git", "add", ".")
+	run(t, repo, "git", "commit", "-m", "init")
+
+	fakeBin := filepath.Join(root, "bin")
+	if err := os.MkdirAll(fakeBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stateFile := filepath.Join(root, "docker-state")
+	writeFakeDocker(t, filepath.Join(fakeBin, "docker"), stateFile)
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+	if err := os.Chdir(repo); err != nil {
+		t.Fatal(err)
+	}
+
+	code, stdout, errText := runCLI("up", "--sync", "--json")
+	if code != output.ExitOK || errText != "" || !json.Valid([]byte(stdout)) {
+		t.Fatalf("sync up code=%d err=%s out=%s", code, errText, stdout)
+	}
+	var syncedUp upJSON
+	if err := json.Unmarshal([]byte(stdout), &syncedUp); err != nil {
+		t.Fatal(err)
+	}
+	if syncedUp.Instance.ProjectName == "" {
+		t.Fatalf("unexpected sync json shape: %s", stdout)
+	}
+	if _, err := os.Stat(filepath.Join(repo, "synced.txt")); err != nil {
+		t.Fatalf("sync marker missing: %v", err)
 	}
 }
 

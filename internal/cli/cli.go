@@ -36,6 +36,7 @@ type Context struct {
 
 type UpResult struct {
 	Instance        *state.Instance    `json:"instance"`
+	CreatedWorktree string             `json:"created_worktree,omitempty"`
 	ComposeFiles    []string           `json:"compose_files"`
 	OverrideFile    string             `json:"override_file"`
 	Ports           []ports.Assignment `json:"ports,omitempty"`
@@ -43,6 +44,7 @@ type UpResult struct {
 	IsolatedVolumes []string           `json:"isolated_volumes,omitempty"`
 	EnvWarnings     []compose.Warning  `json:"env_warnings,omitempty"`
 	Scaffolded      bool               `json:"scaffolded,omitempty"`
+	Synced          bool               `json:"synced,omitempty"`
 	AlreadyRunning  bool               `json:"already_running,omitempty"`
 }
 
@@ -155,13 +157,37 @@ func runUp(ctx *Context) (any, int, error) {
 	if err != nil {
 		return nil, output.ExitUsage, err
 	}
+	if options.help {
+		printUpHelp(ctx.Stdout)
+		return nil, output.ExitOK, nil
+	}
 	repo, cfg, instanceName, err := commonIdentity()
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
+	var scaffolded bool
+	var createdWorktree string
+	var synced bool
+	if options.create != "" {
+		scaffolded, err = config.Scaffold(repo.RepoRoot, cfg)
+		if err != nil {
+			return nil, output.ExitConfig, err
+		}
+		if scaffolded {
+			cfg, err = config.Load(repo.RepoRoot)
+			if err != nil {
+				return nil, output.ExitConfig, err
+			}
+		}
+		createdWorktree, err = createPreparedWorktree(repo.RepoRoot, cfg, options.create, ctx.Stdout, ctx.Stderr)
+		if err != nil {
+			return nil, output.ExitConfig, err
+		}
+		repo = dockgit.RepoInfo{RepoRoot: repo.RepoRoot, WorktreeRoot: createdWorktree, Branch: options.create}
+		instanceName = dockgit.InstanceName(dockgit.RepoName(repo.RepoRoot), dockgit.WorktreeName(repo.Branch, repo.WorktreeRoot), repo.RepoRoot, repo.WorktreeRoot)
+	}
 	stateDir := state.StatePath(repo.WorktreeRoot, cfg.State.Directory)
 	inst, _ := state.LoadInstance(stateDir)
-	var scaffolded bool
 	var envWarnings []compose.Warning
 	if inst == nil {
 		scaffolded, err = config.Scaffold(repo.RepoRoot, cfg)
@@ -181,6 +207,18 @@ func runUp(ctx *Context) (any, int, error) {
 		if err := ensureGitignore(repo.WorktreeRoot, cfg.State.Directory); err != nil {
 			return nil, output.ExitConfig, err
 		}
+	}
+	if options.sync && options.create == "" {
+		if err := setup.Prepare(setup.Options{
+			SourceDir: repo.RepoRoot,
+			TargetDir: repo.WorktreeRoot,
+			Config:    cfg,
+			Stdout:    ctx.Stdout,
+			Stderr:    ctx.Stderr,
+		}); err != nil {
+			return nil, output.ExitConfig, err
+		}
+		synced = true
 	}
 	var files []string
 	if options.file != "" {
@@ -204,7 +242,7 @@ func runUp(ctx *Context) (any, int, error) {
 			return nil, output.ExitConfig, err
 		}
 		if currentHash == inst.ComposeFileHash {
-			return UpResult{Instance: inst, AlreadyRunning: true}, output.ExitNoop, nil
+			return UpResult{Instance: inst, Synced: synced, AlreadyRunning: true}, output.ExitNoop, nil
 		}
 	}
 	project, err := parseAll(files)
@@ -275,7 +313,7 @@ func runUp(ctx *Context) (any, int, error) {
 		}
 		break
 	}
-	return UpResult{Instance: inst, ComposeFiles: files, OverrideFile: overrideFile, Ports: assignments, Services: serviceNames(project), IsolatedVolumes: isolatedVolumes(project, cfg.Volumes.Share), EnvWarnings: envWarnings, Scaffolded: scaffolded}, output.ExitOK, nil
+	return UpResult{Instance: inst, CreatedWorktree: createdWorktree, ComposeFiles: files, OverrideFile: overrideFile, Ports: assignments, Services: serviceNames(project), IsolatedVolumes: isolatedVolumes(project, cfg.Volumes.Share), EnvWarnings: envWarnings, Scaffolded: scaffolded, Synced: synced}, output.ExitOK, nil
 }
 
 func runDown(ctx *Context) (any, int, error) {
@@ -425,21 +463,8 @@ func runCreate(ctx *Context) (any, int, error) {
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	worktreeRoot := filepath.Join(filepath.Dir(repo.RepoRoot), dockgit.RepoName(repo.RepoRoot)+"."+options.branch)
-	cmd := exec.Command("git", "worktree", "add", "-b", options.branch, worktreeRoot)
-	cmd.Dir = repo.RepoRoot
-	cmd.Stdout = ctx.Stdout
-	cmd.Stderr = ctx.Stderr
-	if err := cmd.Run(); err != nil {
-		return nil, output.ExitConfig, err
-	}
-	if err := setup.Prepare(setup.Options{
-		SourceDir: repo.RepoRoot,
-		TargetDir: worktreeRoot,
-		Config:    cfg,
-		Stdout:    ctx.Stdout,
-		Stderr:    ctx.Stderr,
-	}); err != nil {
+	worktreeRoot, err := createPreparedWorktree(repo.RepoRoot, cfg, options.branch, ctx.Stdout, ctx.Stderr)
+	if err != nil {
 		return nil, output.ExitConfig, err
 	}
 	return CreateResult{
@@ -450,6 +475,27 @@ func runCreate(ctx *Context) (any, int, error) {
 		Symlinked:    append([]string(nil), cfg.Setup.Symlink...),
 		Ran:          append([]string(nil), cfg.Setup.Run...),
 	}, output.ExitOK, nil
+}
+
+func createPreparedWorktree(repoRoot string, cfg *config.Config, branch string, stdout, stderr io.Writer) (string, error) {
+	worktreeRoot := filepath.Join(filepath.Dir(repoRoot), dockgit.RepoName(repoRoot)+"."+branch)
+	cmd := exec.Command("git", "worktree", "add", "-b", branch, worktreeRoot)
+	cmd.Dir = repoRoot
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	if err := cmd.Run(); err != nil {
+		return "", err
+	}
+	if err := setup.Prepare(setup.Options{
+		SourceDir: repoRoot,
+		TargetDir: worktreeRoot,
+		Config:    cfg,
+		Stdout:    stdout,
+		Stderr:    stderr,
+	}); err != nil {
+		return "", err
+	}
+	return worktreeRoot, nil
 }
 
 func commonIdentity() (dockgit.RepoInfo, *config.Config, string, error) {
@@ -615,9 +661,19 @@ func humanRenderer() func(io.Writer, any) {
 	return func(w io.Writer, data any) {
 		switch v := data.(type) {
 		case UpResult:
+			if v.Synced && v.AlreadyRunning {
+				fmt.Fprintf(w, "Docktree synced setup for %s and it is already running.\n", v.Instance.ProjectName)
+				return
+			}
+			if v.Synced {
+				fmt.Fprintf(w, "Docktree synced setup for %s\n", v.Instance.ProjectName)
+			}
 			if v.AlreadyRunning {
 				fmt.Fprintf(w, "Docktree %s is already running.\n", v.Instance.ProjectName)
 				return
+			}
+			if v.CreatedWorktree != "" {
+				fmt.Fprintf(w, "Docktree created worktree %s\n", v.CreatedWorktree)
 			}
 			fmt.Fprintf(w, "Docktree started %s\n", v.Instance.ProjectName)
 			for _, assignment := range v.Ports {
@@ -709,7 +765,7 @@ Usage:
 
 Commands:
   create     Create a worktree and prepare its local Docker setup
-  up         Start the current worktree's Compose project
+  up         Start the current worktree's Compose project (or --create <branch>)
   down       Stop the current worktree's Compose project
   status     Show managed worktree services
   ports      Show allocated host ports
@@ -735,7 +791,10 @@ type cleanCandidate struct {
 }
 
 type upOptions struct {
-	file string
+	help   bool
+	file   string
+	create string
+	sync   bool
 }
 
 type createOptions struct {
@@ -747,6 +806,9 @@ func parseUpOptions(args []string) (upOptions, error) {
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		switch {
+		case arg == "-h" || arg == "--help":
+			options.help = true
+			return options, nil
 		case arg == "-f" || arg == "--file":
 			if i+1 >= len(args) {
 				return upOptions{}, fmt.Errorf("%s requires a value", arg)
@@ -755,11 +817,34 @@ func parseUpOptions(args []string) (upOptions, error) {
 			i++
 		case strings.HasPrefix(arg, "--file="):
 			options.file = strings.TrimPrefix(arg, "--file=")
+		case arg == "--create":
+			if i+1 >= len(args) {
+				return upOptions{}, fmt.Errorf("%s requires a branch name", arg)
+			}
+			options.create = args[i+1]
+			i++
+		case strings.HasPrefix(arg, "--create="):
+			options.create = strings.TrimPrefix(arg, "--create=")
+		case arg == "--sync":
+			options.sync = true
 		default:
 			return upOptions{}, fmt.Errorf("unknown up flag %q", arg)
 		}
 	}
 	return options, nil
+}
+
+func printUpHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree up [options]
+
+Start the current worktree's Compose project.
+
+Options:
+  -f, --file <path>     Use a specific Compose file
+  --create <branch>     Create and prepare a new worktree before starting
+  --sync                Run setup copy/symlink/run steps before starting
+  -h, --help            Show this help text`)
 }
 
 func parseCreateOptions(args []string) (createOptions, error) {
