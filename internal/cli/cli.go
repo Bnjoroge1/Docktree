@@ -363,9 +363,9 @@ func runClean(ctx *Context) (any, int, error) {
 	if options.dryRun {
 		return result, output.ExitOK, nil
 	}
-	if !options.stale {
+	if !options.yes {
 		if !ctx.Renderer.IsTTY {
-			return nil, output.ExitUsage, fmt.Errorf("clean requires --stale or --dry-run in non-interactive mode")
+			return nil, output.ExitUsage, fmt.Errorf("clean requires --yes or --dry-run in non-interactive mode")
 		}
 		if !confirmClean(ctx.Stdout) {
 			return cleanResultFromCandidates(candidates, false, options.volumes, false), output.ExitNoop, nil
@@ -615,7 +615,7 @@ Commands:
 
 type cleanOptions struct {
 	dryRun  bool
-	stale   bool
+	yes     bool
 	volumes bool
 }
 
@@ -634,8 +634,8 @@ func parseCleanOptions(args []string) (cleanOptions, error) {
 		switch arg {
 		case "--dry-run":
 			options.dryRun = true
-		case "--stale":
-			options.stale = true
+		case "--yes":
+			options.yes = true
 		case "--volumes":
 			options.volumes = true
 		default:
