@@ -130,6 +130,10 @@ func Run(args []string, stdout, stderr io.Writer) int {
 }
 
 func runUp(ctx *Context) (any, int, error) {
+	options, err := parseUpOptions(ctx.Args[1:])
+	if err != nil {
+		return nil, output.ExitUsage, err
+	}
 	repo, cfg, instanceName, err := commonIdentity()
 	if err != nil {
 		return nil, output.ExitConfig, err
@@ -157,12 +161,21 @@ func runUp(ctx *Context) (any, int, error) {
 			return nil, output.ExitConfig, err
 		}
 	}
-	files, err := composeFiles(repo.WorktreeRoot, cfg)
-	if err != nil {
-		if scaffolded {
-			return nil, output.ExitConfig, fmt.Errorf("no compose file found: create docker-compose.yml or set compose.files in docktree.yml")
+	var files []string
+	if options.file != "" {
+		path := options.file
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(repo.WorktreeRoot, path)
 		}
-		return nil, output.ExitConfig, err
+		files = []string{path}
+	} else {
+		files, err = composeFiles(repo.WorktreeRoot, cfg)
+		if err != nil {
+			if scaffolded {
+				return nil, output.ExitConfig, fmt.Errorf("no compose file found: create docker-compose.yml or set compose.files in docktree.yml")
+			}
+			return nil, output.ExitConfig, err
+		}
 	}
 	if inst != nil && isRunning(inst, cfg) {
 		currentHash, err := state.HashFiles(files)
@@ -625,6 +638,30 @@ type cleanCandidate struct {
 	Resources  docker.ProjectResources
 	Instance   *state.Instance
 	StateFound bool
+}
+
+type upOptions struct {
+	file string
+}
+
+func parseUpOptions(args []string) (upOptions, error) {
+	var options upOptions
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "-f" || arg == "--file":
+			if i+1 >= len(args) {
+				return upOptions{}, fmt.Errorf("%s requires a value", arg)
+			}
+			options.file = args[i+1]
+			i++
+		case strings.HasPrefix(arg, "--file="):
+			options.file = strings.TrimPrefix(arg, "--file=")
+		default:
+			return upOptions{}, fmt.Errorf("unknown up flag %q", arg)
+		}
+	}
+	return options, nil
 }
 
 func parseCleanOptions(args []string) (cleanOptions, error) {
