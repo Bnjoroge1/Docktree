@@ -249,7 +249,7 @@ func runUp(ctx *Context) (any, int, error) {
 		if err != nil {
 			return nil, output.ExitConflict, err
 		}
-		override, err := compose.GenerateOverride(project, instanceName, assignments)
+		override, err := compose.GenerateOverride(project, instanceName, assignments, cfg.Volumes.Share)
 		if err != nil {
 			return nil, output.ExitConfig, err
 		}

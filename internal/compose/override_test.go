@@ -11,12 +11,13 @@ import (
 
 func TestGenerateOverride(t *testing.T) {
 	tests := []struct {
-		name        string
-		project     *ComposeProject
-		instance    string
-		assignments []ports.Assignment
-		check       func(t *testing.T, override *Override)
-		wantErr     bool
+		name          string
+		project       *ComposeProject
+		instance      string
+		assignments   []ports.Assignment
+		sharedVolumes []string
+		check         func(t *testing.T, override *Override)
+		wantErr       bool
 	}{
 		{
 			name: "full_rewrite",
@@ -117,10 +118,84 @@ func TestGenerateOverride(t *testing.T) {
 			instance: "repo-main-abc",
 			wantErr:  true,
 		},
+		{
+			name: "isolate_external_volumes",
+			project: &ComposeProject{
+				Services: map[string]Service{
+					"db": {Image: "postgres:16"},
+				},
+				Volumes: map[string]Volume{
+					"db-data":    {External: true},
+					"cache-data": {External: true},
+				},
+			},
+			instance:    "repo-feature-abc",
+			assignments: nil,
+			check: func(t *testing.T, o *Override) {
+				if len(o.Volumes) != 2 {
+					t.Fatalf("expected 2 volume overrides, got %d", len(o.Volumes))
+				}
+				dbVol := o.Volumes["db-data"]
+				if dbVol.Name != "repo-feature-abc-db-data" {
+					t.Fatalf("db-data volume name: got %q", dbVol.Name)
+				}
+				if dbVol.External == nil || *dbVol.External != false {
+					t.Fatalf("db-data external: got %#v", dbVol.External)
+				}
+				cacheVol := o.Volumes["cache-data"]
+				if cacheVol.Name != "repo-feature-abc-cache-data" {
+					t.Fatalf("cache-data volume name: got %q", cacheVol.Name)
+				}
+			},
+		},
+		{
+			name: "shared_volumes_not_overridden",
+			project: &ComposeProject{
+				Services: map[string]Service{
+					"db": {Image: "postgres:16"},
+				},
+				Volumes: map[string]Volume{
+					"db-data":    {External: true},
+					"cache-data": {External: true},
+				},
+			},
+			instance:    "repo-feature-abc",
+			assignments: nil,
+			sharedVolumes: []string{"cache-data"},
+			check: func(t *testing.T, o *Override) {
+				if len(o.Volumes) != 1 {
+					t.Fatalf("expected 1 volume override (shared volume should be excluded), got %d", len(o.Volumes))
+				}
+				if _, exists := o.Volumes["cache-data"]; exists {
+					t.Fatal("cache-data should not be overridden because it is shared")
+				}
+				if _, exists := o.Volumes["db-data"]; !exists {
+					t.Fatal("db-data should be overridden because it is not shared")
+				}
+			},
+		},
+		{
+			name: "internal_volumes_not_overridden",
+			project: &ComposeProject{
+				Services: map[string]Service{
+					"db": {Image: "postgres:16"},
+				},
+				Volumes: map[string]Volume{
+					"db-data": {External: false},
+				},
+			},
+			instance:    "repo-feature-abc",
+			assignments: nil,
+			check: func(t *testing.T, o *Override) {
+				if len(o.Volumes) != 0 {
+					t.Fatalf("internal volumes should not be overridden, got %d", len(o.Volumes))
+				}
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			override, err := GenerateOverride(tt.project, tt.instance, tt.assignments)
+			override, err := GenerateOverride(tt.project, tt.instance, tt.assignments, tt.sharedVolumes)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error")

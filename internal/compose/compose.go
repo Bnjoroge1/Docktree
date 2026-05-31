@@ -4,6 +4,7 @@ package compose
 type Override struct {
 	Services map[string]ServiceOverride `yaml:"services,omitempty"`
 	Networks map[string]NetworkOverride `yaml:"networks,omitempty"`
+	Volumes  map[string]VolumeOverride  `yaml:"volumes,omitempty"`
 }
 
 type ComposeProject struct {
@@ -49,6 +50,11 @@ type ServiceOverride struct {
 type NetworkOverride struct {
 	External bool   `yaml:"external,omitempty"`
 	Name     string `yaml:"name,omitempty"`
+}
+
+type VolumeOverride struct {
+	Name     string `yaml:"name,omitempty"`
+	External *bool  `yaml:"external,omitempty"`
 }
 
 type PortMapping struct {

@@ -10,7 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func GenerateOverride(project *ComposeProject, instanceName string, assignments []ports.Assignment) (*Override, error) {
+func GenerateOverride(project *ComposeProject, instanceName string, assignments []ports.Assignment, sharedVolumes []string) (*Override, error) {
 	if project == nil {
 		return nil, fmt.Errorf("compose project is nil")
 	}
@@ -18,7 +18,7 @@ func GenerateOverride(project *ComposeProject, instanceName string, assignments 
 	for _, assignment := range assignments {
 		byService[assignment.Service] = append(byService[assignment.Service], assignment)
 	}
-	override := &Override{Services: map[string]ServiceOverride{}}
+	override := &Override{Services: map[string]ServiceOverride{}, Volumes: map[string]VolumeOverride{}}
 	for name, svc := range project.Services {
 		serviceOverride := ServiceOverride{}
 		changed := false
@@ -49,6 +49,19 @@ func GenerateOverride(project *ComposeProject, instanceName string, assignments 
 		changed = true
 		if changed {
 			override.Services[name] = serviceOverride
+		}
+	}
+	sharedSet := map[string]bool{}
+	for _, v := range sharedVolumes {
+		sharedSet[v] = true
+	}
+	for volName, vol := range project.Volumes {
+		if vol.External && !sharedSet[volName] {
+			external := false
+			override.Volumes[volName] = VolumeOverride{
+				Name:     instanceName + "-" + volName,
+				External: &external,
+			}
 		}
 	}
 	return override, nil

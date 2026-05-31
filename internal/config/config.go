@@ -14,6 +14,7 @@ type Config struct {
 	Identity   IdentityConfig   `yaml:"identity"`
 	Shared     ServiceSetConfig `yaml:"shared"`
 	Isolated   ServiceSetConfig `yaml:"isolated"`
+	Volumes    VolumeSetConfig  `yaml:"volumes"`
 	Ports      PortsConfig      `yaml:"ports"`
 	Transforms TransformConfig  `yaml:"transforms"`
 	State      StateConfig      `yaml:"state"`
@@ -29,6 +30,10 @@ type IdentityConfig struct {
 
 type ServiceSetConfig struct {
 	Services []string `yaml:"services"`
+}
+
+type VolumeSetConfig struct {
+	Share []string `yaml:"share"`
 }
 
 type PortsConfig struct {
@@ -101,6 +106,9 @@ func merge(base *Config, user Config) {
 	}
 	if user.Isolated.Services != nil {
 		base.Isolated.Services = user.Isolated.Services
+	}
+	if user.Volumes.Share != nil {
+		base.Volumes.Share = user.Volumes.Share
 	}
 	if user.Ports.Mode != "" {
 		base.Ports.Mode = user.Ports.Mode
