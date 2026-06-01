@@ -39,6 +39,7 @@ type UpResult struct {
 	CreatedWorktree string             `json:"created_worktree,omitempty"`
 	ComposeFiles    []string           `json:"compose_files"`
 	OverrideFile    string             `json:"override_file"`
+	ClearFile       string             `json:"clear_file,omitempty"`
 	Ports           []ports.Assignment `json:"ports,omitempty"`
 	Services        []string           `json:"services"`
 	IsolatedVolumes []string           `json:"isolated_volumes,omitempty"`
@@ -293,8 +294,20 @@ func runUp(ctx *Context) (any, int, error) {
 	if ctx.Renderer.JSON {
 		dockerStdout = io.Discard
 	}
+	clearFile := filepath.Join(stateDir, "generated", instanceName+".clear.yml")
+	clear := compose.GeneratePortClear(project)
+	if clear != nil {
+		if err := compose.WriteClearOverride(clear, clearFile); err != nil {
+			return nil, output.ExitConfig, err
+		}
+	}
 	var assignments []ports.Assignment
-	cmd := docker.ComposeCommand{ProjectName: instanceName, Files: append(append([]string{}, files...), overrideFile), CommandArgs: []string{"up", "-d"}}
+	composeFiles := append([]string{}, files...)
+	if clear != nil {
+		composeFiles = append(composeFiles, clearFile)
+	}
+	composeFiles = append(composeFiles, overrideFile)
+	cmd := docker.ComposeCommand{ProjectName: instanceName, Files: composeFiles, CommandArgs: []string{"up", "-d"}}
 	for attempt := 0; attempt < 10; attempt++ {
 		assignments, err = registry.Allocate(instanceName, portRequests(project, cfg.Ports.BindHost), portRange)
 		if err != nil {
@@ -344,7 +357,7 @@ func runUp(ctx *Context) (any, int, error) {
 	if err := state.UpsertGlobalInstance("", inst); err != nil {
 		return nil, output.ExitConfig, err
 	}
-	return UpResult{Instance: inst, CreatedWorktree: createdWorktree, ComposeFiles: files, OverrideFile: overrideFile, Ports: assignments, Services: serviceNames(project), IsolatedVolumes: isolatedVolumes(project, cfg.Volumes.Share), EnvWarnings: envWarnings, Scaffolded: scaffolded, Synced: synced}, output.ExitOK, nil
+	return UpResult{Instance: inst, CreatedWorktree: createdWorktree, ComposeFiles: files, OverrideFile: overrideFile, ClearFile: clearFile, Ports: assignments, Services: serviceNames(project), IsolatedVolumes: isolatedVolumes(project, cfg.Volumes.Share), EnvWarnings: envWarnings, Scaffolded: scaffolded, Synced: synced}, output.ExitOK, nil
 }
 
 func runDown(ctx *Context) (any, int, error) {
@@ -647,7 +660,12 @@ func activeComposeFiles(worktreeRoot string, cfg *config.Config, inst *state.Ins
 	if err != nil {
 		return nil
 	}
-	override := filepath.Join(state.StatePath(worktreeRoot, cfg.State.Directory), "generated", inst.ProjectName+".override.yml")
+	stateDir := state.StatePath(worktreeRoot, cfg.State.Directory)
+	clear := filepath.Join(stateDir, "generated", inst.ProjectName+".clear.yml")
+	if _, err := os.Stat(clear); err == nil {
+		files = append(files, clear)
+	}
+	override := filepath.Join(stateDir, "generated", inst.ProjectName+".override.yml")
 	if _, err := os.Stat(override); err == nil {
 		files = append(files, override)
 	}
