@@ -436,9 +436,17 @@ func runClean(ctx *Context) (any, int, error) {
 	if err != nil {
 		return nil, output.ExitUsage, err
 	}
-	candidates, err := discoverCleanCandidates(options.volumes)
+	portRegistry := ports.NewRegistry()
+	if err := portRegistry.Lock(); err != nil {
+		return nil, output.ExitDocker, err
+	}
+	candidates, err := discoverCleanCandidates(portRegistry, options.volumes)
+	unlockErr := portRegistry.Unlock()
 	if err != nil {
 		return nil, output.ExitDocker, err
+	}
+	if unlockErr != nil {
+		return nil, output.ExitDocker, unlockErr
 	}
 	result := cleanResultFromCandidates(candidates, options.dryRun, options.volumes, false)
 	if len(candidates) == 0 {
@@ -455,10 +463,11 @@ func runClean(ctx *Context) (any, int, error) {
 			return cleanResultFromCandidates(candidates, false, options.volumes, false), output.ExitNoop, nil
 		}
 	}
-	if err := applyCleanCandidates(candidates, options.volumes); err != nil {
+	applied, err := applyCleanCandidates(portRegistry, candidates, options.volumes)
+	if err != nil {
 		return nil, output.ExitDocker, err
 	}
-	return cleanResultFromCandidates(candidates, false, options.volumes, true), output.ExitOK, nil
+	return cleanResultFromCandidates(applied, false, options.volumes, true), output.ExitOK, nil
 }
 
 func runPrepare(ctx *Context) (any, int, error) {
@@ -939,16 +948,11 @@ func parseCleanOptions(args []string) (cleanOptions, error) {
 	return options, nil
 }
 
-func discoverCleanCandidates(includeVolumes bool) ([]cleanCandidate, error) {
+func discoverCleanCandidates(portRegistry *ports.Registry, includeVolumes bool) ([]cleanCandidate, error) {
 	instances, err := state.LoadGlobalInstances("")
 	if err != nil {
 		return nil, err
 	}
-	portRegistry := ports.NewRegistry()
-	if err := portRegistry.Lock(); err != nil {
-		return nil, err
-	}
-	defer portRegistry.Unlock()
 	portMap, err := portRegistry.Load()
 	if err != nil {
 		return nil, err
@@ -1051,29 +1055,59 @@ func cleanResultFromCandidates(candidates []cleanCandidate, dryRun, volumes, rem
 	return result
 }
 
-func applyCleanCandidates(candidates []cleanCandidate, includeVolumes bool) error {
-	portRegistry := ports.NewRegistry()
+func applyCleanCandidates(portRegistry *ports.Registry, candidates []cleanCandidate, includeVolumes bool) ([]cleanCandidate, error) {
 	if err := portRegistry.Lock(); err != nil {
-		return err
+		return nil, err
 	}
-	defer portRegistry.Unlock()
+	portMap, err := portRegistry.Load()
+	if err != nil {
+		_ = portRegistry.Unlock()
+		return nil, err
+	}
+	instances, err := state.LoadGlobalInstances("")
+	if err != nil {
+		_ = portRegistry.Unlock()
+		return nil, err
+	}
+	var applied []cleanCandidate
 	for _, candidate := range candidates {
-		if _, err := docker.RemoveProjectResources(candidate.Name, includeVolumes); err != nil {
-			return err
+		currentCandidate := candidate
+		currentCandidate.Ports = len(portMap[candidate.Name])
+		if saved, ok := instances[candidate.Name]; ok {
+			copied := saved
+			currentCandidate.Instance = &copied
+			currentCandidate.StateFound = true
+		} else {
+			currentCandidate.Instance = nil
+			currentCandidate.StateFound = false
+		}
+		if staleReason(currentCandidate.Instance, currentCandidate.StateFound, currentCandidate.Ports, currentCandidate.Resources) == "" {
+			continue
 		}
 		if err := portRegistry.Release(candidate.Name); err != nil {
-			return err
+			_ = portRegistry.Unlock()
+			return nil, err
 		}
 		if err := state.RemoveGlobalInstance("", candidate.Name); err != nil {
-			return err
+			_ = portRegistry.Unlock()
+			return nil, err
+		}
+		applied = append(applied, currentCandidate)
+	}
+	if err := portRegistry.Unlock(); err != nil {
+		return nil, err
+	}
+	for _, candidate := range applied {
+		if _, err := docker.RemoveProjectResources(candidate.Name, includeVolumes); err != nil {
+			return nil, err
 		}
 		if candidate.Instance != nil {
 			if err := state.RemoveStateDir(candidate.Instance); err != nil {
-				return err
+				return nil, err
 			}
 		}
 	}
-	return nil
+	return applied, nil
 }
 
 func confirmClean(w io.Writer) bool {
