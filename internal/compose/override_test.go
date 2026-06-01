@@ -192,6 +192,50 @@ func TestGenerateOverride(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "named_internal_volumes_are_isolated",
+			project: &ComposeProject{
+				Services: map[string]Service{
+					"db": {Image: "postgres:16"},
+				},
+				Volumes: map[string]Volume{
+					"db-data": {Name: "shared-db"},
+				},
+			},
+			instance:    "repo-feature-abc",
+			assignments: nil,
+			check: func(t *testing.T, o *Override) {
+				if len(o.Volumes) != 1 {
+					t.Fatalf("expected named internal volume override, got %d", len(o.Volumes))
+				}
+				vol := o.Volumes["db-data"]
+				if vol.Name != "repo-feature-abc-db-data" {
+					t.Fatalf("db-data volume name: got %q", vol.Name)
+				}
+				if vol.External == nil || *vol.External != false {
+					t.Fatalf("db-data external: got %#v", vol.External)
+				}
+			},
+		},
+		{
+			name: "shared_named_internal_volumes_not_overridden",
+			project: &ComposeProject{
+				Services: map[string]Service{
+					"db": {Image: "postgres:16"},
+				},
+				Volumes: map[string]Volume{
+					"db-data": {Name: "shared-db"},
+				},
+			},
+			instance:      "repo-feature-abc",
+			assignments:   nil,
+			sharedVolumes: []string{"db-data"},
+			check: func(t *testing.T, o *Override) {
+				if len(o.Volumes) != 0 {
+					t.Fatalf("shared named internal volume should not be overridden, got %d", len(o.Volumes))
+				}
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
