@@ -72,6 +72,10 @@ volumes:
     - cache-data  # Share this volume across worktrees
 ```
 
+## Windows
+
+On Windows, use it through WSL2 with Docker Desktop WSL integration enabled.
+
 ## Commands
 
 | Command | Description |
