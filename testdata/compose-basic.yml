@@ -1,7 +1,6 @@
-version: '3.9'
-
 services:
   ui:
+    build: ./ui
     image: my-ui:latest
     ports:
       - "127.0.0.1:3000:80"
@@ -11,6 +10,7 @@ services:
       - api
 
   api:
+    build: ./api
     image: my-api:latest
     ports:
       - "127.0.0.1:8080:8080"
