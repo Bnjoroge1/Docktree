@@ -256,9 +256,6 @@ func runUp(ctx *Context) (any, int, error) {
 	} else {
 		files, err = composeFiles(repo.WorktreeRoot, cfg)
 		if err != nil {
-			if scaffolded {
-				return nil, output.ExitConfig, fmt.Errorf("no compose file found: create docker-compose.yml or set compose.files in docktree.yml")
-			}
 			return nil, output.ExitConfig, err
 		}
 	}
@@ -793,7 +790,11 @@ func composeFiles(dir string, cfg *config.Config) ([]string, error) {
 		}
 		return files, nil
 	}
-	return compose.FindComposeFiles(dir)
+	found, err := compose.FindComposeFiles(dir)
+	if err != nil {
+		return nil, fmt.Errorf("no compose file found in %s\n\nCreate docker-compose.yml or compose.yml, or set compose.files in docktree.yml", dir)
+	}
+	return found, nil
 }
 
 func parseAll(files []string) (*compose.ComposeProject, error) {

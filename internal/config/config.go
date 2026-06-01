@@ -23,29 +23,29 @@ type Config struct {
 }
 
 type ComposeConfig struct {
-	Files []string `yaml:"files"`
+	Files []string `yaml:"files,omitempty"`
 }
 
 type IdentityConfig struct {
-	ProjectPrefix string `yaml:"project_prefix"`
+	ProjectPrefix string `yaml:"project_prefix,omitempty"`
 }
 
 type WorktreesConfig struct {
-	Root string `yaml:"root"`
+	Root string `yaml:"root,omitempty"`
 }
 
 type SetupConfig struct {
-	Copy    []string `yaml:"copy"`
-	Symlink []string `yaml:"symlink"`
-	Run     []string `yaml:"run"`
+	Copy    []string `yaml:"copy,omitempty"`
+	Symlink []string `yaml:"symlink,omitempty"`
+	Run     []string `yaml:"run,omitempty"`
 }
 
 type ServiceSetConfig struct {
-	Services []string `yaml:"services"`
+	Services []string `yaml:"services,omitempty"`
 }
 
 type VolumeSetConfig struct {
-	Share []string `yaml:"share"`
+	Share []string `yaml:"share,omitempty"`
 }
 
 type PortsConfig struct {
