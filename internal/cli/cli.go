@@ -21,6 +21,7 @@ import (
 	"github.com/bnjoroge/docktree/internal/ports"
 	"github.com/bnjoroge/docktree/internal/setup"
 	"github.com/bnjoroge/docktree/internal/state"
+	"gopkg.in/yaml.v3"
 )
 
 const version = "0.1.0-dev"
@@ -56,6 +57,18 @@ type ValidateResult struct {
 	IsolatedVolumes []string          `json:"isolated_volumes,omitempty"`
 	EnvWarnings     []compose.Warning `json:"env_warnings,omitempty"`
 	Errors          []string           `json:"errors,omitempty"`
+}
+
+type DryRunResult struct {
+	DryRun          bool              `json:"dry_run"`
+	InstanceName    string            `json:"instance_name"`
+	ComposeFiles    []string          `json:"compose_files"`
+	Services       []string          `json:"services"`
+	Ports           []ports.Assignment `json:"ports,omitempty"`
+	IsolatedVolumes []string          `json:"isolated_volumes,omitempty"`
+	EnvWarnings     []compose.Warning `json:"env_warnings,omitempty"`
+	OverridePreview string            `json:"override_preview,omitempty"`
+	ClearPreview    string            `json:"clear_preview,omitempty"`
 }
 
 type DownResult struct {
@@ -171,6 +184,9 @@ func runUp(ctx *Context) (any, int, error) {
 		printUpHelp(ctx.Stdout)
 		return nil, output.ExitOK, nil
 	}
+	if options.validate && options.dryRun {
+		return nil, output.ExitUsage, fmt.Errorf("--validate and --dry-run are mutually exclusive")
+	}
 	repo, cfg, instanceName, err := commonIdentity()
 	if err != nil {
 		return nil, output.ExitConfig, err
@@ -274,6 +290,9 @@ func runUp(ctx *Context) (any, int, error) {
 	}
 	if options.validate {
 		return runValidate(project, files, cfg, repo, envWarnings)
+	}
+	if options.dryRun {
+		return runDryRun(project, files, cfg, repo, instanceName, envWarnings)
 	}
 	portRange, err := ports.ParseRange(cfg.Ports.Range)
 	if err != nil {
@@ -630,6 +649,55 @@ func runValidate(project *compose.ComposeProject, files []string, cfg *config.Co
 	}, output.ExitOK, nil
 }
 
+func runDryRun(project *compose.ComposeProject, files []string, cfg *config.Config, repo dockgit.RepoInfo, instanceName string, envWarnings []compose.Warning) (any, int, error) {
+	portRange, err := ports.ParseRange(cfg.Ports.Range)
+	if err != nil {
+		return nil, output.ExitConfig, err
+	}
+	registry := ports.NewRegistry()
+	if err := registry.Lock(); err != nil {
+		return nil, output.ExitConflict, fmt.Errorf("cannot acquire port registry lock: %v", err)
+	}
+	assignments, err := registry.Allocate(instanceName, portRequests(project, cfg.Ports.BindHost), portRange)
+	if err != nil {
+		_ = registry.Unlock()
+		return nil, output.ExitConflict, err
+	}
+	if err := registry.Release(instanceName); err != nil {
+		_ = registry.Unlock()
+		return nil, output.ExitConflict, err
+	}
+	_ = registry.Unlock()
+	override, err := compose.GenerateOverride(project, instanceName, assignments, cfg.Volumes.Share)
+	if err != nil {
+		return nil, output.ExitConfig, err
+	}
+	overrideYAML, err := yaml.Marshal(override)
+	if err != nil {
+		return nil, output.ExitConfig, err
+	}
+	var clearPreview string
+	clear := compose.GeneratePortClear(project)
+	if clear != nil {
+		clearYAML, err := yaml.Marshal(clear)
+		if err != nil {
+			return nil, output.ExitConfig, err
+		}
+		clearPreview = string(clearYAML)
+	}
+	return DryRunResult{
+		DryRun:          true,
+		InstanceName:    instanceName,
+		ComposeFiles:    files,
+		Services:        serviceNames(project),
+		Ports:           assignments,
+		IsolatedVolumes: isolatedVolumes(project, cfg.Volumes.Share),
+		EnvWarnings:     envWarnings,
+		OverridePreview: string(overrideYAML),
+		ClearPreview:    clearPreview,
+	}, output.ExitOK, nil
+}
+
 func worktreePath(repoRoot string, cfg *config.Config, branch string) (string, error) {
 	repoName := dockgit.RepoName(repoRoot)
 	branchSlug := slugWorktreeBranch(branch)
@@ -940,6 +1008,30 @@ func humanRenderer() func(io.Writer, any) {
 					fmt.Fprintf(w, "  - %s\n", e)
 				}
 			}
+		case DryRunResult:
+			fmt.Fprintf(w, "Docktree dry run for %s\n", v.InstanceName)
+			fmt.Fprintf(w,  "  Services: %s\n", strings.Join(v.Services, ", "))
+			fmt.Fprintf(w, "  Compose files:\n")
+			for _, f := range v.ComposeFiles {
+				fmt.Fprintf(w, "    %s\n", f)
+			}
+			if len(v.Ports) > 0 {
+				fmt.Fprintln(w, "  Port assignments:")
+				for _, assignment := range v.Ports {
+					fmt.Fprintf(w, "    %s %s:%d -> %d\n", assignment.Service, assignment.HostIP, assignment.HostPort, assignment.ContainerPort)
+				}
+			}
+			if len(v.IsolatedVolumes) > 0 {
+				fmt.Fprintf(w, "  Isolated volumes: %s\n", strings.Join(v.IsolatedVolumes, ", "))
+			}
+			if v.OverridePreview != "" {
+				fmt.Fprintln(w, "  Override preview:")
+				fmt.Fprintln(w, v.OverridePreview)
+			}
+			if v.ClearPreview != "" {
+				fmt.Fprintln(w, "  Port clear preview:")
+				fmt.Fprintln(w, v.ClearPreview)
+			}
 		case StatusResult:
 			if v.Stopped {
 				fmt.Fprintln(w, "Docktree is stopped.")
@@ -1036,6 +1128,7 @@ type upOptions struct {
 	create   string
 	sync     bool
 	validate bool
+	dryRun   bool
 }
 
 type createOptions struct {
@@ -1070,6 +1163,8 @@ func parseUpOptions(args []string) (upOptions, error) {
 			options.sync = true
 		case arg == "--validate":
 			options.validate = true
+		case arg == "--dry-run":
+			options.dryRun = true
 		default:
 			return upOptions{}, fmt.Errorf("unknown up flag %q", arg)
 		}
@@ -1088,6 +1183,7 @@ Options:
   --create <branch>     Create and prepare a new worktree before starting
   --sync                Run setup copy/symlink/run steps before starting
   --validate            Check config, ports, and compose validity without starting
+  --dry-run             Show what would happen without making changes
   -h, --help            Show this help text`)
 }
 
