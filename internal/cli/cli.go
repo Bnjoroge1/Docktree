@@ -236,13 +236,19 @@ func runUp(ctx *Context) (any, int, error) {
 			return nil, output.ExitConfig, err
 		}
 	}
-	if inst != nil && isRunning(inst, cfg) {
-		currentHash, err := state.HashFiles(files)
+	if inst != nil {
+		runningState, err := composeRunStateForInstance(inst, cfg)
 		if err != nil {
-			return nil, output.ExitConfig, err
+			return nil, output.ExitDocker, err
 		}
-		if currentHash == inst.ComposeFileHash {
-			return UpResult{Instance: inst, Synced: synced, AlreadyRunning: true}, output.ExitNoop, nil
+		if runningState == composeRunRunning {
+			currentHash, err := state.HashFiles(files)
+			if err != nil {
+				return nil, output.ExitConfig, err
+			}
+			if currentHash == inst.ComposeFileHash {
+				return UpResult{Instance: inst, Synced: synced, AlreadyRunning: true}, output.ExitNoop, nil
+			}
 		}
 	}
 	project, err := parseAll(files)
@@ -257,7 +263,12 @@ func runUp(ctx *Context) (any, int, error) {
 	if err := registry.Lock(); err != nil {
 		return nil, output.ExitConflict, err
 	}
-	defer registry.Unlock()
+	locked := true
+	defer func() {
+		if locked {
+			_ = registry.Unlock()
+		}
+	}()
 	if err := state.EnsureStateDir(repo.WorktreeRoot, cfg.State.Directory); err != nil {
 		return nil, output.ExitConfig, err
 	}
@@ -278,12 +289,6 @@ func runUp(ctx *Context) (any, int, error) {
 	inst.Branch = repo.Branch
 	inst.LastActiveAt = now
 	inst.ComposeFileHash = hash
-	if err := state.SaveInstance(stateDir, inst); err != nil {
-		return nil, output.ExitConfig, err
-	}
-	if err := state.UpsertGlobalInstance("", inst); err != nil {
-		return nil, output.ExitConfig, err
-	}
 	dockerStdout := ctx.Stdout
 	if ctx.Renderer.JSON {
 		dockerStdout = io.Discard
@@ -295,6 +300,10 @@ func runUp(ctx *Context) (any, int, error) {
 		if err != nil {
 			return nil, output.ExitConflict, err
 		}
+		if err := registry.Unlock(); err != nil {
+			return nil, output.ExitConflict, err
+		}
+		locked = false
 		override, err := compose.GenerateOverride(project, instanceName, assignments, cfg.Volumes.Share)
 		if err != nil {
 			return nil, output.ExitConfig, err
@@ -304,14 +313,36 @@ func runUp(ctx *Context) (any, int, error) {
 		}
 		if err := docker.Run(cmd, dockerStdout, ctx.Stderr); err != nil {
 			if docker.IsPortBindError(err) && attempt < 9 {
+				if err := registry.Lock(); err != nil {
+					return nil, output.ExitConflict, err
+				}
+				locked = true
 				if releaseErr := registry.Release(instanceName); releaseErr != nil {
+					locked = false
+					_ = registry.Unlock()
 					return nil, output.ExitConflict, releaseErr
 				}
+				if err := registry.Unlock(); err != nil {
+					return nil, output.ExitConflict, err
+				}
+				locked = false
 				continue
 			}
 			return nil, output.ExitDocker, err
 		}
 		break
+	}
+	if locked {
+		if err := registry.Unlock(); err != nil {
+			return nil, output.ExitConflict, err
+		}
+		locked = false
+	}
+	if err := state.SaveInstance(stateDir, inst); err != nil {
+		return nil, output.ExitConfig, err
+	}
+	if err := state.UpsertGlobalInstance("", inst); err != nil {
+		return nil, output.ExitConfig, err
 	}
 	return UpResult{Instance: inst, CreatedWorktree: createdWorktree, ComposeFiles: files, OverrideFile: overrideFile, Ports: assignments, Services: serviceNames(project), IsolatedVolumes: isolatedVolumes(project, cfg.Volumes.Share), EnvWarnings: envWarnings, Scaffolded: scaffolded, Synced: synced}, output.ExitOK, nil
 }
@@ -333,8 +364,15 @@ func runDown(ctx *Context) (any, int, error) {
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	if !isRunning(inst, cfg) {
+	runningState, err := composeRunStateForInstance(inst, cfg)
+	if err != nil {
+		return nil, output.ExitDocker, err
+	}
+	if runningState == composeRunStopped {
 		return DownResult{Instance: inst, AlreadyStopped: true}, output.ExitNoop, nil
+	}
+	if runningState == composeRunUnknown {
+		return nil, output.ExitDocker, fmt.Errorf("unable to determine whether %s is running", inst.ProjectName)
 	}
 	dockerStdout := ctx.Stdout
 	if ctx.Renderer.JSON {
@@ -560,12 +598,39 @@ func portRequests(project *compose.ComposeProject, bindHost string) []ports.Port
 	return requests
 }
 
-func isRunning(inst *state.Instance, cfg *config.Config) bool {
+type composeRunState int
+
+const (
+	composeRunUnknown composeRunState = iota
+	composeRunStopped
+	composeRunRunning
+)
+
+func composeRunStateForInstance(inst *state.Instance, cfg *config.Config) (composeRunState, error) {
 	out, err := docker.RunCapture(docker.ComposeCommand{ProjectName: inst.ProjectName, Files: activeComposeFiles(inst.WorktreeRoot, cfg, inst), CommandArgs: []string{"ps", "--format", "json"}})
 	if err != nil {
-		return false
+		return composeRunUnknown, err
 	}
-	return strings.Contains(strings.ToLower(out), "running")
+	return parseComposeRunState(out)
+}
+
+func parseComposeRunState(out string) (composeRunState, error) {
+	trimmed := strings.TrimSpace(out)
+	if trimmed == "" {
+		return composeRunStopped, nil
+	}
+	var entries []struct {
+		State string `json:"State"`
+	}
+	if err := json.Unmarshal([]byte(trimmed), &entries); err != nil {
+		return composeRunUnknown, err
+	}
+	for _, entry := range entries {
+		if strings.EqualFold(strings.TrimSpace(entry.State), "running") {
+			return composeRunRunning, nil
+		}
+	}
+	return composeRunStopped, nil
 }
 
 func activeComposeFiles(worktreeRoot string, cfg *config.Config, inst *state.Instance) []string {
