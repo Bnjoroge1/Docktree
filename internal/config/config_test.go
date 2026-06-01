@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -82,5 +83,37 @@ func TestLoadMergesSetupConfig(t *testing.T) {
 	}
 	if len(cfg.Setup.Run) != 1 || cfg.Setup.Run[0] != "git submodule update --init --recursive" {
 		t.Fatalf("setup.run not loaded: %#v", cfg.Setup.Run)
+	}
+}
+
+func TestScaffoldOmitsEmptySlices(t *testing.T) {
+	cfg := Defaults()
+	dir := t.TempDir()
+	scaffolded, err := Scaffold(dir, &cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !scaffolded {
+		t.Fatal("expected scaffolded=true")
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "docktree.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	if strings.Contains(s, "files: []") {
+		t.Fatalf("scaffolded YAML should not contain 'files: []', got:\n%s", s)
+	}
+	if strings.Contains(s, "services: []") {
+		t.Fatalf("scaffolded YAML should not contain 'services: []', got:\n%s", s)
+	}
+	if strings.Contains(s, "share: []") {
+		t.Fatalf("scaffolded YAML should not contain 'share: []', got:\n%s", s)
+	}
+	if strings.Contains(s, "run: []") {
+		t.Fatalf("scaffolded YAML should not contain 'run: []', got:\n%s", s)
+	}
+	if !strings.Contains(s, "copy:") {
+		t.Fatalf("scaffolded YAML should keep non-empty defaults like 'copy:', got:\n%s", s)
 	}
 }
