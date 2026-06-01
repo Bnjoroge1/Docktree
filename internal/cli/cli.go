@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -84,6 +85,12 @@ type StatusResult struct {
 }
 
 type PortsResult struct {
+	Instance string             `json:"instance,omitempty"`
+	All      bool               `json:"all,omitempty"`
+	Entries  []PortsEntry        `json:"entries,omitempty"`
+}
+
+type PortsEntry struct {
 	Instance string             `json:"instance"`
 	Ports    []ports.Assignment `json:"ports"`
 }
@@ -468,6 +475,26 @@ func runStatus(ctx *Context) (any, int, error) {
 }
 
 func runPorts(ctx *Context) (any, int, error) {
+	options, err := parsePortsOptions(ctx.Args[1:])
+	if err != nil {
+		return nil, output.ExitUsage, err
+	}
+	if options.help {
+		printPortsHelp(ctx.Stdout)
+		return nil, output.ExitOK, nil
+	}
+	if options.all {
+		all, err := ports.NewRegistry().Load()
+		if err != nil {
+			return nil, output.ExitConfig, err
+		}
+		instanceOrder := sortedKeys(all)
+		entries := make([]PortsEntry, 0, len(instanceOrder))
+		for _, name := range instanceOrder {
+			entries = append(entries, PortsEntry{Instance: name, Ports: all[name]})
+		}
+		return PortsResult{All: true, Entries: entries}, output.ExitOK, nil
+	}
 	_, _, instanceName, err := commonIdentity()
 	if err != nil {
 		return nil, output.ExitConfig, err
@@ -476,7 +503,7 @@ func runPorts(ctx *Context) (any, int, error) {
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	return PortsResult{Instance: instanceName, Ports: all[instanceName]}, output.ExitOK, nil
+	return PortsResult{Instance: instanceName, Entries: []PortsEntry{{Instance: instanceName, Ports: all[instanceName]}}}, output.ExitOK, nil
 }
 
 func runClean(ctx *Context) (any, int, error) {
@@ -1040,9 +1067,21 @@ func humanRenderer() func(io.Writer, any) {
 			}
 			fmt.Fprintln(w, v.Text)
 		case PortsResult:
-			fmt.Fprintf(w, "Docktree ports for %s\n", v.Instance)
-			for _, assignment := range v.Ports {
-				fmt.Fprintf(w, "  %s %s:%d -> %d\n", assignment.Service, assignment.HostIP, assignment.HostPort, assignment.ContainerPort)
+			if v.All {
+				fmt.Fprintln(w, "Docktree ports (all instances)")
+				for _, entry := range v.Entries {
+					fmt.Fprintf(w, "  %s:\n", entry.Instance)
+					for _, assignment := range entry.Ports {
+						fmt.Fprintf(w, "    %s %s:%d -> %d\n", assignment.Service, assignment.HostIP, assignment.HostPort, assignment.ContainerPort)
+					}
+				}
+			} else {
+				fmt.Fprintf(w, "Docktree ports for %s\n", v.Instance)
+				for _, entry := range v.Entries {
+					for _, assignment := range entry.Ports {
+						fmt.Fprintf(w, "  %s %s:%d -> %d\n", assignment.Service, assignment.HostIP, assignment.HostPort, assignment.ContainerPort)
+					}
+				}
 			}
 		case PrepareResult:
 			fmt.Fprintf(w, "Docktree prepared %s\n", v.WorktreeRoot)
@@ -1101,11 +1140,42 @@ Commands:
   up         Start the current worktree's Compose project (or --create <branch>)
   down       Stop the current worktree's Compose project
   status     Show managed worktree services
-  ports      Show allocated host ports
+  ports      Show allocated host ports (use --all for all worktrees)
   prepare    Prepare the current worktree's local Docker setup
   clean      Remove stale Docktree-managed resources
   help       Show this help text
   version    Print the docktree version`)
+}
+
+type portsOptions struct {
+	all  bool
+	help bool
+}
+
+func parsePortsOptions(args []string) (portsOptions, error) {
+	var options portsOptions
+	for _, arg := range args {
+		switch arg {
+		case "-a", "--all":
+			options.all = true
+		case "-h", "--help":
+			options.help = true
+		default:
+			return portsOptions{}, fmt.Errorf("unknown ports flag %q", arg)
+		}
+	}
+	return options, nil
+}
+
+func printPortsHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree ports [options]
+
+Show allocated host ports.
+
+Options:
+  -a, --all    Show ports for all worktree instances
+  -h, --help   Show this help text`)
 }
 
 type cleanOptions struct {
@@ -1375,6 +1445,15 @@ func applyCleanCandidates(portRegistry *ports.Registry, candidates []cleanCandid
 		}
 	}
 	return applied, nil
+}
+
+func sortedKeys(m map[string][]ports.Assignment) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func confirmClean(w io.Writer) bool {
