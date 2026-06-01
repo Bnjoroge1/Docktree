@@ -4,11 +4,11 @@ import "gopkg.in/yaml.v3"
 
 type PortOverride []PortMapping
 
-func (p PortOverride) MarshalYAML() (any, error) {
+type ResetSequence struct{}
+
+func (r ResetSequence) MarshalYAML() (any, error) {
 	var node yaml.Node
-	if err := node.Encode([]PortMapping(p)); err != nil {
-		return nil, err
-	}
-	node.Tag = "!override"
+	node.Tag = "!reset"
+	node.Kind = yaml.SequenceNode
 	return &node, nil
 }

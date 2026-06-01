@@ -296,7 +296,7 @@ func TestWriteOverride(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "instance-web") || !strings.Contains(string(data), "!override") {
+	if !strings.Contains(string(data), "instance-web") || !strings.Contains(string(data), "published: 41000") {
 		t.Fatalf("override not written: %s", data)
 	}
 }

@@ -63,3 +63,13 @@ type PortMapping struct {
 	HostIP    string `yaml:"host_ip,omitempty"`
 	Protocol  string `yaml:"protocol,omitempty"`
 }
+
+// ClearOverride resets ports before the main override applies new mappings.
+// Docker Compose merges port arrays; we must clear them first with !reset.
+type ClearOverride struct {
+	Services map[string]ClearServiceOverride `yaml:"services,omitempty"`
+}
+
+type ClearServiceOverride struct {
+	Ports ResetSequence `yaml:"ports"`
+}

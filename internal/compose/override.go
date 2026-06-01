@@ -81,6 +81,39 @@ func WriteOverride(override *Override, path string) error {
 	return os.WriteFile(path, data, 0o644)
 }
 
+// GeneratePortClear returns an override that resets ports for every service
+// that has at least one explicitly published port. This must be applied
+// before the main override so Docker Compose replaces rather than merges.
+func GeneratePortClear(project *ComposeProject) *ClearOverride {
+	clear := &ClearOverride{Services: map[string]ClearServiceOverride{}}
+	for name, svc := range project.Services {
+		for _, port := range svc.Ports {
+			if port.Published != 0 {
+				clear.Services[name] = ClearServiceOverride{Ports: ResetSequence{}}
+				break
+			}
+		}
+	}
+	if len(clear.Services) == 0 {
+		return nil
+	}
+	return clear
+}
+
+func WriteClearOverride(clear *ClearOverride, path string) error {
+	if clear == nil {
+		return fmt.Errorf("clear override is nil")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	data, err := yaml.Marshal(clear)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o644)
+}
+
 func rewritePorts(original []PortMapping, assignments []ports.Assignment) []PortMapping {
 	if len(original) == 0 || len(assignments) == 0 {
 		return nil
