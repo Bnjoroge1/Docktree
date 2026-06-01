@@ -181,3 +181,43 @@ func TestParseUpOptionsDryRunValidateNotMutuallyExclusiveInParser(t *testing.T) 
 		t.Fatal("expected both dryRun and validate to be set")
 	}
 }
+
+func TestParsePortsOptionsAll(t *testing.T) {
+	opts, err := parsePortsOptions([]string{"--all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opts.all {
+		t.Fatal("expected all=true")
+	}
+	if opts.help {
+		t.Fatal("expected help=false")
+	}
+}
+
+func TestParsePortsOptionsShortAll(t *testing.T) {
+	opts, err := parsePortsOptions([]string{"-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opts.all {
+		t.Fatal("expected all=true")
+	}
+}
+
+func TestParsePortsOptionsHelp(t *testing.T) {
+	opts, err := parsePortsOptions([]string{"-h"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opts.help {
+		t.Fatal("expected help=true")
+	}
+}
+
+func TestParsePortsOptionsUnknown(t *testing.T) {
+	_, err := parsePortsOptions([]string{"--unknown"})
+	if err == nil {
+		t.Fatal("expected error for unknown flag")
+	}
+}
