@@ -12,6 +12,7 @@ import (
 type Config struct {
 	Compose    ComposeConfig    `yaml:"compose"`
 	Identity   IdentityConfig   `yaml:"identity"`
+	Worktrees  WorktreesConfig  `yaml:"worktrees"`
 	Setup      SetupConfig      `yaml:"setup"`
 	Shared     ServiceSetConfig `yaml:"shared"`
 	Isolated   ServiceSetConfig `yaml:"isolated"`
@@ -27,6 +28,10 @@ type ComposeConfig struct {
 
 type IdentityConfig struct {
 	ProjectPrefix string `yaml:"project_prefix"`
+}
+
+type WorktreesConfig struct {
+	Root string `yaml:"root"`
 }
 
 type SetupConfig struct {
@@ -66,6 +71,9 @@ func Defaults() Config {
 	return Config{
 		Compose: ComposeConfig{
 			Files: nil,
+		},
+		Worktrees: WorktreesConfig{
+			Root: "../${repo}.worktrees",
 		},
 		Setup: SetupConfig{
 			Copy:    []string{".env"},
@@ -123,6 +131,9 @@ func merge(base *Config, user Config) {
 	}
 	if user.Identity.ProjectPrefix != "" {
 		base.Identity.ProjectPrefix = user.Identity.ProjectPrefix
+	}
+	if user.Worktrees.Root != "" {
+		base.Worktrees.Root = user.Worktrees.Root
 	}
 	if user.Setup.Copy != nil {
 		base.Setup.Copy = user.Setup.Copy
