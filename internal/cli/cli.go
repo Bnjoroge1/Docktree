@@ -359,7 +359,7 @@ func runUp(ctx *Context) (any, int, error) {
 			return nil, output.ExitConflict, err
 		}
 		locked = false
-		override, err := compose.GenerateOverride(project, instanceName, assignments, cfg.Volumes.Share)
+		override, err := compose.GenerateOverride(project, instanceName, assignments, repoRootVolumesShare())
 		if err != nil {
 			return nil, output.ExitConfig, err
 		}
@@ -399,7 +399,7 @@ func runUp(ctx *Context) (any, int, error) {
 	if err := state.UpsertGlobalInstance("", inst); err != nil {
 		return nil, output.ExitConfig, err
 	}
-	return UpResult{Instance: inst, CreatedWorktree: createdWorktree, ComposeFiles: files, OverrideFile: overrideFile, ClearFile: clearFile, Ports: assignments, Services: serviceNames(project), IsolatedVolumes: isolatedVolumes(project, cfg.Volumes.Share), EnvWarnings: envWarnings, Scaffolded: scaffolded, Synced: synced}, output.ExitOK, nil
+	return UpResult{Instance: inst, CreatedWorktree: createdWorktree, ComposeFiles: files, OverrideFile: overrideFile, ClearFile: clearFile, Ports: assignments, Services: serviceNames(project), IsolatedVolumes: isolatedVolumes(project, repoRootVolumesShare()), EnvWarnings: envWarnings, Scaffolded: scaffolded, Synced: synced}, output.ExitOK, nil
 }
 
 func runDown(ctx *Context) (any, int, error) {
@@ -654,8 +654,8 @@ func runValidate(project *compose.ComposeProject, files []string, cfg *config.Co
 		errs = append(errs, fmt.Sprintf("port allocation failed: %v", allocErr))
 	}
 	_ = registry.Unlock()
-	isolated := isolatedVolumes(project, cfg.Volumes.Share)
-	_, overrideErr := compose.GenerateOverride(project, instanceName, assignments, cfg.Volumes.Share)
+	isolated := isolatedVolumes(project, repoRootVolumesShare())
+	_, overrideErr := compose.GenerateOverride(project, instanceName, assignments, repoRootVolumesShare())
 	if overrideErr != nil {
 		errs = append(errs, fmt.Sprintf("override generation failed: %v", overrideErr))
 	}
@@ -692,7 +692,7 @@ func runDryRun(project *compose.ComposeProject, files []string, cfg *config.Conf
 		return nil, output.ExitConflict, err
 	}
 	_ = registry.Unlock()
-	override, err := compose.GenerateOverride(project, instanceName, assignments, cfg.Volumes.Share)
+	override, err := compose.GenerateOverride(project, instanceName, assignments, repoRootVolumesShare())
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
@@ -715,7 +715,7 @@ func runDryRun(project *compose.ComposeProject, files []string, cfg *config.Conf
 		ComposeFiles:    files,
 		Services:        serviceNames(project),
 		Ports:           assignments,
-		IsolatedVolumes: isolatedVolumes(project, cfg.Volumes.Share),
+		IsolatedVolumes: isolatedVolumes(project, repoRootVolumesShare()),
 		EnvWarnings:     envWarnings,
 		OverridePreview: string(overrideYAML),
 		ClearPreview:    clearPreview,
@@ -777,6 +777,18 @@ func slugWorktreeBranch(branch string) string {
 		return "worktree"
 	}
 	return value
+}
+
+func repoRootVolumesShare() []string {
+	mainRoot, err := dockgit.MainRepoRoot()
+	if err != nil {
+		return nil
+	}
+	repoCfg, err := config.Load(mainRoot)
+	if err != nil {
+		return nil
+	}
+	return repoCfg.Volumes.Share
 }
 
 func commonIdentity() (dockgit.RepoInfo, *config.Config, string, error) {
