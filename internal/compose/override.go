@@ -56,7 +56,7 @@ func GenerateOverride(project *ComposeProject, instanceName string, assignments 
 		sharedSet[v] = true
 	}
 	for volName, vol := range project.Volumes {
-		if vol.External && !sharedSet[volName] {
+		if !sharedSet[volName] && (vol.External || vol.Name != "") {
 			external := false
 			override.Volumes[volName] = VolumeOverride{
 				Name:     instanceName + "-" + volName,
