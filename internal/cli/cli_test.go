@@ -4,7 +4,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/bnjoroge/docktree/internal/compose"
 	"github.com/bnjoroge/docktree/internal/config"
+	dockgit "github.com/bnjoroge/docktree/internal/git"
 )
 
 func TestParseComposeRunState(t *testing.T) {
@@ -87,5 +89,72 @@ func TestSlugWorktreeBranch(t *testing.T) {
 	}
 	if got := slugWorktreeBranch("  FIX Bug/123  "); got != "fix-bug-123" {
 		t.Fatalf("slugWorktreeBranch normalized = %q", got)
+	}
+}
+
+func TestParseUpOptionsValidate(t *testing.T) {
+	opts, err := parseUpOptions([]string{"--validate"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opts.validate {
+		t.Fatal("expected validate=true")
+	}
+	if opts.sync || opts.help || opts.create != "" || opts.file != "" {
+		t.Fatal("expected other flags to be zero")
+	}
+}
+
+func TestParseUpOptionsValidateWithSync(t *testing.T) {
+	opts, err := parseUpOptions([]string{"--validate", "--sync"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opts.validate {
+		t.Fatal("expected validate=true")
+	}
+	if !opts.sync {
+		t.Fatal("expected sync=true")
+	}
+}
+
+func TestRunValidateNoServices(t *testing.T) {
+	project := &compose.ComposeProject{Services: map[string]compose.Service{}}
+	cfg := config.Defaults()
+	repo := dockgit.RepoInfo{RepoRoot: "/tmp/Docktree", WorktreeRoot: "/tmp/Docktree", Branch: "main"}
+	result, code, err := runValidate(project, nil, &cfg, repo, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vr := result.(ValidateResult)
+	if vr.Valid {
+		t.Fatal("expected valid=false for no services")
+	}
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d", code)
+	}
+	if len(vr.Errors) == 0 {
+		t.Fatal("expected at least one error")
+	}
+}
+
+func TestRunValidateWithServices(t *testing.T) {
+	project := &compose.ComposeProject{
+		Services: map[string]compose.Service{
+			"web": {Image: "nginx"},
+		},
+	}
+	cfg := config.Defaults()
+	repo := dockgit.RepoInfo{RepoRoot: "/tmp/Docktree", WorktreeRoot: "/tmp/Docktree", Branch: "main"}
+	result, code, err := runValidate(project, nil, &cfg, repo, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vr := result.(ValidateResult)
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d", code)
+	}
+	if len(vr.Services) != 1 || vr.Services[0] != "web" {
+		t.Fatalf("expected services [web], got %v", vr.Services)
 	}
 }

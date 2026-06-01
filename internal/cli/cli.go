@@ -49,6 +49,15 @@ type UpResult struct {
 	AlreadyRunning  bool               `json:"already_running,omitempty"`
 }
 
+type ValidateResult struct {
+	Valid           bool              `json:"valid"`
+	Services       []string          `json:"services"`
+	Ports           []ports.Assignment `json:"ports,omitempty"`
+	IsolatedVolumes []string          `json:"isolated_volumes,omitempty"`
+	EnvWarnings     []compose.Warning `json:"env_warnings,omitempty"`
+	Errors          []string           `json:"errors,omitempty"`
+}
+
 type DownResult struct {
 	Instance       *state.Instance `json:"instance,omitempty"`
 	AlreadyStopped bool            `json:"already_stopped,omitempty"`
@@ -248,6 +257,13 @@ func runUp(ctx *Context) (any, int, error) {
 				return nil, output.ExitConfig, err
 			}
 			if currentHash == inst.ComposeFileHash {
+				if options.validate {
+					project, err := parseAll(files)
+					if err != nil {
+						return ValidateResult{Valid: false, Errors: []string{err.Error()}}, output.ExitOK, nil
+					}
+					return ValidateResult{Valid: true, Services: serviceNames(project), EnvWarnings: envWarnings}, output.ExitOK, nil
+				}
 				return UpResult{Instance: inst, Synced: synced, AlreadyRunning: true}, output.ExitNoop, nil
 			}
 		}
@@ -255,6 +271,9 @@ func runUp(ctx *Context) (any, int, error) {
 	project, err := parseAll(files)
 	if err != nil {
 		return nil, output.ExitConfig, err
+	}
+	if options.validate {
+		return runValidate(project, files, cfg, repo, envWarnings)
 	}
 	portRange, err := ports.ParseRange(cfg.Ports.Range)
 	if err != nil {
@@ -564,6 +583,53 @@ func createPreparedWorktree(repoRoot string, cfg *config.Config, branch string, 
 	return worktreeRoot, nil
 }
 
+func runValidate(project *compose.ComposeProject, files []string, cfg *config.Config, repo dockgit.RepoInfo, envWarnings []compose.Warning) (any, int, error) {
+	var errs []string
+	if len(project.Services) == 0 {
+		errs = append(errs, "no services defined in compose file")
+	}
+	for name, svc := range project.Services {
+		if svc.Build != nil && svc.Build.Context != "" {
+			if _, err := os.Stat(filepath.Join(repo.WorktreeRoot, svc.Build.Context)); err != nil {
+				errs = append(errs, fmt.Sprintf("service %q: build context %q not found", name, svc.Build.Context))
+			}
+		}
+	}
+	instanceName := dockgit.InstanceName(dockgit.RepoName(repo.RepoRoot), dockgit.WorktreeName(repo.Branch, repo.WorktreeRoot), repo.RepoRoot, repo.WorktreeRoot)
+	portRange, err := ports.ParseRange(cfg.Ports.Range)
+	if err != nil {
+		errs = append(errs, fmt.Sprintf("invalid port range %q: %v", cfg.Ports.Range, err))
+		return ValidateResult{Valid: false, Services: serviceNames(project), Errors: errs}, output.ExitOK, nil
+	}
+	registry := ports.NewRegistry()
+	if err := registry.Lock(); err != nil {
+		errs = append(errs, fmt.Sprintf("cannot acquire port registry lock: %v", err))
+		return ValidateResult{Valid: false, Services: serviceNames(project), Errors: errs}, output.ExitOK, nil
+	}
+	assignments, allocErr := registry.Allocate(instanceName, portRequests(project, cfg.Ports.BindHost), portRange)
+	if allocErr != nil {
+		errs = append(errs, fmt.Sprintf("port allocation failed: %v", allocErr))
+	}
+	_ = registry.Unlock()
+	isolated := isolatedVolumes(project, cfg.Volumes.Share)
+	_, overrideErr := compose.GenerateOverride(project, instanceName, assignments, cfg.Volumes.Share)
+	if overrideErr != nil {
+		errs = append(errs, fmt.Sprintf("override generation failed: %v", overrideErr))
+	}
+	clear := compose.GeneratePortClear(project)
+	if clear == nil && len(portRequests(project, cfg.Ports.BindHost)) > 0 {
+		errs = append(errs, "port clear generation returned nil despite having published ports")
+	}
+	return ValidateResult{
+		Valid:           len(errs) == 0,
+		Services:        serviceNames(project),
+		Ports:           assignments,
+		IsolatedVolumes: isolated,
+		EnvWarnings:     envWarnings,
+		Errors:          errs,
+	}, output.ExitOK, nil
+}
+
 func worktreePath(repoRoot string, cfg *config.Config, branch string) (string, error) {
 	repoName := dockgit.RepoName(repoRoot)
 	branchSlug := slugWorktreeBranch(branch)
@@ -855,6 +921,25 @@ func humanRenderer() func(io.Writer, any) {
 				return
 			}
 			fmt.Fprintf(w, "Docktree stopped %s\n", v.Instance.ProjectName)
+		case ValidateResult:
+			if v.Valid {
+				fmt.Fprintf(w, "Docktree config is valid\n")
+				fmt.Fprintf(w, "  Services: %s\n", strings.Join(v.Services, ", "))
+				if len(v.Ports) > 0 {
+					fmt.Fprintln(w, "  Ports:")
+					for _, assignment := range v.Ports {
+						fmt.Fprintf(w, "    %s %s:%d -> %d\n", assignment.Service, assignment.HostIP, assignment.HostPort, assignment.ContainerPort)
+					}
+				}
+				if len(v.IsolatedVolumes) > 0 {
+					fmt.Fprintf(w, "  Isolated volumes: %s\n", strings.Join(v.IsolatedVolumes, ", "))
+				}
+			} else {
+				fmt.Fprintln(w, "Docktree config has errors:")
+				for _, e := range v.Errors {
+					fmt.Fprintf(w, "  - %s\n", e)
+				}
+			}
 		case StatusResult:
 			if v.Stopped {
 				fmt.Fprintln(w, "Docktree is stopped.")
@@ -946,10 +1031,11 @@ type cleanCandidate struct {
 }
 
 type upOptions struct {
-	help   bool
-	file   string
-	create string
-	sync   bool
+	help     bool
+	file     string
+	create   string
+	sync     bool
+	validate bool
 }
 
 type createOptions struct {
@@ -982,6 +1068,8 @@ func parseUpOptions(args []string) (upOptions, error) {
 			options.create = strings.TrimPrefix(arg, "--create=")
 		case arg == "--sync":
 			options.sync = true
+		case arg == "--validate":
+			options.validate = true
 		default:
 			return upOptions{}, fmt.Errorf("unknown up flag %q", arg)
 		}
@@ -999,6 +1087,7 @@ Options:
   -f, --file <path>     Use a specific Compose file
   --create <branch>     Create and prepare a new worktree before starting
   --sync                Run setup copy/symlink/run steps before starting
+  --validate            Check config, ports, and compose validity without starting
   -h, --help            Show this help text`)
 }
 
