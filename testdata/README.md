@@ -9,6 +9,20 @@ testdata/
 ├── docker-compose.yml      # Single small Compose file used by the e2e harness
 │                           # (tests/e2e_test.go copies it into a fake repo).
 │
+├── api/                    # Tiny FastAPI service used by docker-compose.yml
+│   ├── Dockerfile
+│   ├── Dockerfile.dev      # Alternate Dockerfile used by compose-with-build.yml
+│   └── app.py
+├── ui/                     # Tiny nginx static service
+│   ├── Dockerfile
+│   └── index.html
+├── web/                    # Tiny nginx static service (alternate name)
+│   ├── Dockerfile
+│   └── index.html
+├── worker/                 # Tiny long-running worker for compose-with-build.yml
+│   ├── Dockerfile
+│   └── app.py
+│
 ├── compose-variants/       # Hand-crafted minimal fixtures, one per Compose
 │                           # feature or syntax variant. Each file exercises
 │                           # exactly one thing (long-syntax ports, build map,
