@@ -538,7 +538,13 @@ func runCreate(ctx *Context) (any, int, error) {
 }
 
 func createPreparedWorktree(repoRoot string, cfg *config.Config, branch string, stdout, stderr io.Writer) (string, error) {
-	worktreeRoot := filepath.Join(filepath.Dir(repoRoot), dockgit.RepoName(repoRoot)+"."+branch)
+	worktreeRoot, err := worktreePath(repoRoot, cfg, branch)
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(worktreeRoot), 0o755); err != nil {
+		return "", err
+	}
 	cmd := exec.Command("git", "worktree", "add", "-b", branch, worktreeRoot)
 	cmd.Dir = repoRoot
 	cmd.Stdout = stdout
@@ -556,6 +562,63 @@ func createPreparedWorktree(repoRoot string, cfg *config.Config, branch string, 
 		return "", err
 	}
 	return worktreeRoot, nil
+}
+
+func worktreePath(repoRoot string, cfg *config.Config, branch string) (string, error) {
+	repoName := dockgit.RepoName(repoRoot)
+	branchSlug := slugWorktreeBranch(branch)
+	rootTemplate := cfg.Worktrees.Root
+	if rootTemplate == "" {
+		rootTemplate = config.Defaults().Worktrees.Root
+	}
+	replacer := strings.NewReplacer(
+		"${repo}", repoName,
+		"${branch}", branch,
+		"${branch_slug}", branchSlug,
+	)
+	containsBranchVar := strings.Contains(rootTemplate, "${branch}") || strings.Contains(rootTemplate, "${branch_slug}")
+	root := replacer.Replace(rootTemplate)
+	if !filepath.IsAbs(root) {
+		root = filepath.Join(repoRoot, root)
+	}
+	root = filepath.Clean(root)
+	if containsBranchVar {
+		return root, nil
+	}
+	return filepath.Join(root, branchSlug), nil
+}
+
+func slugWorktreeBranch(branch string) string {
+	branch = strings.ToLower(strings.TrimSpace(branch))
+	branch = strings.ReplaceAll(branch, string(filepath.Separator), "-")
+	branch = strings.ReplaceAll(branch, "/", "-")
+	branch = strings.ReplaceAll(branch, "\\", "-")
+	var b strings.Builder
+	lastDash := false
+	for _, r := range branch {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-', r == '_':
+			if r == '-' {
+				if lastDash {
+					continue
+				}
+				lastDash = true
+			} else {
+				lastDash = false
+			}
+			b.WriteRune(r)
+		default:
+			if !lastDash {
+				b.WriteByte('-')
+				lastDash = true
+			}
+		}
+	}
+	value := strings.Trim(b.String(), "-_")
+	if value == "" {
+		return "worktree"
+	}
+	return value
 }
 
 func commonIdentity() (dockgit.RepoInfo, *config.Config, string, error) {

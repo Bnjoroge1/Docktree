@@ -23,6 +23,9 @@ func TestLoadMissingUsesDefaults(t *testing.T) {
 	if cfg.Compose.Files != nil {
 		t.Fatalf("compose files default should mean auto-detect, got %#v", cfg.Compose.Files)
 	}
+	if cfg.Worktrees.Root != "../${repo}.worktrees" {
+		t.Fatalf("unexpected default worktrees.root: %q", cfg.Worktrees.Root)
+	}
 }
 
 func TestLoadMergesPartialConfig(t *testing.T) {
@@ -40,6 +43,24 @@ func TestLoadMergesPartialConfig(t *testing.T) {
 	}
 	if cfg.Ports.BindHost != "127.0.0.1" || cfg.State.Directory != ".docktree" {
 		t.Fatalf("defaults not merged: %#v", cfg)
+	}
+	if cfg.Worktrees.Root != "../${repo}.worktrees" {
+		t.Fatalf("default worktrees.root not merged: %q", cfg.Worktrees.Root)
+	}
+}
+
+func TestLoadMergesWorktreesConfig(t *testing.T) {
+	dir := t.TempDir()
+	err := os.WriteFile(filepath.Join(dir, "docktree.yml"), []byte("worktrees:\n  root: ./.worktrees\n"), 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Worktrees.Root != "./.worktrees" {
+		t.Fatalf("worktrees.root not loaded: %q", cfg.Worktrees.Root)
 	}
 }
 
