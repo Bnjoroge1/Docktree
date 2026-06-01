@@ -158,3 +158,26 @@ func TestRunValidateWithServices(t *testing.T) {
 		t.Fatalf("expected services [web], got %v", vr.Services)
 	}
 }
+
+func TestParseUpOptionsDryRun(t *testing.T) {
+	opts, err := parseUpOptions([]string{"--dry-run"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opts.dryRun {
+		t.Fatal("expected dryRun=true")
+	}
+	if opts.validate || opts.sync || opts.help || opts.create != "" || opts.file != "" {
+		t.Fatal("expected other flags to be zero")
+	}
+}
+
+func TestParseUpOptionsDryRunValidateNotMutuallyExclusiveInParser(t *testing.T) {
+	opts, err := parseUpOptions([]string{"--dry-run", "--validate"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opts.dryRun || !opts.validate {
+		t.Fatal("expected both dryRun and validate to be set")
+	}
+}
