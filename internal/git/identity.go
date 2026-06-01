@@ -169,6 +169,21 @@ func parseWorktreeList(out string) []WorktreeInfo {
 	return entries
 }
 
+// MainRepoRoot returns the path to the main repository root.
+// If the current directory is inside a linked worktree, it returns
+// the main worktree's root. Otherwise it returns the current repo root.
+func MainRepoRoot() (string, error) {
+	out, err := gitOutput("worktree", "list", "--porcelain")
+	if err != nil {
+		return "", err
+	}
+	entries := parseWorktreeList(out)
+	if len(entries) == 0 {
+		return gitOutput("rev-parse", "--show-toplevel")
+	}
+	return entries[0].Path, nil
+}
+
 func samePath(a, b string) bool {
 	aa, errA := filepath.EvalSymlinks(a)
 	bb, errB := filepath.EvalSymlinks(b)

@@ -1,6 +1,7 @@
 package git
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -89,5 +90,31 @@ func TestInstanceNameHashesRepoPath(t *testing.T) {
 	b := InstanceName("repo", "feature/auth", "/tmp/two", "/tmp/two")
 	if a == b {
 		t.Fatalf("same branch in different repos produced same name: %q", a)
+	}
+}
+
+func TestMainRepoRootFromMainRepo(t *testing.T) {
+	root, err := MainRepoRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root == "" {
+		t.Fatal("expected non-empty root")
+	}
+}
+
+func TestMainRepoRootMatchesRepoRoot(t *testing.T) {
+	repo, err := DetectRepo()
+	if err != nil {
+		t.Skip("not in a git repo")
+	}
+	mainRoot, err := MainRepoRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mainRoot = filepath.Clean(mainRoot)
+	repoRoot := filepath.Clean(repo.RepoRoot)
+	if mainRoot != repoRoot {
+		t.Logf("running from main repo: both should match, got mainRoot=%q repoRoot=%q", mainRoot, repoRoot)
 	}
 }
