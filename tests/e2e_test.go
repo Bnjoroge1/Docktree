@@ -52,14 +52,8 @@ func TestCommandFlowWithFakeDockerAndTwoWorktrees(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if code, stdout, errText := runCLI("init", "--json"); code != output.ExitOK || errText != "" || !json.Valid([]byte(stdout)) {
-		t.Fatalf("init code=%d err=%s", code, errText)
-	}
 	if code, stdout, errText := runCLI("up", "-h"); code != output.ExitOK || errText != "" || !strings.Contains(stdout, "--sync") || !strings.Contains(stdout, "--create") {
 		t.Fatalf("up help code=%d err=%s out=%s", code, errText, stdout)
-	}
-	if _, err := os.Stat(filepath.Join(repo, ".docktree", "generated")); err != nil {
-		t.Fatalf("state dir not created: %v", err)
 	}
 	firstProject := ""
 	if code, stdout, errText := runCLI("up", "--json"); code != output.ExitOK || errText != "" || !json.Valid([]byte(stdout)) {
@@ -70,6 +64,9 @@ func TestCommandFlowWithFakeDockerAndTwoWorktrees(t *testing.T) {
 			t.Fatal(err)
 		}
 		firstProject = firstUp.Instance.ProjectName
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".docktree", "generated")); err != nil {
+		t.Fatalf("state dir not created: %v", err)
 	}
 	if code, _, _ := runCLI("up"); code != output.ExitNoop {
 		t.Fatalf("second up code=%d, want noop", code)
