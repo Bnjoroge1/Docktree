@@ -1,0 +1,19 @@
+compose:
+    files:
+      - testdata/compose-basic.yml
+      - testdata/compose-complex-ports.yml
+setup:
+    copy:
+        - .env
+    symlink:
+        - node_modules
+ports:
+    mode: dynamic
+    bind_host: 127.0.0.1
+    range: 41000-49999
+transforms:
+    container_name: strip
+    built_image: rewrite
+    docker_socket: warn
+state:
+    directory: .docktree
