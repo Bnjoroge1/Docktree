@@ -142,6 +142,46 @@ services:
 	}
 }
 
+func TestLoadProjectDedupesIdenticalPortsAcrossFiles(t *testing.T) {
+	dir := t.TempDir()
+	base := filepath.Join(dir, "compose.yml")
+	extra := filepath.Join(dir, "extra.yml")
+	// Same service publishes the same host:container port in both files,
+	// one via short syntax and one via long syntax. Compose merge concatenates
+	// the port arrays; Docktree must collapse the exact duplicate so the
+	// generated override is not rejected for non-unique ports.
+	if err := os.WriteFile(base, []byte(`
+services:
+  db:
+    image: postgres:15-alpine
+    ports:
+      - "127.0.0.1:5432:5432"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(extra, []byte(`
+services:
+  db:
+    ports:
+      - target: 5432
+        published: 5432
+        host_ip: 127.0.0.1
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	project, err := LoadProject([]string{base, extra})
+	if err != nil {
+		t.Fatal(err)
+	}
+	db := project.Services["db"]
+	if len(db.Ports) != 1 {
+		t.Fatalf("ports = %#v, want 1 deduped entry", db.Ports)
+	}
+	if db.Ports[0].Target != 5432 || db.Ports[0].Published != 5432 || db.Ports[0].HostIP != "127.0.0.1" {
+		t.Fatalf("port = %#v, want 127.0.0.1:5432:5432", db.Ports[0])
+	}
+}
+
 func TestFindComposeFilesRespectsEnv(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("COMPOSE_FILE", "a.yml:b.yml")

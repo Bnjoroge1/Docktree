@@ -69,6 +69,11 @@ func convertService(svc composetypes.ServiceConfig) Service {
 	if svc.Build != nil {
 		converted.Build = &BuildConfig{Context: svc.Build.Context}
 	}
+	// Merging multiple compose files concatenates port arrays rather than
+	// deduping, so two files publishing the same host:container port for one
+	// service yield identical PortMappings. Collapse exact duplicates here so
+	// the generated override stays valid (Compose rejects non-unique ports).
+	seenPorts := map[PortMapping]bool{}
 	for _, port := range svc.Ports {
 		published := 0
 		if port.Published != "" {
@@ -76,12 +81,17 @@ func convertService(svc composetypes.ServiceConfig) Service {
 				published = parsed
 			}
 		}
-		converted.Ports = append(converted.Ports, PortMapping{
+		mapping := PortMapping{
 			Target:    int(port.Target),
 			Published: published,
 			HostIP:    port.HostIP,
 			Protocol:  normalizeProtocol(port.Protocol),
-		})
+		}
+		if seenPorts[mapping] {
+			continue
+		}
+		seenPorts[mapping] = true
+		converted.Ports = append(converted.Ports, mapping)
 	}
 	for key, value := range svc.Environment {
 		if value == nil {
