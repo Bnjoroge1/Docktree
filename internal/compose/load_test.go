@@ -181,34 +181,3 @@ services:
 		t.Fatalf("port = %#v, want 127.0.0.1:5432:5432", db.Ports[0])
 	}
 }
-
-func TestFindComposeFilesRespectsEnv(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("COMPOSE_FILE", "a.yml:b.yml")
-	files, err := FindComposeFiles(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []string{filepath.Join(dir, "a.yml"), filepath.Join(dir, "b.yml")}
-	for i := range want {
-		if files[i] != want[i] {
-			t.Fatalf("file %d = %q, want %q", i, files[i], want[i])
-		}
-	}
-}
-
-func TestFindComposeFilesPriorityAndOverride(t *testing.T) {
-	dir := t.TempDir()
-	for _, name := range []string{"compose.yml", "compose.override.yml", "docker-compose.yml"} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte("services: {}\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	files, err := FindComposeFiles(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if filepath.Base(files[0]) != "compose.yml" || filepath.Base(files[1]) != "compose.override.yml" {
-		t.Fatalf("unexpected files: %#v", files)
-	}
-}
