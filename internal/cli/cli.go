@@ -77,6 +77,24 @@ type DryRunResult struct {
 type DownResult struct {
 	Instance       *state.Instance `json:"instance,omitempty"`
 	AlreadyStopped bool            `json:"already_stopped,omitempty"`
+	DryRun         bool            `json:"dry_run,omitempty"`
+	Services       []string        `json:"services,omitempty"`
+	ComposeFiles   []string        `json:"compose_files,omitempty"`
+}
+
+type StopResult struct {
+	Instance       *state.Instance `json:"instance,omitempty"`
+	AlreadyStopped bool            `json:"already_stopped,omitempty"`
+	DryRun         bool            `json:"dry_run,omitempty"`
+	Services       []string        `json:"services,omitempty"`
+	ComposeFiles   []string        `json:"compose_files,omitempty"`
+}
+
+type ComposePassthroughResult struct {
+	Project      string   `json:"project"`
+	ComposeFiles []string `json:"compose_files"`
+	Subcommand   string   `json:"subcommand"`
+	Args         []string `json:"args,omitempty"`
 }
 
 type StatusResult struct {
@@ -167,6 +185,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	var result any
 	var code int
 	var err error
+
 	switch rest[0] {
 	case "help", "-h", "--help":
 		printHelp(stdout)
@@ -178,20 +197,25 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		result, code, err = runWithProgress(ctx, runUp)
 	case "down":
 		result, code, err = runWithProgress(ctx, runDown)
-	case "clean":
-		result, code, err = runClean(ctx)
-	case "create":
-		result, code, err = runCreate(ctx)
-	case "status":
-		result, code, err = runStatus(ctx)
-	case "ports":
-		result, code, err = runPorts(ctx)
-	case "prepare":
-		result, code, err = runPrepare(ctx)
 	default:
-		fmt.Fprintf(stderr, "unknown command %q\n\n", rest[0])
-		printHelp(stderr)
-		return output.ExitUsage
+		commands := map[string]commandFunc{
+			"stop":    runStop,
+			"logs":    runLogs,
+			"exec":    runExec,
+			"run":     runComposeRun,
+			"status":  runStatus,
+			"ports":   runPorts,
+			"clean":   runClean,
+			"create":  runCreate,
+			"prepare": runPrepare,
+		}
+		fn, ok := commands[rest[0]]
+		if !ok {
+			fmt.Fprintf(stderr, "unknown command %q\n\n", rest[0])
+			printHelp(stderr)
+			return output.ExitUsage
+		}
+		result, code, err = fn(ctx)
 	}
 	if err != nil {
 		target := renderer
@@ -500,6 +524,14 @@ func runUp(ctx *Context) (any, int, error) {
 }
 
 func runDown(ctx *Context) (any, int, error) {
+	options, err := parseDownOptions(ctx.Args[1:])
+	if err != nil {
+		return nil, output.ExitUsage, err
+	}
+	if options.help {
+		printDownHelp(ctx.Stdout)
+		return nil, output.ExitOK, nil
+	}
 	repo, err := dockgit.DetectRepo()
 	if err != nil {
 		return nil, output.ExitConfig, err
@@ -515,6 +547,23 @@ func runDown(ctx *Context) (any, int, error) {
 	}
 	if err != nil {
 		return nil, output.ExitConfig, err
+	}
+	composeFiles := activeComposeFiles(repo.WorktreeRoot, cfg, inst)
+	if options.dryRun {
+		services := options.services
+		if len(services) == 0 {
+			project, err := parseAll(composeFiles)
+			if err != nil {
+				return nil, output.ExitConfig, err
+			}
+			services = serviceNames(project)
+		}
+		return DownResult{
+			Instance:     inst,
+			DryRun:       true,
+			Services:     services,
+			ComposeFiles: composeFiles,
+		}, output.ExitOK, nil
 	}
 	runningState, err := composeRunStateForInstance(inst, cfg)
 	if err != nil {
@@ -534,7 +583,11 @@ func runDown(ctx *Context) (any, int, error) {
 	if ctx.Renderer.JSON {
 		dockerStdout = io.Discard
 	}
-	cmd := docker.ComposeCommand{ProjectName: inst.ProjectName, Files: activeComposeFiles(repo.WorktreeRoot, cfg, inst), CommandArgs: []string{"down"}}
+	downArgs := []string{"down"}
+	if len(options.services) > 0 {
+		downArgs = append(downArgs, options.services...)
+	}
+	cmd := docker.ComposeCommand{ProjectName: inst.ProjectName, Files: composeFiles, CommandArgs: downArgs}
 	var spin *tui.SpinStep
 	if steps != nil {
 		spin = steps.StartSpin("docker compose down")
@@ -555,7 +608,180 @@ func runDown(ctx *Context) (any, int, error) {
 	if err := state.UpsertGlobalInstance("", inst); err != nil {
 		return nil, output.ExitConfig, err
 	}
-	return DownResult{Instance: inst}, output.ExitOK, nil
+	services := options.services
+	if len(services) == 0 {
+		services = []string{"all"}
+	}
+	return DownResult{Instance: inst, Services: services}, output.ExitOK, nil
+}
+
+func runStop(ctx *Context) (any, int, error) {
+	options, err := parseStopOptions(ctx.Args[1:])
+	if err != nil {
+		return nil, output.ExitUsage, err
+	}
+	if options.help {
+		printStopHelp(ctx.Stdout)
+		return nil, output.ExitOK, nil
+	}
+	repo, err := dockgit.DetectRepo()
+	if err != nil {
+		return nil, output.ExitConfig, err
+	}
+	cfg, err := config.Load(repo.RepoRoot)
+	if err != nil {
+		return nil, output.ExitConfig, err
+	}
+	stateDir := state.StatePath(repo.WorktreeRoot, cfg.State.Directory)
+	inst, err := state.LoadInstance(stateDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return StopResult{AlreadyStopped: true}, output.ExitNoop, nil
+	}
+	if err != nil {
+		return nil, output.ExitConfig, err
+	}
+	composeFiles := activeComposeFiles(repo.WorktreeRoot, cfg, inst)
+	if options.dryRun {
+		services := options.services
+		if len(services) == 0 {
+			project, err := parseAll(composeFiles)
+			if err != nil {
+				return nil, output.ExitConfig, err
+			}
+			services = serviceNames(project)
+		}
+		return StopResult{
+			Instance:     inst,
+			DryRun:       true,
+			Services:     services,
+			ComposeFiles: composeFiles,
+		}, output.ExitOK, nil
+	}
+	runningState, err := composeRunStateForInstance(inst, cfg)
+	if err != nil {
+		return nil, output.ExitDocker, err
+	}
+	if runningState == composeRunStopped {
+		return StopResult{Instance: inst, AlreadyStopped: true}, output.ExitNoop, nil
+	}
+	if runningState == composeRunUnknown {
+		return nil, output.ExitDocker, fmt.Errorf("unable to determine whether %s is running", inst.ProjectName)
+	}
+	stopArgs := []string{"stop"}
+	if len(options.services) > 0 {
+		stopArgs = append(stopArgs, options.services...)
+	}
+	dockerStdout := ctx.Stdout
+	if ctx.Renderer.JSON {
+		dockerStdout = io.Discard
+	}
+	cmd := docker.ComposeCommand{ProjectName: inst.ProjectName, Files: composeFiles, CommandArgs: stopArgs}
+	if err := docker.Run(cmd, dockerStdout, ctx.Stderr); err != nil {
+		return nil, output.ExitDocker, err
+	}
+	inst.LastActiveAt = time.Now().UTC()
+	if err := state.SaveInstance(stateDir, inst); err != nil {
+		return nil, output.ExitConfig, err
+	}
+	if err := state.UpsertGlobalInstance("", inst); err != nil {
+		return nil, output.ExitConfig, err
+	}
+	services := options.services
+	if len(services) == 0 {
+		services = []string{"all"}
+	}
+	return StopResult{Instance: inst, Services: services}, output.ExitOK, nil
+}
+
+func runComposePassthrough(ctx *Context, subcommand string, args []string, helpFn func(io.Writer)) (any, int, error) {
+	if len(args) == 0 || (len(args) == 1 && (args[0] == "-h" || args[0] == "--help")) {
+		helpFn(ctx.Stdout)
+		return nil, output.ExitOK, nil
+	}
+	repo, err := dockgit.DetectRepo()
+	if err != nil {
+		return nil, output.ExitConfig, err
+	}
+	cfg, err := config.Load(repo.RepoRoot)
+	if err != nil {
+		return nil, output.ExitConfig, err
+	}
+	stateDir := state.StatePath(repo.WorktreeRoot, cfg.State.Directory)
+	inst, err := state.LoadInstance(stateDir)
+	if err != nil {
+		return nil, output.ExitConfig, err
+	}
+	composeFiles := activeComposeFiles(repo.WorktreeRoot, cfg, inst)
+	composeArgs := append([]string{subcommand}, args...)
+	cmd := docker.ComposeCommand{
+		ProjectName: inst.ProjectName,
+		Files:       composeFiles,
+		CommandArgs: composeArgs,
+	}
+	if err := docker.Run(cmd, ctx.Stdout, ctx.Stderr); err != nil {
+		return ComposePassthroughResult{
+			Project:      inst.ProjectName,
+			ComposeFiles: composeFiles,
+			Subcommand:   subcommand,
+			Args:         args,
+		}, output.ExitDocker, err
+	}
+	return ComposePassthroughResult{
+		Project:      inst.ProjectName,
+		ComposeFiles: composeFiles,
+		Subcommand:   subcommand,
+		Args:         args,
+	}, output.ExitOK, nil
+}
+
+func runLogs(ctx *Context) (any, int, error) {
+	return runComposePassthrough(ctx, "logs", ctx.Args[1:], printLogsHelp)
+}
+
+func runExec(ctx *Context) (any, int, error) {
+	return runComposePassthrough(ctx, "exec", ctx.Args[1:], printExecHelp)
+}
+
+func runComposeRun(ctx *Context) (any, int, error) {
+	args := ctx.Args[1:]
+	if len(args) == 0 || (len(args) == 1 && (args[0] == "-h" || args[0] == "--help")) {
+		printRunHelp(ctx.Stdout)
+		return nil, output.ExitOK, nil
+	}
+	repo, err := dockgit.DetectRepo()
+	if err != nil {
+		return nil, output.ExitConfig, err
+	}
+	cfg, err := config.Load(repo.RepoRoot)
+	if err != nil {
+		return nil, output.ExitConfig, err
+	}
+	stateDir := state.StatePath(repo.WorktreeRoot, cfg.State.Directory)
+	inst, err := state.LoadInstance(stateDir)
+	if err != nil {
+		return nil, output.ExitConfig, err
+	}
+	composeFiles := activeComposeFiles(repo.WorktreeRoot, cfg, inst)
+	composeArgs := append([]string{"run", "--rm"}, args...)
+	cmd := docker.ComposeCommand{
+		ProjectName: inst.ProjectName,
+		Files:       composeFiles,
+		CommandArgs: composeArgs,
+	}
+	if err := docker.Run(cmd, ctx.Stdout, ctx.Stderr); err != nil {
+		return ComposePassthroughResult{
+			Project:      inst.ProjectName,
+			ComposeFiles: composeFiles,
+			Subcommand:   "run",
+			Args:         args,
+		}, output.ExitDocker, err
+	}
+	return ComposePassthroughResult{
+		Project:      inst.ProjectName,
+		ComposeFiles: composeFiles,
+		Subcommand:   "run",
+		Args:         args,
+	}, output.ExitOK, nil
 }
 
 func runStatus(ctx *Context) (any, int, error) {
@@ -1269,13 +1495,39 @@ func humanRenderer() func(io.Writer, any) {
 				}
 				return
 			}
-			fmt.Fprintf(w, "%s Stopped %s\n",
-				tui.OKS("✓"), tui.AccentS(v.Instance.ProjectName))
-			fmt.Fprintln(w)
-			fmt.Fprintf(w, "%s %s%s\n",
-				tui.DimS("Volumes preserved. Same ports on next"),
-				tui.AccentS("docktree up"),
-				tui.DimS("."))
+			if v.DryRun {
+				fmt.Fprintf(w, "Docktree dry run - would stop %s\n", v.Instance.ProjectName)
+				fmt.Fprintf(w, "  Services: %s\n", strings.Join(v.Services, ", "))
+				fmt.Fprintf(w, "  Compose files:\n")
+				for _, f := range v.ComposeFiles {
+					fmt.Fprintf(w, "    %s\n", f)
+				}
+				return
+			}
+			fmt.Fprintf(w, "Docktree stopped %s\n", v.Instance.ProjectName)
+			if len(v.Services) > 0 {
+				fmt.Fprintf(w, "  Services: %s\n", strings.Join(v.Services, ", "))
+			}
+		case StopResult:
+			if v.AlreadyStopped {
+				fmt.Fprintln(w, "Docktree is already stopped.")
+				return
+			}
+			if v.DryRun {
+				fmt.Fprintf(w, "Docktree dry run - would stop %s (containers only, not removed)\n", v.Instance.ProjectName)
+				fmt.Fprintf(w, "  Services: %s\n", strings.Join(v.Services, ", "))
+				fmt.Fprintf(w, "  Compose files:\n")
+				for _, f := range v.ComposeFiles {
+					fmt.Fprintf(w, "    %s\n", f)
+				}
+				return
+			}
+			fmt.Fprintf(w, "Docktree stopped %s (containers only, not removed)\n", v.Instance.ProjectName)
+			if len(v.Services) > 0 {
+				fmt.Fprintf(w, "  Services: %s\n", strings.Join(v.Services, ", "))
+			}
+		case ComposePassthroughResult:
+			// Output already streamed by docker compose; nothing to render in human mode.
 		case ValidateResult:
 			if v.Valid {
 				fmt.Fprintf(w, "%s %s\n", tui.BrandS("Docktree"), tui.OKS("config is valid"))
@@ -1649,9 +1901,13 @@ func printHelp(w io.Writer) {
 	fmt.Fprintf(w, "%s\n", tui.TextS("Commands:"))
 	printHelpCmd(w, maxCmd, "create", "Create a worktree and prepare its local Docker setup")
 	printHelpCmd(w, maxCmd, "up", "Start the current worktree's Compose project (or --create <branch>)")
-	printHelpCmd(w, maxCmd, "down", "Stop the current worktree's Compose project")
+	printHelpCmd(w, maxCmd, "down", "Stop the current worktree's Compose project (or specific services)")
+	printHelpCmd(w, maxCmd, "stop", "Stop running containers without removing them")
+	printHelpCmd(w, maxCmd, "logs", "Pass through to docker compose logs")
+	printHelpCmd(w, maxCmd, "exec", "Pass through to docker compose exec")
+	printHelpCmd(w, maxCmd, "run", "Pass through to docker compose run --rm")
 	printHelpCmd(w, maxCmd, "status", "Show managed worktree services")
-	printHelpCmd(w, maxCmd, "ports", "Show allocated host ports")
+	printHelpCmd(w, maxCmd, "ports", "Show allocated host ports (use --all for all worktrees)")
 	printHelpCmd(w, maxCmd, "prepare", "Prepare the current worktree's local Docker setup")
 	printHelpCmd(w, maxCmd, "clean", "Remove stale Docktree-managed resources")
 	printHelpCmd(w, maxCmd, "help", "Show this help text")
@@ -1707,6 +1963,128 @@ type cleanCandidate struct {
 	Resources  docker.ProjectResources
 	Instance   *state.Instance
 	StateFound bool
+}
+type downOptions struct {
+	help     bool
+	dryRun   bool
+	services []string
+}
+
+func parseDownOptions(args []string) (downOptions, error) {
+	var options downOptions
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "-h" || arg == "--help":
+			options.help = true
+			return options, nil
+		case arg == "--dry-run":
+			options.dryRun = true
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return downOptions{}, fmt.Errorf("unknown down flag %q", arg)
+			}
+			options.services = append(options.services, arg)
+		}
+	}
+	return options, nil
+}
+
+func printDownHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree down [options] [service...]
+
+Stop the current worktree's Compose project, or specific services.
+
+Options:
+  --dry-run    Show what would be stopped without making changes
+  -h, --help   Show this help text
+
+Arguments:
+  service      One or more service names to stop (default: all services)`)
+}
+
+type stopOptions struct {
+	help     bool
+	dryRun   bool
+	services []string
+}
+
+func parseStopOptions(args []string) (stopOptions, error) {
+	var options stopOptions
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "-h" || arg == "--help":
+			options.help = true
+			return options, nil
+		case arg == "--dry-run":
+			options.dryRun = true
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return stopOptions{}, fmt.Errorf("unknown stop flag %q", arg)
+			}
+			options.services = append(options.services, arg)
+		}
+	}
+	return options, nil
+}
+
+func printStopHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree stop [options] [service...]
+
+Stop running containers without removing them (unlike down).
+
+Options:
+  --dry-run    Show what would be stopped without making changes
+  -h, --help   Show this help text
+
+Arguments:
+  service      One or more service names to stop (default: all services)`)
+}
+
+func printLogsHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree logs [options] [service...]
+
+Pass through to docker compose logs with the current worktree's project context.
+
+Options and arguments are passed through directly to docker compose logs.
+Common options: --follow (-f), --tail N, --since, --timestamps
+
+Examples:
+  docktree logs                  # tail all services
+  docktree logs api             # tail the api service
+  docktree logs api --tail 50   # last 50 lines
+  docktree logs -f db            # follow db logs`)
+}
+
+func printExecHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree exec <service> -- <command> [args...]
+
+Pass through to docker compose exec with the current worktree's project context.
+Options and arguments are passed through directly to docker compose exec.
+
+Examples:
+  docktree exec db -- psql -U postgres
+  docktree exec api -- sh
+  docktree exec --index 1 api -- bash`)
+}
+
+func printRunHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree run [options] <service> -- <command> [args...]
+
+Pass through to docker compose run --rm with the current worktree's project context.
+Containers are removed after the command exits (--rm is always included).
+Options and arguments are passed through directly to docker compose run.
+
+Examples:
+  docktree run api -- rake db:migrate
+  docktree run db -- psql -U postgres
+  docktree run --no-deps api -- rspec`)
 }
 
 type upOptions struct {
