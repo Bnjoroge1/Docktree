@@ -341,6 +341,18 @@ func runUp(ctx *Context) (any, int, error) {
 			return nil, output.ExitConfig, err
 		}
 	}
+	project, err := parseAll(files)
+	if err != nil {
+		return nil, output.ExitConfig, err
+	}
+	// validate and dry-run are read-only previews: handle them before the
+	// already-running short-circuit so they work whether or not the stack is up.
+	if options.validate {
+		return runValidate(project, files, cfg, repo, envWarnings)
+	}
+	if options.dryRun {
+		return runDryRun(project, files, cfg, repo, instanceName, envWarnings)
+	}
 	if inst != nil {
 		runningState, err := composeRunStateForInstance(inst, cfg)
 		if err != nil {
@@ -352,27 +364,10 @@ func runUp(ctx *Context) (any, int, error) {
 				return nil, output.ExitConfig, err
 			}
 			if currentHash == inst.ComposeFileHash {
-				if options.validate {
-					project, err := parseAll(files)
-					if err != nil {
-						return ValidateResult{Valid: false, Errors: []string{err.Error()}}, output.ExitOK, nil
-					}
-					return ValidateResult{Valid: true, Services: serviceNames(project), EnvWarnings: envWarnings}, output.ExitOK, nil
-				}
 				all, _ := ports.NewRegistry().Load()
-					return UpResult{Instance: inst, Synced: synced, AlreadyRunning: true, Ports: all[instanceName]}, output.ExitNoop, nil
+				return UpResult{Instance: inst, Synced: synced, AlreadyRunning: true, Ports: all[instanceName]}, output.ExitNoop, nil
 			}
 		}
-	}
-	project, err := parseAll(files)
-	if err != nil {
-		return nil, output.ExitConfig, err
-	}
-	if options.validate {
-		return runValidate(project, files, cfg, repo, envWarnings)
-	}
-	if options.dryRun {
-		return runDryRun(project, files, cfg, repo, instanceName, envWarnings)
 	}
 	portRange, err := ports.ParseRange(cfg.Ports.Range)
 	if err != nil {
@@ -762,7 +757,13 @@ func runValidate(project *compose.ComposeProject, files []string, cfg *config.Co
 	}
 	for name, svc := range project.Services {
 		if svc.Build != nil && svc.Build.Context != "" {
-			if _, err := os.Stat(filepath.Join(repo.WorktreeRoot, svc.Build.Context)); err != nil {
+			// compose-go resolves build.context to an absolute path; only join
+			// with the worktree root when it's still relative.
+			ctxPath := svc.Build.Context
+			if !filepath.IsAbs(ctxPath) {
+				ctxPath = filepath.Join(repo.WorktreeRoot, ctxPath)
+			}
+			if _, err := os.Stat(ctxPath); err != nil {
 				errs = append(errs, fmt.Sprintf("service %q: build context %q not found", name, svc.Build.Context))
 			}
 		}
@@ -778,9 +779,16 @@ func runValidate(project *compose.ComposeProject, files []string, cfg *config.Co
 		errs = append(errs, fmt.Sprintf("cannot acquire port registry lock: %v", err))
 		return ValidateResult{Valid: false, Services: serviceNames(project), Errors: errs}, output.ExitOK, nil
 	}
+	existing, _ := registry.Load()
+	hadAllocation := len(existing[instanceName]) > 0
 	assignments, allocErr := registry.Allocate(instanceName, portRequests(project, cfg.Ports.BindHost), portRange)
 	if allocErr != nil {
 		errs = append(errs, fmt.Sprintf("port allocation failed: %v", allocErr))
+	}
+	// validate is a read-only preview: don't leave a reservation behind for an
+	// instance that wasn't already allocated.
+	if !hadAllocation && allocErr == nil {
+		_ = registry.Release(instanceName)
 	}
 	_ = registry.Unlock()
 	isolated := isolatedVolumes(project, repoRootVolumesShare())
@@ -811,14 +819,20 @@ func runDryRun(project *compose.ComposeProject, files []string, cfg *config.Conf
 	if err := registry.Lock(); err != nil {
 		return nil, output.ExitConflict, fmt.Errorf("cannot acquire port registry lock: %v", err)
 	}
+	existing, _ := registry.Load()
+	hadAllocation := len(existing[instanceName]) > 0
 	assignments, err := registry.Allocate(instanceName, portRequests(project, cfg.Ports.BindHost), portRange)
 	if err != nil {
 		_ = registry.Unlock()
 		return nil, output.ExitConflict, err
 	}
-	if err := registry.Release(instanceName); err != nil {
-		_ = registry.Unlock()
-		return nil, output.ExitConflict, err
+	// Dry-run must not disturb the registry. Only undo an allocation the
+	// dry-run itself created; never release a running instance's reservations.
+	if !hadAllocation {
+		if err := registry.Release(instanceName); err != nil {
+			_ = registry.Unlock()
+			return nil, output.ExitConflict, err
+		}
 	}
 	_ = registry.Unlock()
 	override, err := compose.GenerateOverride(project, instanceName, assignments, repoRootVolumesShare())
