@@ -80,6 +80,14 @@ type DownResult struct {
 	ComposeFiles   []string        `json:"compose_files,omitempty"`
 }
 
+type StopResult struct {
+	Instance       *state.Instance `json:"instance,omitempty"`
+	AlreadyStopped bool            `json:"already_stopped,omitempty"`
+	DryRun         bool            `json:"dry_run,omitempty"`
+	Services       []string        `json:"services,omitempty"`
+	ComposeFiles   []string        `json:"compose_files,omitempty"`
+}
+
 type StatusResult struct {
 	Instance *state.Instance `json:"instance,omitempty"`
 	Raw      json.RawMessage `json:"raw,omitempty"`
@@ -153,6 +161,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		"up":      runUp,
 		"create":  runCreate,
 		"down":    runDown,
+		"stop":    runStop,
 		"status":  runStatus,
 		"ports":   runPorts,
 		"clean":   runClean,
@@ -481,6 +490,84 @@ func runDown(ctx *Context) (any, int, error) {
 		services = []string{"all"}
 	}
 	return DownResult{Instance: inst, Services: services}, output.ExitOK, nil
+}
+
+func runStop(ctx *Context) (any, int, error) {
+	options, err := parseStopOptions(ctx.Args[1:])
+	if err != nil {
+		return nil, output.ExitUsage, err
+	}
+	if options.help {
+		printStopHelp(ctx.Stdout)
+		return nil, output.ExitOK, nil
+	}
+	repo, err := dockgit.DetectRepo()
+	if err != nil {
+		return nil, output.ExitConfig, err
+	}
+	cfg, err := config.Load(repo.RepoRoot)
+	if err != nil {
+		return nil, output.ExitConfig, err
+	}
+	stateDir := state.StatePath(repo.WorktreeRoot, cfg.State.Directory)
+	inst, err := state.LoadInstance(stateDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return StopResult{AlreadyStopped: true}, output.ExitNoop, nil
+	}
+	if err != nil {
+		return nil, output.ExitConfig, err
+	}
+	composeFiles := activeComposeFiles(repo.WorktreeRoot, cfg, inst)
+	if options.dryRun {
+		services := options.services
+		if len(services) == 0 {
+			project, err := parseAll(composeFiles)
+			if err != nil {
+				return nil, output.ExitConfig, err
+			}
+			services = serviceNames(project)
+		}
+		return StopResult{
+			Instance:     inst,
+			DryRun:       true,
+			Services:     services,
+			ComposeFiles: composeFiles,
+		}, output.ExitOK, nil
+	}
+	runningState, err := composeRunStateForInstance(inst, cfg)
+	if err != nil {
+		return nil, output.ExitDocker, err
+	}
+	if runningState == composeRunStopped {
+		return StopResult{Instance: inst, AlreadyStopped: true}, output.ExitNoop, nil
+	}
+	if runningState == composeRunUnknown {
+		return nil, output.ExitDocker, fmt.Errorf("unable to determine whether %s is running", inst.ProjectName)
+	}
+	stopArgs := []string{"stop"}
+	if len(options.services) > 0 {
+		stopArgs = append(stopArgs, options.services...)
+	}
+	dockerStdout := ctx.Stdout
+	if ctx.Renderer.JSON {
+		dockerStdout = io.Discard
+	}
+	cmd := docker.ComposeCommand{ProjectName: inst.ProjectName, Files: composeFiles, CommandArgs: stopArgs}
+	if err := docker.Run(cmd, dockerStdout, ctx.Stderr); err != nil {
+		return nil, output.ExitDocker, err
+	}
+	inst.LastActiveAt = time.Now().UTC()
+	if err := state.SaveInstance(stateDir, inst); err != nil {
+		return nil, output.ExitConfig, err
+	}
+	if err := state.UpsertGlobalInstance("", inst); err != nil {
+		return nil, output.ExitConfig, err
+	}
+	services := options.services
+	if len(services) == 0 {
+		services = []string{"all"}
+	}
+	return StopResult{Instance: inst, Services: services}, output.ExitOK, nil
 }
 
 func runStatus(ctx *Context) (any, int, error) {
@@ -1077,6 +1164,24 @@ func humanRenderer() func(io.Writer, any) {
 			if len(v.Services) > 0 {
 				fmt.Fprintf(w, "  Services: %s\n", strings.Join(v.Services, ", "))
 			}
+		case StopResult:
+			if v.AlreadyStopped {
+				fmt.Fprintln(w, "Docktree is already stopped.")
+				return
+			}
+			if v.DryRun {
+				fmt.Fprintf(w, "Docktree dry run - would stop %s (containers only, not removed)\n", v.Instance.ProjectName)
+				fmt.Fprintf(w, "  Services: %s\n", strings.Join(v.Services, ", "))
+				fmt.Fprintf(w, "  Compose files:\n")
+				for _, f := range v.ComposeFiles {
+					fmt.Fprintf(w, "    %s\n", f)
+				}
+				return
+			}
+			fmt.Fprintf(w, "Docktree stopped %s (containers only, not removed)\n", v.Instance.ProjectName)
+			if len(v.Services) > 0 {
+				fmt.Fprintf(w, "  Services: %s\n", strings.Join(v.Services, ", "))
+			}
 		case ValidateResult:
 			if v.Valid {
 				fmt.Fprintf(w, "Docktree config is valid\n")
@@ -1199,6 +1304,7 @@ Commands:
   create     Create a worktree and prepare its local Docker setup
   up         Start the current worktree's Compose project (or --create <branch>)
   down       Stop the current worktree's Compose project (or specific services)
+  stop       Stop running containers without removing them
   status     Show managed worktree services
   ports      Show allocated host ports (use --all for all worktrees)
   prepare    Prepare the current worktree's local Docker setup
@@ -1283,6 +1389,46 @@ func printDownHelp(w io.Writer) {
   docktree down [options] [service...]
 
 Stop the current worktree's Compose project, or specific services.
+
+Options:
+  --dry-run    Show what would be stopped without making changes
+  -h, --help   Show this help text
+
+Arguments:
+  service      One or more service names to stop (default: all services)`)
+}
+
+type stopOptions struct {
+	help     bool
+	dryRun   bool
+	services []string
+}
+
+func parseStopOptions(args []string) (stopOptions, error) {
+	var options stopOptions
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "-h" || arg == "--help":
+			options.help = true
+			return options, nil
+		case arg == "--dry-run":
+			options.dryRun = true
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return stopOptions{}, fmt.Errorf("unknown stop flag %q", arg)
+			}
+			options.services = append(options.services, arg)
+		}
+	}
+	return options, nil
+}
+
+func printStopHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree stop [options] [service...]
+
+Stop running containers without removing them (unlike down).
 
 Options:
   --dry-run    Show what would be stopped without making changes
