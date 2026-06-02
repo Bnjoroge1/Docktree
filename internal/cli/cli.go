@@ -15,6 +15,8 @@ import (
 	"strings"
 	"time"
 
+	composecli "github.com/compose-spec/compose-go/v2/cli"
+
 	"github.com/bnjoroge/docktree/internal/compose"
 	"github.com/bnjoroge/docktree/internal/config"
 	"github.com/bnjoroge/docktree/internal/docker"
@@ -1185,7 +1187,6 @@ func parseGlobalFlags(args []string) (bool, []string) {
 	}
 	return jsonMode, rest
 }
-
 func composeFiles(dir string, cfg *config.Config) ([]string, error) {
 	if len(cfg.Compose.Files) > 0 {
 		files := make([]string, 0, len(cfg.Compose.Files))
@@ -1198,11 +1199,19 @@ func composeFiles(dir string, cfg *config.Config) ([]string, error) {
 		}
 		return files, nil
 	}
-	found, err := compose.FindComposeFiles(dir)
+	opts, err := composecli.NewProjectOptions(nil,
+		composecli.WithWorkingDirectory(dir),
+		composecli.WithOsEnv,
+		composecli.WithConfigFileEnv,
+		composecli.WithDefaultConfigPath,
+	)
 	if err != nil {
+		return nil, err
+	}
+	if len(opts.ConfigPaths) == 0 {
 		return nil, fmt.Errorf("no compose file found in %s\n\nCreate docker-compose.yml or compose.yml, or set compose.files in docktree.yml", dir)
 	}
-	return found, nil
+	return opts.ConfigPaths, nil
 }
 
 // absComposeFiles resolves compose file paths to absolute form so they remain
