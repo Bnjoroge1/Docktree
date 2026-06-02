@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,9 +23,9 @@ import (
 	"github.com/bnjoroge/docktree/internal/ports"
 	"github.com/bnjoroge/docktree/internal/setup"
 	"github.com/bnjoroge/docktree/internal/state"
+	"github.com/bnjoroge/docktree/internal/tui"
 	"gopkg.in/yaml.v3"
 )
-
 const version = "0.1.0-dev"
 
 type commandFunc func(*Context) (any, int, error)
@@ -34,6 +35,7 @@ type Context struct {
 	Renderer *output.Renderer
 	Stdout   io.Writer
 	Stderr   io.Writer
+	Steps    *tui.StepPrinter
 }
 
 type UpResult struct {
@@ -138,6 +140,22 @@ type CleanResult struct {
 	Totals    CleanTotals `json:"totals"`
 }
 
+type composePsEntry struct {
+	Service    string              `json:"Service"`
+	Name       string              `json:"Name"`
+	State      string              `json:"State"`
+	Status     string              `json:"Status"`
+	Health     string              `json:"Health"`
+	Image      string              `json:"Image"`
+	Publishers []composePsPublisher `json:"Publishers"`
+}
+
+type composePsPublisher struct {
+	URL           string `json:"URL"`
+	TargetPort    int    `json:"TargetPort"`
+	PublishedPort int    `json:"PublishedPort"`
+	Protocol      string `json:"Protocol"`
+}
 func Run(args []string, stdout, stderr io.Writer) int {
 	jsonMode, rest := parseGlobalFlags(args)
 	renderer := output.New(stdout, jsonMode)
@@ -146,30 +164,35 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		printHelp(stdout)
 		return output.ExitOK
 	}
-	commands := map[string]commandFunc{
-		"up":      runUp,
-		"create":  runCreate,
-		"down":    runDown,
-		"status":  runStatus,
-		"ports":   runPorts,
-		"clean":   runClean,
-		"prepare": runPrepare,
-	}
+	var result any
+	var code int
+	var err error
 	switch rest[0] {
 	case "help", "-h", "--help":
 		printHelp(stdout)
 		return output.ExitOK
 	case "version", "-v", "--version":
-		fmt.Fprintf(stdout, "docktree %s\n", version)
+		fmt.Fprintf(stdout, "%s\n", tui.MutedS("docktree "+version))
 		return output.ExitOK
-	}
-	fn, ok := commands[rest[0]]
-	if !ok {
+	case "up":
+		result, code, err = runWithProgress(ctx, runUp)
+	case "down":
+		result, code, err = runWithProgress(ctx, runDown)
+	case "clean":
+		result, code, err = runClean(ctx)
+	case "create":
+		result, code, err = runCreate(ctx)
+	case "status":
+		result, code, err = runStatus(ctx)
+	case "ports":
+		result, code, err = runPorts(ctx)
+	case "prepare":
+		result, code, err = runPrepare(ctx)
+	default:
 		fmt.Fprintf(stderr, "unknown command %q\n\n", rest[0])
 		printHelp(stderr)
 		return output.ExitUsage
 	}
-	result, code, err := fn(ctx)
 	if err != nil {
 		target := renderer
 		target.Writer = stderr
@@ -180,6 +203,39 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		renderer.Render(result, humanRenderer())
 	}
 	return code
+}
+
+// runWithProgress runs fn with step-by-step progress on stderr.
+// Docker stdout/stderr is captured to avoid interleaving.
+// Progress steps are cleared before the final result is rendered.
+func runWithProgress(ctx *Context, fn commandFunc) (any, int, error) {
+	isTTY := ctx.Renderer.IsTTY && !ctx.Renderer.JSON
+	if !isTTY {
+		return fn(ctx)
+	}
+	steps := tui.NewStepPrinter(os.Stderr, true)
+	ctx.Steps = steps
+
+	var stderrBuf bytes.Buffer
+	oldStdout := ctx.Stdout
+	oldStderr := ctx.Stderr
+	ctx.Stdout = io.Discard
+	ctx.Stderr = &stderrBuf
+	defer func() {
+		ctx.Stdout = oldStdout
+		ctx.Stderr = oldStderr
+		ctx.Steps = nil
+	}()
+
+	result, code, runErr := fn(ctx)
+
+	if runErr != nil {
+		steps.Clear()
+		io.Copy(oldStderr, &stderrBuf)
+	} else {
+		steps.Clear()
+	}
+	return result, code, runErr
 }
 
 func runUp(ctx *Context) (any, int, error) {
@@ -198,6 +254,10 @@ func runUp(ctx *Context) (any, int, error) {
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
+	steps := ctx.Steps
+	if steps != nil {
+		steps.Header("Starting services…", instanceName)
+	}
 	var scaffolded bool
 	var createdWorktree string
 	var synced bool
@@ -211,10 +271,16 @@ func runUp(ctx *Context) (any, int, error) {
 			if err != nil {
 				return nil, output.ExitConfig, err
 			}
+			if steps != nil {
+				steps.Done("Scaffolded docktree.yml")
+			}
 		}
 		createdWorktree, err = createPreparedWorktree(repo.RepoRoot, cfg, options.create, ctx.Stdout, ctx.Stderr)
 		if err != nil {
 			return nil, output.ExitConfig, err
+		}
+		if steps != nil {
+			steps.Done("Created worktree " + tui.AccentS(options.create))
 		}
 		repo = dockgit.RepoInfo{RepoRoot: repo.RepoRoot, WorktreeRoot: createdWorktree, Branch: options.create}
 		instanceName = dockgit.InstanceName(dockgit.RepoName(repo.RepoRoot), dockgit.WorktreeName(repo.Branch, repo.WorktreeRoot), repo.RepoRoot, repo.WorktreeRoot)
@@ -232,10 +298,16 @@ func runUp(ctx *Context) (any, int, error) {
 			if err != nil {
 				return nil, output.ExitConfig, err
 			}
+			if steps != nil {
+				steps.Done("Scaffolded docktree.yml")
+			}
 		}
 		envWarnings, err = compose.CheckEnvFile(repo.WorktreeRoot)
 		if err != nil {
 			return nil, output.ExitConfig, err
+		}
+		if steps != nil {
+			steps.Done("Checked .env conflicts")
 		}
 		if err := ensureGitignore(repo.WorktreeRoot, cfg.State.Directory); err != nil {
 			return nil, output.ExitConfig, err
@@ -252,6 +324,9 @@ func runUp(ctx *Context) (any, int, error) {
 			return nil, output.ExitConfig, err
 		}
 		synced = true
+		if steps != nil {
+			steps.Done("Synced setup files")
+		}
 	}
 	var files []string
 	if options.file != "" {
@@ -284,7 +359,8 @@ func runUp(ctx *Context) (any, int, error) {
 					}
 					return ValidateResult{Valid: true, Services: serviceNames(project), EnvWarnings: envWarnings}, output.ExitOK, nil
 				}
-				return UpResult{Instance: inst, Synced: synced, AlreadyRunning: true}, output.ExitNoop, nil
+				all, _ := ports.NewRegistry().Load()
+					return UpResult{Instance: inst, Synced: synced, AlreadyRunning: true, Ports: all[instanceName]}, output.ExitNoop, nil
 			}
 		}
 	}
@@ -332,6 +408,7 @@ func runUp(ctx *Context) (any, int, error) {
 	inst.Branch = repo.Branch
 	inst.LastActiveAt = now
 	inst.ComposeFileHash = hash
+	inst.ComposeFiles = absComposeFiles(files)
 	dockerStdout := ctx.Stdout
 	if ctx.Renderer.JSON {
 		dockerStdout = io.Discard
@@ -355,6 +432,20 @@ func runUp(ctx *Context) (any, int, error) {
 		if err != nil {
 			return nil, output.ExitConflict, err
 		}
+		if steps != nil && attempt == 0 {
+			steps.Done("Allocated ports")
+			for _, a := range assignments {
+				if a.HostPort == 0 {
+					steps.Sub(fmt.Sprintf("%-12s%s", a.Service, tui.DimS("(no host port)")))
+				} else {
+					steps.Sub(fmt.Sprintf("%-12s%s %s %s",
+						a.Service,
+						tui.DimS(fmt.Sprintf("%d", a.ContainerPort)),
+						tui.DimS("→"),
+						tui.AccentS(fmt.Sprintf("%d", a.HostPort))))
+				}
+			}
+		}
 		if err := registry.Unlock(); err != nil {
 			return nil, output.ExitConflict, err
 		}
@@ -366,8 +457,19 @@ func runUp(ctx *Context) (any, int, error) {
 		if err := compose.WriteOverride(override, overrideFile); err != nil {
 			return nil, output.ExitConfig, err
 		}
-		if err := docker.Run(cmd, dockerStdout, ctx.Stderr); err != nil {
-			if docker.IsPortBindError(err) && attempt < 9 {
+		if steps != nil && attempt == 0 {
+			steps.Done("Generated override")
+		}
+		var spin *tui.SpinStep
+		if steps != nil {
+			spin = steps.StartSpin("docker compose up -d")
+		}
+		runErr := docker.Run(cmd, dockerStdout, ctx.Stderr)
+		if spin != nil {
+			spin.Stop()
+		}
+		if runErr != nil {
+			if docker.IsPortBindError(runErr) && attempt < 9 {
 				if err := registry.Lock(); err != nil {
 					return nil, output.ExitConflict, err
 				}
@@ -383,7 +485,7 @@ func runUp(ctx *Context) (any, int, error) {
 				locked = false
 				continue
 			}
-			return nil, output.ExitDocker, err
+			return nil, output.ExitDocker, runErr
 		}
 		break
 	}
@@ -429,13 +531,27 @@ func runDown(ctx *Context) (any, int, error) {
 	if runningState == composeRunUnknown {
 		return nil, output.ExitDocker, fmt.Errorf("unable to determine whether %s is running", inst.ProjectName)
 	}
+	steps := ctx.Steps
+	if steps != nil {
+		steps.Header("Stopping services…", inst.ProjectName)
+	}
 	dockerStdout := ctx.Stdout
 	if ctx.Renderer.JSON {
 		dockerStdout = io.Discard
 	}
 	cmd := docker.ComposeCommand{ProjectName: inst.ProjectName, Files: activeComposeFiles(repo.WorktreeRoot, cfg, inst), CommandArgs: []string{"down"}}
+	var spin *tui.SpinStep
+	if steps != nil {
+		spin = steps.StartSpin("docker compose down")
+	}
 	if err := docker.Run(cmd, dockerStdout, ctx.Stderr); err != nil {
+		if spin != nil {
+			spin.Stop()
+		}
 		return nil, output.ExitDocker, err
+	}
+	if spin != nil {
+		spin.Stop()
 	}
 	inst.LastActiveAt = time.Now().UTC()
 	if err := state.SaveInstance(stateDir, inst); err != nil {
@@ -538,7 +654,20 @@ func runClean(ctx *Context) (any, int, error) {
 			return cleanResultFromCandidates(candidates, false, options.volumes, false), output.ExitNoop, nil
 		}
 	}
-	applied, err := applyCleanCandidates(portRegistry, candidates, options.volumes)
+	var applied []cleanCandidate
+	if !ctx.Renderer.IsTTY || ctx.Renderer.JSON {
+		applied, err = applyCleanCandidates(portRegistry, candidates, options.volumes)
+	} else {
+		done := make(chan struct{})
+		go func() {
+			applied, err = applyCleanCandidates(portRegistry, candidates, options.volumes)
+			close(done)
+		}()
+		spinner := &tui.SimpleSpinner{}
+		spinner.Start("Removing stale resources…")
+		<-done
+		spinner.Stop()
+	}
 	if err != nil {
 		return nil, output.ExitDocker, err
 	}
@@ -836,6 +965,20 @@ func composeFiles(dir string, cfg *config.Config) ([]string, error) {
 	return found, nil
 }
 
+// absComposeFiles resolves compose file paths to absolute form so they remain
+// valid when read back from state regardless of the caller's working directory.
+func absComposeFiles(files []string) []string {
+	out := make([]string, 0, len(files))
+	for _, f := range files {
+		if abs, err := filepath.Abs(f); err == nil {
+			out = append(out, abs)
+		} else {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
 func parseAll(files []string) (*compose.ComposeProject, error) {
 	return compose.LoadProject(files)
 }
@@ -893,9 +1036,18 @@ func parseComposeRunState(out string) (composeRunState, error) {
 }
 
 func activeComposeFiles(worktreeRoot string, cfg *config.Config, inst *state.Instance) []string {
-	files, err := composeFiles(worktreeRoot, cfg)
-	if err != nil {
-		return nil
+	// Prefer the files the instance was actually started with (recorded at up
+	// time). Falling back to docktree.yml would break down/status whenever the
+	// instance was started with `-f` pointing at different files.
+	var files []string
+	if len(inst.ComposeFiles) > 0 {
+		files = append(files, inst.ComposeFiles...)
+	} else {
+		discovered, err := composeFiles(worktreeRoot, cfg)
+		if err != nil {
+			return nil
+		}
+		files = discovered
 	}
 	stateDir := state.StatePath(worktreeRoot, cfg.State.Directory)
 	clear := filepath.Join(stateDir, "generated", inst.ProjectName+".clear.yml")
@@ -986,137 +1138,471 @@ func isolatedVolumes(project *compose.ComposeProject, shareList []string) []stri
 	return isolated
 }
 
+func shortenImage(image string) string {
+	parts := strings.Split(image, "/")
+	img := parts[len(parts)-1]
+	if idx := strings.LastIndex(img, ":"); idx != -1 {
+		tag := img[idx+1:]
+		if tag == "latest" {
+			img = img[:idx]
+		}
+	}
+	return img
+}
+
+// renderPortList draws the allocated ports as a bordered table:
+// SERVICE | PORT | URL  (internal services show "(internal)" in the URL column).
+func renderPortList(w io.Writer, portAssignments []ports.Assignment) {
+	var tbl tui.Table
+	tbl.Headers = []string{"SERVICE", "PORT", "URL"}
+	for _, a := range portAssignments {
+		if a.HostPort == 0 {
+			tbl.Rows = append(tbl.Rows, []string{a.Service, "—", "(internal)"})
+		} else {
+			url := fmt.Sprintf("http://%s:%d", a.HostIP, a.HostPort)
+			tbl.Rows = append(tbl.Rows, []string{a.Service, fmt.Sprintf("%d", a.HostPort), url})
+		}
+	}
+	fmt.Fprintln(w, tbl.RenderBorderedStyled(func(row, col int, val string) string {
+		if row == -1 {
+			return tui.DimS(val)
+		}
+		switch col {
+		case 0:
+			return tui.OKS(val)
+		case 1:
+			if val == "—" {
+				return tui.DimS(val)
+			}
+			return tui.AccentS(val)
+		case 2:
+			if val == "(internal)" {
+				return tui.DimS(val)
+			}
+			return tui.URLS(val)
+		}
+		return val
+	}))
+}
+
 func humanRenderer() func(io.Writer, any) {
 	return func(w io.Writer, data any) {
 		switch v := data.(type) {
 		case UpResult:
-			if v.Synced && v.AlreadyRunning {
-				fmt.Fprintf(w, "Docktree synced setup for %s and it is already running.\n", v.Instance.ProjectName)
-				return
-			}
-			if v.Synced {
-				fmt.Fprintf(w, "Docktree synced setup for %s\n", v.Instance.ProjectName)
-			}
+			projectName := v.Instance.ProjectName
 			if v.AlreadyRunning {
-				fmt.Fprintf(w, "Docktree %s is already running.\n", v.Instance.ProjectName)
+				if v.Synced {
+					fmt.Fprintf(w, "%s %s %s\n",
+						tui.OKS("✓"), tui.MutedS("Synced"), tui.AccentS(projectName))
+				} else {
+					fmt.Fprintf(w, "%s %s is already running.\n",
+						tui.BrandS("Docktree"), tui.AccentS(projectName))
+				}
+				if len(v.Ports) > 0 {
+					fmt.Fprintln(w)
+					renderPortList(w, v.Ports)
+				}
 				return
+			}
+
+			fmt.Fprintf(w, "%s Started %s", tui.OKS("✓"), tui.AccentS(projectName))
+			if v.Synced {
+				fmt.Fprintf(w, " %s", tui.Badge("synced", "SYNCED"))
+			}
+			fmt.Fprintln(w)
+
+			if len(v.Ports) > 0 {
+				fmt.Fprintln(w)
+				fmt.Fprintln(w, tui.DimS("Allocated ports"))
+				renderPortList(w, v.Ports)
+			}
+
+			if v.CreatedWorktree != "" || len(v.ComposeFiles) > 0 || v.OverrideFile != "" {
+				fmt.Fprintln(w)
 			}
 			if v.CreatedWorktree != "" {
-				fmt.Fprintf(w, "Docktree created worktree %s\n", v.CreatedWorktree)
+				fmt.Fprintf(w, "%s  %s\n", tui.DimS("Created worktree"), v.CreatedWorktree)
 			}
-			fmt.Fprintf(w, "Docktree started %s\n", v.Instance.ProjectName)
-			for _, assignment := range v.Ports {
-				fmt.Fprintf(w, "  %s %s:%d -> %d\n", assignment.Service, assignment.HostIP, assignment.HostPort, assignment.ContainerPort)
+			if len(v.ComposeFiles) > 0 {
+				fmt.Fprintf(w, "%s  %s\n", tui.DimS("Compose files:"), strings.Join(v.ComposeFiles, ", "))
 			}
-			if len(v.IsolatedVolumes) > 0 {
-				fmt.Fprintf(w, "  External volumes isolated: %s\n", strings.Join(v.IsolatedVolumes, ", "))
-				fmt.Fprintf(w, "  To share a volume across worktrees, add to docktree.yml:\n")
-				fmt.Fprintf(w, "    volumes:\n")
-				fmt.Fprintf(w, "      share:\n")
-				for _, vol := range v.IsolatedVolumes {
-					fmt.Fprintf(w, "        - %s\n", vol)
-				}
+			if v.OverrideFile != "" {
+				fmt.Fprintf(w, "%s       %s\n", tui.DimS("Override:"), v.OverrideFile)
 			}
+
 			if v.Scaffolded {
-				fmt.Fprintln(w, "  Created docktree.yml with defaults")
+				fmt.Fprintln(w)
+				fmt.Fprintf(w, "%s Scaffolded %s\n",
+					tui.OKS("✓"), tui.AccentS("docktree.yml"))
 			}
 			for _, warning := range v.EnvWarnings {
-				fmt.Fprintf(w, "  Warning: %s\n", warning.Message)
+				fmt.Fprintln(w)
+				fmt.Fprintf(w, "%s %s\n",
+					tui.WarningS("⚠ Warning:"), tui.DimS(warning.Message))
+			}
+			if len(v.IsolatedVolumes) > 0 {
+				fmt.Fprintln(w)
+				fmt.Fprintf(w, "%s %s\n",
+					tui.DimS("Isolated volumes:"), strings.Join(v.IsolatedVolumes, ", "))
 			}
 		case DownResult:
 			if v.AlreadyStopped {
-				fmt.Fprintln(w, "Docktree is already stopped.")
+				if v.Instance != nil {
+					fmt.Fprintf(w, "%s %s is already stopped.\n",
+						tui.BrandS("Docktree"), tui.AccentS(v.Instance.ProjectName))
+				} else {
+					fmt.Fprintf(w, "%s is already stopped.\n", tui.BrandS("Docktree"))
+				}
 				return
 			}
-			fmt.Fprintf(w, "Docktree stopped %s\n", v.Instance.ProjectName)
+			fmt.Fprintf(w, "%s Stopped %s\n",
+				tui.OKS("✓"), tui.AccentS(v.Instance.ProjectName))
+			fmt.Fprintln(w)
+			fmt.Fprintf(w, "%s %s%s\n",
+				tui.DimS("Volumes preserved. Same ports on next"),
+				tui.AccentS("docktree up"),
+				tui.DimS("."))
 		case ValidateResult:
 			if v.Valid {
-				fmt.Fprintf(w, "Docktree config is valid\n")
-				fmt.Fprintf(w, "  Services: %s\n", strings.Join(v.Services, ", "))
+				fmt.Fprintf(w, "%s %s\n", tui.BrandS("Docktree"), tui.OKS("config is valid"))
+				fmt.Fprintln(w)
+				fmt.Fprintf(w, "%s  %s\n", tui.DimS("Services:"), strings.Join(v.Services, ", "))
 				if len(v.Ports) > 0 {
-					fmt.Fprintln(w, "  Ports:")
-					for _, assignment := range v.Ports {
-						fmt.Fprintf(w, "    %s %s:%d -> %d\n", assignment.Service, assignment.HostIP, assignment.HostPort, assignment.ContainerPort)
+					fmt.Fprintln(w)
+					fmt.Fprintf(w, "%s\n", tui.DimS("Ports:"))
+					for _, a := range v.Ports {
+						fmt.Fprintf(w, "  %-14s%s %s %s\n",
+							tui.TextS(a.Service),
+							tui.MutedS(fmt.Sprintf("%d", a.ContainerPort)),
+							tui.DimS("→"),
+							tui.AccentS(fmt.Sprintf("%d", a.HostPort)))
 					}
 				}
 				if len(v.IsolatedVolumes) > 0 {
-					fmt.Fprintf(w, "  Isolated volumes: %s\n", strings.Join(v.IsolatedVolumes, ", "))
+					fmt.Fprintln(w)
+					fmt.Fprintf(w, "%s  %s\n",
+						tui.DimS("Isolated volumes:"), strings.Join(v.IsolatedVolumes, ", "))
 				}
 			} else {
-				fmt.Fprintln(w, "Docktree config has errors:")
+				fmt.Fprintf(w, "%s %s\n", tui.BrandS("Docktree"), tui.ErrorS("config has errors:"))
 				for _, e := range v.Errors {
-					fmt.Fprintf(w, "  - %s\n", e)
+					fmt.Fprintf(w, "  %s %s\n", tui.ErrorS("✗"), e)
 				}
 			}
+			for _, warning := range v.EnvWarnings {
+				fmt.Fprintf(w, "  %s %s: %s\n",
+					tui.WarningS("⚠"), tui.DimS(warning.Key), warning.Message)
+			}
 		case DryRunResult:
-			fmt.Fprintf(w, "Docktree dry run for %s\n", v.InstanceName)
-			fmt.Fprintf(w,  "  Services: %s\n", strings.Join(v.Services, ", "))
-			fmt.Fprintf(w, "  Compose files:\n")
+			fmt.Fprintf(w, "%s %s %s\n",
+				tui.BrandS("Docktree"), tui.MutedS("dry run for"), tui.AccentS(v.InstanceName))
+			fmt.Fprintln(w)
+			fmt.Fprintf(w, "%s  %s\n", tui.DimS("Services:"), strings.Join(v.Services, ", "))
+			fmt.Fprintf(w, "%s\n", tui.DimS("Compose files:"))
 			for _, f := range v.ComposeFiles {
-				fmt.Fprintf(w, "    %s\n", f)
+				fmt.Fprintf(w, "  %s\n", tui.AccentS(f))
 			}
 			if len(v.Ports) > 0 {
-				fmt.Fprintln(w, "  Port assignments:")
-				for _, assignment := range v.Ports {
-					fmt.Fprintf(w, "    %s %s:%d -> %d\n", assignment.Service, assignment.HostIP, assignment.HostPort, assignment.ContainerPort)
+				fmt.Fprintln(w)
+				fmt.Fprintf(w, "%s\n", tui.DimS("Port assignments:"))
+				for _, a := range v.Ports {
+					fmt.Fprintf(w, "  %-14s%s %s %s\n",
+						tui.TextS(a.Service),
+						tui.MutedS(fmt.Sprintf("%d", a.ContainerPort)),
+						tui.DimS("→"),
+						tui.AccentS(fmt.Sprintf("%d", a.HostPort)))
 				}
 			}
 			if len(v.IsolatedVolumes) > 0 {
-				fmt.Fprintf(w, "  Isolated volumes: %s\n", strings.Join(v.IsolatedVolumes, ", "))
+				fmt.Fprintln(w)
+				fmt.Fprintf(w, "%s  %s\n",
+					tui.DimS("Isolated volumes:"), strings.Join(v.IsolatedVolumes, ", "))
 			}
 			if v.OverridePreview != "" {
-				fmt.Fprintln(w, "  Override preview:")
+				fmt.Fprintln(w)
+				fmt.Fprintf(w, "%s\n", tui.WarningS("Override preview:"))
 				fmt.Fprintln(w, v.OverridePreview)
 			}
 			if v.ClearPreview != "" {
-				fmt.Fprintln(w, "  Port clear preview:")
+				fmt.Fprintln(w)
+				fmt.Fprintf(w, "%s\n", tui.DimS("Port clear preview:"))
 				fmt.Fprintln(w, v.ClearPreview)
+			}
+			for _, warning := range v.EnvWarnings {
+				fmt.Fprintf(w, "  %s %s: %s\n",
+					tui.WarningS("⚠"), tui.DimS(warning.Key), warning.Message)
 			}
 		case StatusResult:
 			if v.Stopped {
-				fmt.Fprintln(w, "Docktree is stopped.")
+				fmt.Fprintf(w, "%s is stopped.\n", tui.BrandS("Docktree"))
+				fmt.Fprintln(w)
+				fmt.Fprintf(w, "%s\n", tui.MutedS("Run `docktree up` to start this worktree."))
 				return
 			}
-			fmt.Fprintln(w, v.Text)
+			if v.Raw != nil {
+				var services []composePsEntry
+				_ = json.Unmarshal(v.Raw, &services)
+				if len(services) == 0 {
+					fmt.Fprintf(w, "%s %s  %s\n",
+						tui.ErrorS("●"), tui.AccentS(v.Instance.ProjectName), tui.Badge("stopped", "STOPPED"))
+					fmt.Fprintf(w, "%s  %s\n",
+						tui.DimS("Branch:"), tui.MutedS(v.Instance.Branch))
+					fmt.Fprintln(w)
+					fmt.Fprintf(w, "%s\n", tui.MutedS("Run `docktree up` to start services."))
+					return
+				}
+				if true {
+					running := 0
+					for _, s := range services {
+						if strings.EqualFold(s.State, "running") {
+							running++
+						}
+					}
+					statusLabel := tui.OKS("running")
+					statusBadge := tui.Badge("ok", "RUNNING")
+					if running < len(services) && running > 0 {
+						statusLabel = tui.WarningS("partial")
+						statusBadge = tui.Badge("warning", "PARTIAL")
+					} else if running == 0 {
+						statusLabel = tui.ErrorS("stopped")
+						statusBadge = tui.Badge("error", "STOPPED")
+					}
+					_ = statusLabel
+
+					if v.Instance != nil {
+						fmt.Fprintf(w, "%s %s  %s\n",
+							tui.OKS("●"), tui.AccentS(v.Instance.ProjectName), statusBadge)
+						fmt.Fprintf(w, "%s  %s    %s\n",
+							tui.DimS("Branch:"), tui.MutedS(v.Instance.Branch),
+							tui.MutedS(fmt.Sprintf("%d/%d services", running, len(services))))
+					}
+					fmt.Fprintln(w)
+
+					var svcTbl tui.Table
+					svcTbl.Headers = []string{"SERVICE", "IMAGE", "STATE", "STATUS"}
+					for _, s := range services {
+						img := shortenImage(s.Image)
+						status := s.Status
+						if status == "" {
+							status = "—"
+						}
+						svcTbl.Rows = append(svcTbl.Rows, []string{s.Service, img, s.State, status})
+					}
+					fmt.Fprintln(w, svcTbl.RenderBorderedStyled(func(row, col int, val string) string {
+						if row == -1 {
+							return tui.DimS(val)
+						}
+						switch col {
+						case 0:
+							return tui.TextS(val)
+						case 1:
+							return tui.MutedS(val)
+						case 2:
+							switch {
+							case strings.EqualFold(val, "running"):
+								return tui.OKS(val)
+							case strings.EqualFold(val, "exited"), strings.EqualFold(val, "restarting"):
+								return tui.ErrorS(val)
+							default:
+								return tui.WarningS(val)
+							}
+						case 3:
+							return tui.DimS(val)
+						}
+						return val
+					}))
+
+					var hasPublishers bool
+					for _, s := range services {
+						if len(s.Publishers) > 0 {
+							for _, p := range s.Publishers {
+								if p.PublishedPort > 0 {
+									hasPublishers = true
+									break
+								}
+							}
+						}
+						if hasPublishers {
+							break
+						}
+					}
+					if hasPublishers {
+						fmt.Fprintln(w)
+						var portTbl tui.Table
+						portTbl.Headers = []string{"SERVICE", "PORT", "URL"}
+						for _, s := range services {
+							for _, p := range s.Publishers {
+								if p.PublishedPort > 0 {
+									url := fmt.Sprintf("http://%s:%d", p.URL, p.PublishedPort)
+									portTbl.Rows = append(portTbl.Rows, []string{
+										s.Service,
+										fmt.Sprintf("%d", p.PublishedPort),
+										url,
+									})
+								}
+							}
+						}
+						fmt.Fprintln(w, portTbl.RenderBorderedStyled(func(row, col int, val string) string {
+							if row == -1 {
+								return tui.DimS(val)
+							}
+							switch col {
+							case 0:
+								return tui.OKS(val)
+							case 1:
+								return tui.AccentS(val)
+							case 2:
+								return tui.URLS(val)
+							}
+							return val
+						}))
+					}
+					return
+				}
+			}
+			if v.Instance != nil {
+				fmt.Fprintf(w, "%s %s\n", tui.BrandS("Docktree"), tui.AccentS(v.Instance.ProjectName))
+				fmt.Fprintf(w, "%s  %s\n", tui.DimS("Branch:"), v.Instance.Branch)
+			}
+			if v.Text != "" {
+				fmt.Fprintln(w, v.Text)
+			}
 		case PortsResult:
 			if v.All {
-				fmt.Fprintln(w, "Docktree ports (all instances)")
+				fmt.Fprintf(w, "%s %s\n", tui.BrandS("Docktree"), tui.MutedS("ports (all instances)"))
+			} else {
+				fmt.Fprintf(w, "%s %s\n", tui.BrandS("Docktree"), tui.AccentS(v.Instance))
+			}
+			if len(v.Entries) == 0 {
+				break
+			}
+			fmt.Fprintln(w)
+			var tbl tui.Table
+			if v.All {
+				tbl.Headers = []string{"INSTANCE", "SERVICE", "CONTAINER", "HOST", "BIND", "URL"}
 				for _, entry := range v.Entries {
-					fmt.Fprintf(w, "  %s:\n", entry.Instance)
-					for _, assignment := range entry.Ports {
-						fmt.Fprintf(w, "    %s %s:%d -> %d\n", assignment.Service, assignment.HostIP, assignment.HostPort, assignment.ContainerPort)
+					for _, a := range entry.Ports {
+						url := fmt.Sprintf("http://%s:%d", a.HostIP, a.HostPort)
+						tbl.Rows = append(tbl.Rows, []string{
+							entry.Instance, a.Service,
+							fmt.Sprintf("%d", a.ContainerPort), fmt.Sprintf("%d", a.HostPort),
+							a.HostIP, url,
+						})
 					}
 				}
 			} else {
-				fmt.Fprintf(w, "Docktree ports for %s\n", v.Instance)
+				tbl.Headers = []string{"SERVICE", "CONTAINER", "HOST", "BIND", "URL"}
 				for _, entry := range v.Entries {
-					for _, assignment := range entry.Ports {
-						fmt.Fprintf(w, "  %s %s:%d -> %d\n", assignment.Service, assignment.HostIP, assignment.HostPort, assignment.ContainerPort)
+					for _, a := range entry.Ports {
+						url := fmt.Sprintf("http://%s:%d", a.HostIP, a.HostPort)
+						tbl.Rows = append(tbl.Rows, []string{
+							a.Service,
+							fmt.Sprintf("%d", a.ContainerPort), fmt.Sprintf("%d", a.HostPort),
+							a.HostIP, url,
+						})
 					}
 				}
 			}
+			fmt.Fprintln(w, tbl.RenderBorderedStyled(func(row, col int, val string) string {
+				if row == -1 {
+					return tui.DimS(val)
+				}
+				if v.All {
+					switch col {
+					case 0:
+						return tui.MutedS(val)
+					case 1:
+						return tui.OKS(val)
+					case 2:
+						return tui.DimS(val)
+					case 3:
+						return tui.AccentS(val)
+					case 5:
+						return tui.URLS(val)
+					}
+				} else {
+					switch col {
+					case 0:
+						return tui.OKS(val)
+					case 1:
+						return tui.DimS(val)
+					case 2:
+						return tui.AccentS(val)
+					case 4:
+						return tui.URLS(val)
+					}
+				}
+				return val
+			}))
 		case PrepareResult:
-			fmt.Fprintf(w, "Docktree prepared %s\n", v.WorktreeRoot)
+			fmt.Fprintf(w, "%s %s %s\n",
+				tui.BrandS("Docktree"), tui.MutedS("preparing"), tui.AccentS(v.WorktreeRoot))
+			fmt.Fprintln(w)
+			fmt.Fprintf(w, "%s    %s\n", tui.DimS("Git repo:"), v.RepoRoot)
+			fmt.Fprintf(w, "%s   %s\n", tui.DimS("Worktree:"), v.WorktreeRoot)
+			if len(v.Ran) > 0 {
+				fmt.Fprintln(w)
+				for _, step := range v.Ran {
+					fmt.Fprintf(w, "  %s %s\n", tui.OKS("✓"), tui.MutedS(step))
+				}
+			}
 		case CreateResult:
-			fmt.Fprintf(w, "Docktree created worktree %s for %s\n", v.WorktreeRoot, v.Branch)
+			fmt.Fprintf(w, "%s created worktree %s for %s\n",
+				tui.BrandS("Docktree"), tui.AccentS(v.WorktreeRoot), tui.AccentS(v.Branch))
+			fmt.Fprintln(w)
+			fmt.Fprintf(w, "  %s    %s\n", tui.DimS("Git worktree"), tui.MutedS(v.Branch))
+			fmt.Fprintf(w, "  %s            %s\n", tui.DimS("Path"), tui.MutedS(v.WorktreeRoot))
+			if len(v.Ran) > 0 {
+				fmt.Fprintln(w)
+				for _, step := range v.Ran {
+					fmt.Fprintf(w, "  %s %s\n", tui.OKS("✓"), tui.MutedS(step))
+				}
+			}
+			fmt.Fprintln(w)
+			fmt.Fprintf(w, "%s %s %s\n",
+				tui.MutedS("Run"), tui.AccentS("docktree up"), tui.MutedS("in the new worktree to start services."))
 		case CleanResult:
 			if len(v.Instances) == 0 {
-				fmt.Fprintln(w, "Docktree found no stale resources.")
+				fmt.Fprintf(w, "%s found no stale resources.\n", tui.BrandS("Docktree"))
 				return
 			}
 			if v.DryRun {
-				fmt.Fprintln(w, "Docktree dry run - nothing will be removed")
-			} else if v.Removed {
-				fmt.Fprintln(w, "Docktree removed stale resources")
-			} else {
-				fmt.Fprintln(w, "Docktree found stale resources")
-			}
-			for _, item := range v.Instances {
-				fmt.Fprintf(w, "  %s (%s): %d ports, %d containers, %d networks", item.Instance, item.Reason, item.Ports, item.Containers, item.Networks)
-				if v.Volumes {
-					fmt.Fprintf(w, ", %d volumes", item.Volumes)
+				fmt.Fprintf(w, "%s %s\n", tui.BrandS("Docktree"), tui.MutedS("dry run — nothing will be removed"))
+				fmt.Fprintln(w)
+				fmt.Fprintf(w, "%s\n", tui.MutedS("Would remove:"))
+				for _, item := range v.Instances {
+					resources := fmt.Sprintf("→ %d ports, %d containers, %d networks", item.Ports, item.Containers, item.Networks)
+					fmt.Fprintf(w, "  %s  %s  %s\n",
+						tui.DimS("instance"), tui.AccentS(item.Instance), tui.MutedS(resources))
 				}
 				fmt.Fprintln(w)
+				fmt.Fprintf(w, "%s  %s\n", tui.MutedS("Total:"),
+					tui.MutedS(fmt.Sprintf("%d ports, %d containers, %d networks",
+						v.Totals.Ports, v.Totals.Containers, v.Totals.Networks)))
+				return
+			}
+			if v.Removed {
+				fmt.Fprintf(w, "%s %s\n", tui.BrandS("Docktree"), tui.MutedS("removed stale resources"))
+			} else {
+				fmt.Fprintf(w, "%s %s\n", tui.BrandS("Docktree"), tui.MutedS("scanning for stale resources..."))
+			}
+			fmt.Fprintln(w)
+			fmt.Fprintf(w, "  %s  %s  %s\n",
+				tui.WarningS("INSTANCE"), tui.WarningS("REASON"), tui.WarningS("RESOURCES"))
+			for _, item := range v.Instances {
+				resources := fmt.Sprintf("%d ports, %d containers, %d networks", item.Ports, item.Containers, item.Networks)
+				if v.Volumes {
+					resources = fmt.Sprintf("%s, %d volumes", resources, item.Volumes)
+				}
+				fmt.Fprintf(w, "  %s  %s  %s\n",
+					tui.MutedS(item.Instance), tui.DimS(item.Reason), tui.MutedS(resources))
+			}
+			if v.Removed {
+				fmt.Fprintln(w)
+				fmt.Fprintf(w, "  %s %s\n", tui.OKS("✓"), tui.MutedS("Removed stale resources"))
+				fmt.Fprintf(w, "%s\n",
+					tui.MutedS(fmt.Sprintf("%d ports freed. %d instances removed.",
+						v.Totals.Ports, v.Totals.Instances)))
 			}
 		default:
 			_ = json.NewEncoder(w).Encode(data)
@@ -1142,21 +1628,25 @@ func errorCode(code int) string {
 }
 
 func printHelp(w io.Writer) {
-	fmt.Fprintln(w, `docktree coordinates Docker Compose services across git worktrees.
+	maxCmd := 9
+	fmt.Fprintf(w, "%s\n\n", tui.MutedS("docktree coordinates Docker Compose services across git worktrees."))
+	fmt.Fprintf(w, "%s\n", tui.TextS("Usage:"))
+	fmt.Fprintf(w, "  %s\n\n", tui.AccentS("docktree [--json] <command>"))
+	fmt.Fprintf(w, "%s\n", tui.TextS("Commands:"))
+	printHelpCmd(w, maxCmd, "create", "Create a worktree and prepare its local Docker setup")
+	printHelpCmd(w, maxCmd, "up", "Start the current worktree's Compose project (or --create <branch>)")
+	printHelpCmd(w, maxCmd, "down", "Stop the current worktree's Compose project")
+	printHelpCmd(w, maxCmd, "status", "Show managed worktree services")
+	printHelpCmd(w, maxCmd, "ports", "Show allocated host ports")
+	printHelpCmd(w, maxCmd, "prepare", "Prepare the current worktree's local Docker setup")
+	printHelpCmd(w, maxCmd, "clean", "Remove stale Docktree-managed resources")
+	printHelpCmd(w, maxCmd, "help", "Show this help text")
+	printHelpCmd(w, maxCmd, "version", "Print the docktree version")
+}
 
-Usage:
-  docktree [--json] <command>
-
-Commands:
-  create     Create a worktree and prepare its local Docker setup
-  up         Start the current worktree's Compose project (or --create <branch>)
-  down       Stop the current worktree's Compose project
-  status     Show managed worktree services
-  ports      Show allocated host ports (use --all for all worktrees)
-  prepare    Prepare the current worktree's local Docker setup
-  clean      Remove stale Docktree-managed resources
-  help       Show this help text
-  version    Print the docktree version`)
+func printHelpCmd(w io.Writer, max int, cmd, desc string) {
+	pad := strings.Repeat(" ", max-len(cmd)+2)
+	fmt.Fprintf(w, "  %s%s%s\n", tui.OKS(cmd), pad, desc)
 }
 
 type portsOptions struct {
