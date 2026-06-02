@@ -76,6 +76,7 @@ type DownResult struct {
 	Instance       *state.Instance `json:"instance,omitempty"`
 	AlreadyStopped bool            `json:"already_stopped,omitempty"`
 	DryRun         bool            `json:"dry_run,omitempty"`
+	Services       []string        `json:"services,omitempty"`
 	ComposeFiles   []string        `json:"compose_files,omitempty"`
 }
 
@@ -431,9 +432,18 @@ func runDown(ctx *Context) (any, int, error) {
 	}
 	composeFiles := activeComposeFiles(repo.WorktreeRoot, cfg, inst)
 	if options.dryRun {
+		services := options.services
+		if len(services) == 0 {
+			project, err := parseAll(composeFiles)
+			if err != nil {
+				return nil, output.ExitConfig, err
+			}
+			services = serviceNames(project)
+		}
 		return DownResult{
 			Instance:     inst,
 			DryRun:       true,
+			Services:     services,
 			ComposeFiles: composeFiles,
 		}, output.ExitOK, nil
 	}
@@ -451,7 +461,11 @@ func runDown(ctx *Context) (any, int, error) {
 	if ctx.Renderer.JSON {
 		dockerStdout = io.Discard
 	}
-	cmd := docker.ComposeCommand{ProjectName: inst.ProjectName, Files: composeFiles, CommandArgs: []string{"down"}}
+	downArgs := []string{"down"}
+	if len(options.services) > 0 {
+		downArgs = append(downArgs, options.services...)
+	}
+	cmd := docker.ComposeCommand{ProjectName: inst.ProjectName, Files: composeFiles, CommandArgs: downArgs}
 	if err := docker.Run(cmd, dockerStdout, ctx.Stderr); err != nil {
 		return nil, output.ExitDocker, err
 	}
@@ -462,7 +476,11 @@ func runDown(ctx *Context) (any, int, error) {
 	if err := state.UpsertGlobalInstance("", inst); err != nil {
 		return nil, output.ExitConfig, err
 	}
-	return DownResult{Instance: inst}, output.ExitOK, nil
+	services := options.services
+	if len(services) == 0 {
+		services = []string{"all"}
+	}
+	return DownResult{Instance: inst, Services: services}, output.ExitOK, nil
 }
 
 func runStatus(ctx *Context) (any, int, error) {
@@ -1048,6 +1066,7 @@ func humanRenderer() func(io.Writer, any) {
 			}
 			if v.DryRun {
 				fmt.Fprintf(w, "Docktree dry run - would stop %s\n", v.Instance.ProjectName)
+				fmt.Fprintf(w, "  Services: %s\n", strings.Join(v.Services, ", "))
 				fmt.Fprintf(w, "  Compose files:\n")
 				for _, f := range v.ComposeFiles {
 					fmt.Fprintf(w, "    %s\n", f)
@@ -1055,6 +1074,9 @@ func humanRenderer() func(io.Writer, any) {
 				return
 			}
 			fmt.Fprintf(w, "Docktree stopped %s\n", v.Instance.ProjectName)
+			if len(v.Services) > 0 {
+				fmt.Fprintf(w, "  Services: %s\n", strings.Join(v.Services, ", "))
+			}
 		case ValidateResult:
 			if v.Valid {
 				fmt.Fprintf(w, "Docktree config is valid\n")
@@ -1176,7 +1198,7 @@ Usage:
 Commands:
   create     Create a worktree and prepare its local Docker setup
   up         Start the current worktree's Compose project (or --create <branch>)
-  down       Stop the current worktree's Compose project
+  down       Stop the current worktree's Compose project (or specific services)
   status     Show managed worktree services
   ports      Show allocated host ports (use --all for all worktrees)
   prepare    Prepare the current worktree's local Docker setup
@@ -1231,13 +1253,15 @@ type cleanCandidate struct {
 	StateFound bool
 }
 type downOptions struct {
-	help   bool
-	dryRun bool
+	help     bool
+	dryRun   bool
+	services []string
 }
 
 func parseDownOptions(args []string) (downOptions, error) {
 	var options downOptions
-	for _, arg := range args {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
 		switch {
 		case arg == "-h" || arg == "--help":
 			options.help = true
@@ -1245,7 +1269,10 @@ func parseDownOptions(args []string) (downOptions, error) {
 		case arg == "--dry-run":
 			options.dryRun = true
 		default:
-			return downOptions{}, fmt.Errorf("unknown down flag %q", arg)
+			if strings.HasPrefix(arg, "-") {
+				return downOptions{}, fmt.Errorf("unknown down flag %q", arg)
+			}
+			options.services = append(options.services, arg)
 		}
 	}
 	return options, nil
@@ -1253,13 +1280,16 @@ func parseDownOptions(args []string) (downOptions, error) {
 
 func printDownHelp(w io.Writer) {
 	fmt.Fprintln(w, `Usage:
-  docktree down [options]
+  docktree down [options] [service...]
 
-Stop the current worktree's Compose project.
+Stop the current worktree's Compose project, or specific services.
 
 Options:
   --dry-run    Show what would be stopped without making changes
-  -h, --help   Show this help text`)
+  -h, --help   Show this help text
+
+Arguments:
+  service      One or more service names to stop (default: all services)`)
 }
 
 type upOptions struct {

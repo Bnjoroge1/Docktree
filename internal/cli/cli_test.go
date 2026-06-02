@@ -250,11 +250,40 @@ func TestParseDownOptionsEmpty(t *testing.T) {
 	if opts.dryRun || opts.help {
 		t.Fatal("expected all flags false")
 	}
+	if len(opts.services) != 0 {
+		t.Fatalf("expected no services, got %v", opts.services)
+	}
 }
 
 func TestParseDownOptionsUnknownFlag(t *testing.T) {
 	_, err := parseDownOptions([]string{"--unknown"})
 	if err == nil {
 		t.Fatal("expected error for unknown flag")
+	}
+}
+
+func TestParseDownOptionsServices(t *testing.T) {
+	opts, err := parseDownOptions([]string{"web", "api"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.dryRun || opts.help {
+		t.Fatal("expected dryRun=false, help=false")
+	}
+	if len(opts.services) != 2 || opts.services[0] != "web" || opts.services[1] != "api" {
+		t.Fatalf("expected services [web, api], got %v", opts.services)
+	}
+}
+
+func TestParseDownOptionsDryRunWithServices(t *testing.T) {
+	opts, err := parseDownOptions([]string{"--dry-run", "db", "redis"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opts.dryRun {
+		t.Fatal("expected dryRun=true")
+	}
+	if len(opts.services) != 2 || opts.services[0] != "db" || opts.services[1] != "redis" {
+		t.Fatalf("expected services [db, redis], got %v", opts.services)
 	}
 }
