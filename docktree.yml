@@ -1,7 +1,6 @@
 compose:
     files:
       - testdata/compose-basic.yml
-      - testdata/compose-complex-ports.yml
 setup:
     copy:
         - .env
