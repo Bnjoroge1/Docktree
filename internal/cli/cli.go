@@ -87,12 +87,6 @@ type StopResult struct {
 	Services       []string        `json:"services,omitempty"`
 	ComposeFiles   []string        `json:"compose_files,omitempty"`
 }
-type DockerResult struct {
-	Project      string   `json:"project"`
-	ComposeFiles []string `json:"compose_files"`
-	Args         []string `json:"args"`
-	ExitCode     int      `json:"exit_code"`
-}
 
 type StatusResult struct {
 	Instance *state.Instance `json:"instance,omitempty"`
@@ -168,7 +162,6 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		"create":  runCreate,
 		"down":    runDown,
 		"stop":    runStop,
-		"docker":  runDocker,
 		"status":  runStatus,
 		"ports":   runPorts,
 		"clean":   runClean,
@@ -575,50 +568,6 @@ func runStop(ctx *Context) (any, int, error) {
 		services = []string{"all"}
 	}
 	return StopResult{Instance: inst, Services: services}, output.ExitOK, nil
-}
-
-func runDocker(ctx *Context) (any, int, error) {
-	if len(ctx.Args) < 2 {
-		printDockerHelp(ctx.Stdout)
-		return nil, output.ExitUsage, fmt.Errorf("docker requires a compose subcommand")
-	}
-	if ctx.Args[1] == "-h" || ctx.Args[1] == "--help" {
-		printDockerHelp(ctx.Stdout)
-		return nil, output.ExitOK, nil
-	}
-	repo, err := dockgit.DetectRepo()
-	if err != nil {
-		return nil, output.ExitConfig, err
-	}
-	cfg, err := config.Load(repo.RepoRoot)
-	if err != nil {
-		return nil, output.ExitConfig, err
-	}
-	stateDir := state.StatePath(repo.WorktreeRoot, cfg.State.Directory)
-	inst, err := state.LoadInstance(stateDir)
-	if err != nil {
-		return nil, output.ExitConfig, err
-	}
-	dockerArgs := ctx.Args[1:]
-	cmd := docker.ComposeCommand{
-		ProjectName: inst.ProjectName,
-		Files:       activeComposeFiles(repo.WorktreeRoot, cfg, inst),
-		CommandArgs: dockerArgs,
-	}
-	dockerStdout := ctx.Stdout
-	if ctx.Renderer.JSON {
-		dockerStdout = io.Discard
-	}
-	exitCode := output.ExitOK
-	if err := docker.Run(cmd, dockerStdout, ctx.Stderr); err != nil {
-		exitCode = output.ExitDocker
-	}
-	return DockerResult{
-		Project:      inst.ProjectName,
-		ComposeFiles: cmd.Files,
-		Args:         dockerArgs,
-		ExitCode:     exitCode,
-	}, exitCode, nil
 }
 
 func runStatus(ctx *Context) (any, int, error) {
@@ -1233,9 +1182,6 @@ func humanRenderer() func(io.Writer, any) {
 			if len(v.Services) > 0 {
 				fmt.Fprintf(w, "  Services: %s\n", strings.Join(v.Services, ", "))
 			}
-		case DockerResult:
-			// Human output is already streamed by docker compose;
-			// only rendered for JSON mode
 		case ValidateResult:
 			if v.Valid {
 				fmt.Fprintf(w, "Docktree config is valid\n")
@@ -1359,7 +1305,6 @@ Commands:
   up         Start the current worktree's Compose project (or --create <branch>)
   down       Stop the current worktree's Compose project (or specific services)
   stop       Stop running containers without removing them
-  docker     Pass through to docker compose with project context
   status     Show managed worktree services
   ports      Show allocated host ports (use --all for all worktrees)
   prepare    Prepare the current worktree's local Docker setup
@@ -1491,28 +1436,6 @@ Options:
 
 Arguments:
   service      One or more service names to stop (default: all services)`)
-}
-
-func printDockerHelp(w io.Writer) {
-	fmt.Fprintln(w, `Usage:
-  docktree docker <compose subcommand> [options]
-  docktree docker <compose subcommand> [service...]
-
-Pass through to docker compose with the current worktree's project
-name and compose files automatically set.
-
-Any docker compose subcommand works: logs, exec, run, build, ps,
-pull, push, config, images, top, etc.
-
-Examples:
-  docktree docker logs api          # tail logs for a service
-  docktree docker exec db -- psql   # run a command in a container
-  docktree docker ps                # list running containers
-  docktree docker build api          # rebuild a service image
-  docktree docker config             # show merged compose config
-
-Options:
-  -h, --help   Show this help text`)
 }
 
 type upOptions struct {
