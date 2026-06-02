@@ -1199,19 +1199,47 @@ func composeFiles(dir string, cfg *config.Config) ([]string, error) {
 		}
 		return files, nil
 	}
-	opts, err := composecli.NewProjectOptions(nil,
+
+	// Pre-resolve COMPOSE_FILE relative entries against dir (not cwd).
+	var configs []string
+	if raw := strings.TrimSpace(os.Getenv("COMPOSE_FILE")); raw != "" {
+		sep := string(os.PathListSeparator)
+		if strings.Contains(raw, ";") && !strings.Contains(raw, sep) {
+			sep = ";"
+		}
+		for _, entry := range strings.Split(raw, sep) {
+			entry = strings.TrimSpace(entry)
+			if entry == "" {
+				continue
+			}
+			if !filepath.IsAbs(entry) {
+				entry = filepath.Join(dir, entry)
+			}
+			configs = append(configs, entry)
+		}
+	}
+
+	opts, err := composecli.NewProjectOptions(configs,
 		composecli.WithWorkingDirectory(dir),
-		composecli.WithOsEnv,
-		composecli.WithConfigFileEnv,
 		composecli.WithDefaultConfigPath,
 	)
 	if err != nil {
 		return nil, err
 	}
-	if len(opts.ConfigPaths) == 0 {
+
+	// compose-go walks up directories; only accept files under dir.
+	cleanDir := filepath.Clean(dir) + string(filepath.Separator)
+	var found []string
+	for _, p := range opts.ConfigPaths {
+		if strings.HasPrefix(filepath.Clean(p), cleanDir) || p == filepath.Clean(dir) {
+			found = append(found, p)
+		}
+	}
+
+	if len(found) == 0 {
 		return nil, fmt.Errorf("no compose file found in %s\n\nCreate docker-compose.yml or compose.yml, or set compose.files in docktree.yml", dir)
 	}
-	return opts.ConfigPaths, nil
+	return found, nil
 }
 
 // absComposeFiles resolves compose file paths to absolute form so they remain
