@@ -75,6 +75,8 @@ type DryRunResult struct {
 type DownResult struct {
 	Instance       *state.Instance `json:"instance,omitempty"`
 	AlreadyStopped bool            `json:"already_stopped,omitempty"`
+	DryRun         bool            `json:"dry_run,omitempty"`
+	ComposeFiles   []string        `json:"compose_files,omitempty"`
 }
 
 type StatusResult struct {
@@ -403,6 +405,14 @@ func runUp(ctx *Context) (any, int, error) {
 }
 
 func runDown(ctx *Context) (any, int, error) {
+	options, err := parseDownOptions(ctx.Args[1:])
+	if err != nil {
+		return nil, output.ExitUsage, err
+	}
+	if options.help {
+		printDownHelp(ctx.Stdout)
+		return nil, output.ExitOK, nil
+	}
 	repo, err := dockgit.DetectRepo()
 	if err != nil {
 		return nil, output.ExitConfig, err
@@ -419,6 +429,14 @@ func runDown(ctx *Context) (any, int, error) {
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
+	composeFiles := activeComposeFiles(repo.WorktreeRoot, cfg, inst)
+	if options.dryRun {
+		return DownResult{
+			Instance:     inst,
+			DryRun:       true,
+			ComposeFiles: composeFiles,
+		}, output.ExitOK, nil
+	}
 	runningState, err := composeRunStateForInstance(inst, cfg)
 	if err != nil {
 		return nil, output.ExitDocker, err
@@ -433,7 +451,7 @@ func runDown(ctx *Context) (any, int, error) {
 	if ctx.Renderer.JSON {
 		dockerStdout = io.Discard
 	}
-	cmd := docker.ComposeCommand{ProjectName: inst.ProjectName, Files: activeComposeFiles(repo.WorktreeRoot, cfg, inst), CommandArgs: []string{"down"}}
+	cmd := docker.ComposeCommand{ProjectName: inst.ProjectName, Files: composeFiles, CommandArgs: []string{"down"}}
 	if err := docker.Run(cmd, dockerStdout, ctx.Stderr); err != nil {
 		return nil, output.ExitDocker, err
 	}
@@ -1028,6 +1046,14 @@ func humanRenderer() func(io.Writer, any) {
 				fmt.Fprintln(w, "Docktree is already stopped.")
 				return
 			}
+			if v.DryRun {
+				fmt.Fprintf(w, "Docktree dry run - would stop %s\n", v.Instance.ProjectName)
+				fmt.Fprintf(w, "  Compose files:\n")
+				for _, f := range v.ComposeFiles {
+					fmt.Fprintf(w, "    %s\n", f)
+				}
+				return
+			}
 			fmt.Fprintf(w, "Docktree stopped %s\n", v.Instance.ProjectName)
 		case ValidateResult:
 			if v.Valid {
@@ -1203,6 +1229,37 @@ type cleanCandidate struct {
 	Resources  docker.ProjectResources
 	Instance   *state.Instance
 	StateFound bool
+}
+type downOptions struct {
+	help   bool
+	dryRun bool
+}
+
+func parseDownOptions(args []string) (downOptions, error) {
+	var options downOptions
+	for _, arg := range args {
+		switch {
+		case arg == "-h" || arg == "--help":
+			options.help = true
+			return options, nil
+		case arg == "--dry-run":
+			options.dryRun = true
+		default:
+			return downOptions{}, fmt.Errorf("unknown down flag %q", arg)
+		}
+	}
+	return options, nil
+}
+
+func printDownHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree down [options]
+
+Stop the current worktree's Compose project.
+
+Options:
+  --dry-run    Show what would be stopped without making changes
+  -h, --help   Show this help text`)
 }
 
 type upOptions struct {

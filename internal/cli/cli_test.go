@@ -221,3 +221,40 @@ func TestParsePortsOptionsUnknown(t *testing.T) {
 		t.Fatal("expected error for unknown flag")
 	}
 }
+
+func TestParseDownOptionsHelp(t *testing.T) {
+	opts, err := parseDownOptions([]string{"-h"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opts.help {
+		t.Fatal("expected help=true")
+	}
+}
+
+func TestParseDownOptionsDryRun(t *testing.T) {
+	opts, err := parseDownOptions([]string{"--dry-run"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opts.dryRun {
+		t.Fatal("expected dryRun=true")
+	}
+}
+
+func TestParseDownOptionsEmpty(t *testing.T) {
+	opts, err := parseDownOptions([]string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.dryRun || opts.help {
+		t.Fatal("expected all flags false")
+	}
+}
+
+func TestParseDownOptionsUnknownFlag(t *testing.T) {
+	_, err := parseDownOptions([]string{"--unknown"})
+	if err == nil {
+		t.Fatal("expected error for unknown flag")
+	}
+}
