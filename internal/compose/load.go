@@ -11,14 +11,19 @@ import (
 	composetypes "github.com/compose-spec/compose-go/v2/types"
 )
 
-func LoadProject(files []string) (*ComposeProject, error) {
+// LoadFull returns both the rich compose-go Project (full fidelity, suitable
+// for re-serialization to a synthesized compose file) and the reduced Docktree
+// model (sufficient for port allocation and the legacy override path).
+//
+// Callers that don't need full fidelity should use LoadProject.
+func LoadFull(files []string) (*composetypes.Project, *ComposeProject, error) {
 	if len(files) == 0 {
-		return nil, fmt.Errorf("no compose files provided")
+		return nil, nil, fmt.Errorf("no compose files provided")
 	}
 	workingDir := filepath.Dir(files[0])
 	details, err := composeloader.LoadConfigFiles(context.Background(), files, workingDir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	details.Environment = composeEnvironment()
 	projectName := filepath.Base(filepath.Clean(workingDir))
@@ -29,9 +34,18 @@ func LoadProject(files []string) (*ComposeProject, error) {
 		options.SetProjectName(projectName, false)
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return fromComposeGo(project)
+	reduced, err := fromComposeGo(project)
+	if err != nil {
+		return nil, nil, err
+	}
+	return project, reduced, nil
+}
+
+func LoadProject(files []string) (*ComposeProject, error) {
+	_, reduced, err := LoadFull(files)
+	return reduced, err
 }
 
 func ParseFile(path string) (*ComposeProject, error) {
