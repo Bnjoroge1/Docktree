@@ -64,6 +64,10 @@ func runPlatform(ctx *Context) (any, int, error) {
 		return runPlatformStatus(ctx)
 	case "tenants":
 		return runPlatformTenants(ctx)
+	case "logs":
+		return runPlatformLogs(ctx)
+	case "clean":
+		return runPlatformClean(ctx)
 	default:
 		fmt.Fprintf(ctx.Stderr, "unknown platform subcommand %q\n\n", args[0])
 		printPlatformHelp(ctx.Stderr)
@@ -79,6 +83,8 @@ func printPlatformHelp(w io.Writer) {
 	printHelpCmd(w, 8, "status", "Show platform stack state")
 	fmt.Fprintln(w)
 	printHelpCmd(w, 8, "tenants", "List tenant databases across all instances")
+	printHelpCmd(w, 8, "logs", "Stream platform service logs (pass service name to filter)")
+	printHelpCmd(w, 8, "clean", "Stop platform, drop all tenant DBs, remove network (--yes required)")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, tui.MutedS("The platform stack runs services marked in `shared.services` of"))
 	fmt.Fprintln(w, tui.MutedS("docktree.yml. Worktrees reach them via Docker DNS on the platform"))
@@ -426,4 +432,125 @@ func runPlatformTenants(ctx *Context) (any, int, error) {
 	})
 
 	return PlatformTenantsResult{Project: plan.Project, Tenants: entries}, output.ExitOK, nil
+}
+
+// runPlatformLogs streams logs from the platform compose project.
+// Passes remaining args directly to docker compose logs so standard flags
+// (--follow, --tail, service name) all work.
+func runPlatformLogs(ctx *Context) (any, int, error) {
+	plan, err := buildPlatformPlan()
+	if err != nil {
+		return nil, output.ExitConfig, err
+	}
+	if plan.Skipped {
+		return PlatformResult{Action: "logs", Skipped: true, Reason: plan.SkipReason}, output.ExitNoop, nil
+	}
+	if _, err := os.Stat(plan.ComposeFile); errors.Is(err, os.ErrNotExist) {
+		return nil, output.ExitConfig, fmt.Errorf("platform compose file not found — run 'docktree platform up' first")
+	}
+	// ctx.Args is ["platform", "logs", ...rest]
+	logsArgs := append([]string{"logs"}, ctx.Args[2:]...)
+	cmd := docker.ComposeCommand{
+		ProjectName: plan.Project,
+		Files:       []string{plan.ComposeFile},
+		CommandArgs: logsArgs,
+	}
+	if err := docker.Run(cmd, ctx.Stdout, ctx.Stderr); err != nil {
+		return nil, output.ExitDocker, err
+	}
+	return nil, output.ExitOK, nil
+}
+
+// runPlatformClean stops the platform stack, drops all known tenant databases,
+// and removes the external network. Requires --yes; destructive and
+// irreversible.
+func runPlatformClean(ctx *Context) (any, int, error) {
+	args := ctx.Args[2:] // ["platform", "clean", ...rest]
+	yes := false
+	dryRun := false
+	for _, a := range args {
+		switch a {
+		case "-y", "--yes":
+			yes = true
+		case "--dry-run":
+			dryRun = true
+		}
+	}
+	if !yes && !dryRun {
+		if !ctx.Renderer.IsTTY {
+			return nil, output.ExitUsage, fmt.Errorf("platform clean requires --yes or --dry-run in non-interactive mode")
+		}
+		fmt.Fprintf(ctx.Stdout, "%s This will stop the platform stack, drop ALL tenant databases, and remove the platform network.\n",
+			tui.WarningS("!"))
+		fmt.Fprintf(ctx.Stdout, "Type %s to confirm: ", tui.AccentS("yes"))
+		var line string
+		fmt.Fscan(os.Stdin, &line)
+		if strings.TrimSpace(line) != "yes" {
+			fmt.Fprintln(ctx.Stdout, "Aborted.")
+			return nil, output.ExitNoop, nil
+		}
+	}
+	plan, err := buildPlatformPlan()
+	if err != nil {
+		return nil, output.ExitConfig, err
+	}
+	if plan.Skipped {
+		return PlatformResult{Action: "clean", Skipped: true, Reason: plan.SkipReason}, output.ExitNoop, nil
+	}
+
+	if dryRun {
+		fmt.Fprintf(ctx.Stdout, "Would stop:   %s\n", plan.Project)
+		fmt.Fprintf(ctx.Stdout, "Would remove: %s\n", plan.Network)
+		instances, _ := state.LoadGlobalInstances("")
+		for _, inst := range instances {
+			repoSlug := dockgit.RepoName(inst.RepoRoot)
+			for svcName, svc := range plan.Shared.Services {
+				if svc.Tenancy == "per_database" {
+					fmt.Fprintf(ctx.Stdout, "Would drop:   %s (instance %s, service %s)\n",
+						provision.TenantName(repoSlug, inst.Name), inst.Name, svcName)
+				}
+			}
+		}
+		return nil, output.ExitOK, nil
+	}
+
+	// 1. Drop all known tenant databases while platform containers are still up.
+	instances, _ := state.LoadGlobalInstances("")
+	for _, inst := range instances {
+		repoSlug := dockgit.RepoName(inst.RepoRoot)
+		for svcName, svc := range plan.Shared.Services {
+			if svc.Tenancy != "per_database" {
+				continue
+			}
+			tenantDB := provision.TenantName(repoSlug, inst.Name)
+			container := plan.Project + "-" + svcName
+			fmt.Fprintf(ctx.Stderr, "Dropping tenant database: %s\n", tenantDB)
+			deprovCfg := provision.TenantConfig{
+				Kind:       svc.Kind,
+				Tenancy:    svc.Tenancy,
+				TenantName: tenantDB,
+				Host:       container,
+				User:       "postgres",
+			}
+			if err := provision.Deprovision(deprovCfg); err != nil {
+				fmt.Fprintf(ctx.Stderr, "warning: drop %s: %v\n", tenantDB, err)
+			}
+		}
+	}
+
+	// 2. Stop the platform stack.
+	if _, err := os.Stat(plan.ComposeFile); err == nil {
+		cmd := docker.ComposeCommand{
+			ProjectName: plan.Project,
+			Files:       []string{plan.ComposeFile},
+			CommandArgs: []string{"down", "-v"},
+		}
+		_ = docker.Run(cmd, io.Discard, ctx.Stderr)
+	}
+
+	// 3. Remove the external network.
+	_ = dockerSilent("network", "rm", plan.Network)
+
+	fmt.Fprintf(ctx.Stdout, "%s Platform cleaned: %s\n", tui.OKS("✓"), plan.Project)
+	return PlatformResult{Action: "clean", Project: plan.Project, Network: plan.Network}, output.ExitOK, nil
 }
