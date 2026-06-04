@@ -1,0 +1,17 @@
+shared:
+  services:
+    db:
+      kind: postgres
+      tenancy: per_database
+      url_envs: [DATABASE_URL]
+      template: ""
+    redis:
+      kind: redis
+      tenancy: full_share
+    garage:
+      kind: s3
+      tenancy: full_share
+
+ports:
+  range: 41000-49999
+  bind_host: "127.0.0.1"
