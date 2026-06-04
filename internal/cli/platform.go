@@ -8,10 +8,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/bnjoroge/docktree/internal/compose"
 	"github.com/bnjoroge/docktree/internal/provision"
+	"github.com/bnjoroge/docktree/internal/state"
 	"github.com/bnjoroge/docktree/internal/config"
 	"github.com/bnjoroge/docktree/internal/docker"
 	dockgit "github.com/bnjoroge/docktree/internal/git"
@@ -32,6 +34,20 @@ type PlatformResult struct {
 	Reason       string   `json:"reason,omitempty"`
 }
 
+// TenantEntry describes one per-worktree tenant namespace inside a shared service.
+type TenantEntry struct {
+	Instance string `json:"instance"`
+	Service  string `json:"service"`
+	TenantDB string `json:"tenant_db"`
+	Exists   bool   `json:"exists"`
+}
+
+// PlatformTenantsResult is the result of `docktree platform tenants`.
+type PlatformTenantsResult struct {
+	Project string        `json:"project"`
+	Tenants []TenantEntry `json:"tenants"`
+}
+
 // runPlatform dispatches `docktree platform <sub>` to the matching handler.
 func runPlatform(ctx *Context) (any, int, error) {
 	args := ctx.Args[1:]
@@ -46,6 +62,8 @@ func runPlatform(ctx *Context) (any, int, error) {
 		return runPlatformDown(ctx)
 	case "status":
 		return runPlatformStatus(ctx)
+	case "tenants":
+		return runPlatformTenants(ctx)
 	default:
 		fmt.Fprintf(ctx.Stderr, "unknown platform subcommand %q\n\n", args[0])
 		printPlatformHelp(ctx.Stderr)
@@ -59,6 +77,8 @@ func printPlatformHelp(w io.Writer) {
 	printHelpCmd(w, 8, "up", "Start the repo-scoped platform stack")
 	printHelpCmd(w, 8, "down", "Stop the repo-scoped platform stack (preserves data)")
 	printHelpCmd(w, 8, "status", "Show platform stack state")
+	fmt.Fprintln(w)
+	printHelpCmd(w, 8, "tenants", "List tenant databases across all instances")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, tui.MutedS("The platform stack runs services marked in `shared.services` of"))
 	fmt.Fprintln(w, tui.MutedS("docktree.yml. Worktrees reach them via Docker DNS on the platform"))
@@ -359,4 +379,51 @@ func ensurePlatformUp(ctx *Context, instanceName, repoSlug string) (string, stri
 		}
 	}
 	return plan.Project, plan.ComposeFile, nil
+}
+
+// runPlatformTenants lists every known per-worktree tenant namespace across
+// all global instances, querying the platform Postgres to report whether each
+// tenant database actually exists.
+func runPlatformTenants(ctx *Context) (any, int, error) {
+	plan, err := buildPlatformPlan()
+	if err != nil {
+		return nil, output.ExitConfig, err
+	}
+	if plan.Skipped {
+		return PlatformTenantsResult{}, output.ExitNoop, nil
+	}
+
+	instances, err := state.LoadGlobalInstances("")
+	if err != nil {
+		return nil, output.ExitConfig, err
+	}
+
+	var entries []TenantEntry
+	for _, inst := range instances {
+		repoSlug := dockgit.RepoName(inst.RepoRoot)
+		for svcName, svc := range plan.Shared.Services {
+			if svc.Tenancy != "per_database" {
+				continue
+			}
+			tenantDB := provision.TenantName(repoSlug, inst.Name)
+			container := plan.Project + "-" + svcName
+			exists, _ := provision.DBExists(container, tenantDB, "postgres", "")
+			entries = append(entries, TenantEntry{
+				Instance: inst.Name,
+				Service:  svcName,
+				TenantDB: tenantDB,
+				Exists:   exists,
+			})
+		}
+	}
+
+	// Sort for stable output
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].Instance != entries[j].Instance {
+			return entries[i].Instance < entries[j].Instance
+		}
+		return entries[i].Service < entries[j].Service
+	})
+
+	return PlatformTenantsResult{Project: plan.Project, Tenants: entries}, output.ExitOK, nil
 }

@@ -2026,6 +2026,34 @@ func humanRenderer() func(io.Writer, any) {
 					fmt.Fprintf(w, "  %s  %s\n", tui.DimS("service:"), tui.OKS(svc))
 				}
 			}
+		case PlatformTenantsResult:
+			if len(v.Tenants) == 0 {
+				fmt.Fprintf(w, "%s No tenant databases found.\n", tui.BrandS("Docktree"))
+				return
+			}
+			var tbl tui.Table
+			tbl.Headers = []string{"INSTANCE", "SERVICE", "TENANT DB", "EXISTS"}
+			for _, e := range v.Tenants {
+				existsStr := tui.OKS("yes")
+				if !e.Exists {
+					existsStr = tui.WarningS("no")
+				}
+				tbl.Rows = append(tbl.Rows, []string{e.Instance, e.Service, e.TenantDB, existsStr})
+			}
+			fmt.Fprintln(w, tbl.RenderBorderedStyled(func(row, col int, val string) string {
+				if row == -1 {
+					return tui.DimS(val)
+				}
+				switch col {
+				case 0:
+					return tui.MutedS(val)
+				case 1:
+					return tui.AccentS(val)
+				case 2:
+					return tui.TextS(val)
+				}
+				return val
+			}))
 		default:
 			_ = json.NewEncoder(w).Encode(data)
 		}
