@@ -18,6 +18,7 @@ import (
 	composecli "github.com/compose-spec/compose-go/v2/cli"
 
 	"github.com/bnjoroge/docktree/internal/compose"
+	"github.com/bnjoroge/docktree/internal/provision"
 	"github.com/bnjoroge/docktree/internal/config"
 	"github.com/bnjoroge/docktree/internal/docker"
 	dockgit "github.com/bnjoroge/docktree/internal/git"
@@ -48,6 +49,7 @@ type UpResult struct {
 	ClearFile       string             `json:"clear_file,omitempty"`
 	Ports           []ports.Assignment `json:"ports,omitempty"`
 	Services        []string           `json:"services"`
+	SharedServices  []string           `json:"shared_services,omitempty"`
 	IsolatedVolumes []string           `json:"isolated_volumes,omitempty"`
 	EnvWarnings     []compose.Warning  `json:"env_warnings,omitempty"`
 	Scaffolded      bool               `json:"scaffolded,omitempty"`
@@ -201,15 +203,16 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		result, code, err = runWithProgress(ctx, runDown)
 	default:
 		commands := map[string]commandFunc{
-			"stop":    runStop,
-			"logs":    runLogs,
-			"exec":    runExec,
-			"run":     runComposeRun,
-			"status":  runStatus,
-			"ports":   runPorts,
-			"clean":   runClean,
-			"create":  runCreate,
-			"prepare": runPrepare,
+			"stop":     runStop,
+			"logs":     runLogs,
+			"exec":     runExec,
+			"run":      runComposeRun,
+			"status":   runStatus,
+			"ports":    runPorts,
+			"clean":    runClean,
+			"create":   runCreate,
+			"prepare":  runPrepare,
+			"platform": runPlatform,
 		}
 		fn, ok := commands[rest[0]]
 		if !ok {
@@ -367,6 +370,42 @@ func runUp(ctx *Context) (any, int, error) {
 			return nil, output.ExitConfig, err
 		}
 	}
+	// Shared-services mode: synthesize a worktree-specific compose file that
+	// omits platform services, joins the platform network, and rewrites
+	// declared url_envs to point at the per-worktree tenant database.
+	// Synthesis always runs so validate/dry-run see the correct service set.
+	// Platform startup is deferred until after those read-only paths.
+	if len(cfg.Shared.Services) > 0 {
+		if err := state.EnsureStateDir(repo.WorktreeRoot, cfg.State.Directory); err != nil {
+			return nil, output.ExitConfig, err
+		}
+		rawProj, _, lerr := compose.LoadFull(files)
+		if lerr != nil {
+			return nil, output.ExitConfig, lerr
+		}
+		repoSlug := dockgit.RepoName(repo.RepoRoot)
+		// Build per-tenant database names so SynthesizeWorktree can rewrite
+		// declared url_envs (e.g. DATABASE_URL) in place.
+		tenantDBs := make(map[string]string, len(cfg.Shared.Services))
+		for svcName, svc := range cfg.Shared.Services {
+			if svc.Tenancy == "per_database" && len(svc.URLEnvs) > 0 {
+				tenantDBs[svcName] = provision.TenantName(repoSlug, instanceName)
+			}
+		}
+		wtProj, serr := compose.SynthesizeWorktree(rawProj, cfg.Shared, repoSlug,
+			compose.SynthesizeWorktreeOptions{TenantDBs: tenantDBs})
+		if serr != nil {
+			return nil, output.ExitConfig, serr
+		}
+		wtComposePath := filepath.Join(stateDir, "generated", instanceName+"-worktree-compose.yml")
+		if werr := compose.WriteComposeFile(wtProj, wtComposePath); werr != nil {
+			return nil, output.ExitConfig, werr
+		}
+		files = []string{wtComposePath}
+		if steps != nil {
+			steps.Done("Generated worktree compose")
+		}
+	}
 	project, err := parseAll(files)
 	if err != nil {
 		return nil, output.ExitConfig, err
@@ -393,6 +432,15 @@ func runUp(ctx *Context) (any, int, error) {
 				all, _ := ports.NewRegistry().Load()
 				return UpResult{Instance: inst, Synced: synced, AlreadyRunning: true, Ports: all[instanceName]}, output.ExitNoop, nil
 			}
+		}
+	}
+	// Platform must be up before we start worktree containers.
+	if len(cfg.Shared.Services) > 0 {
+		if _, _, platErr := ensurePlatformUp(ctx, instanceName, dockgit.RepoName(repo.RepoRoot)); platErr != nil {
+			return nil, output.ExitDocker, platErr
+		}
+		if steps != nil {
+			steps.Done("Platform stack ready")
 		}
 	}
 	portRange, err := ports.ParseRange(cfg.Ports.Range)
@@ -522,7 +570,12 @@ func runUp(ctx *Context) (any, int, error) {
 	if err := state.UpsertGlobalInstance("", inst); err != nil {
 		return nil, output.ExitConfig, err
 	}
-	return UpResult{Instance: inst, CreatedWorktree: createdWorktree, ComposeFiles: files, OverrideFile: overrideFile, ClearFile: clearFile, Ports: assignments, Services: serviceNames(project), IsolatedVolumes: isolatedVolumes(project, repoRootVolumesShare()), EnvWarnings: envWarnings, Scaffolded: scaffolded, Synced: synced}, output.ExitOK, nil
+	sharedSvcNames := make([]string, 0, len(cfg.Shared.Services))
+	for name := range cfg.Shared.Services {
+		sharedSvcNames = append(sharedSvcNames, name)
+	}
+	sort.Strings(sharedSvcNames)
+	return UpResult{Instance: inst, CreatedWorktree: createdWorktree, ComposeFiles: files, OverrideFile: overrideFile, ClearFile: clearFile, Ports: assignments, Services: serviceNames(project), SharedServices: sharedSvcNames, IsolatedVolumes: isolatedVolumes(project, repoRootVolumesShare()), EnvWarnings: envWarnings, Scaffolded: scaffolded, Synced: synced}, output.ExitOK, nil
 }
 
 func runDown(ctx *Context) (any, int, error) {
@@ -1493,6 +1546,12 @@ func humanRenderer() func(io.Writer, any) {
 				fmt.Fprintln(w, tui.DimS("Allocated ports"))
 				renderPortList(w, v.Ports)
 			}
+			if len(v.SharedServices) > 0 {
+				fmt.Fprintln(w)
+				fmt.Fprintf(w, "%s  %s\n",
+					tui.DimS("Platform services:"),
+					tui.InfoS(strings.Join(v.SharedServices, ", ")))
+			}
 
 			if v.CreatedWorktree != "" || len(v.ComposeFiles) > 0 || v.OverrideFile != "" {
 				fmt.Fprintln(w)
@@ -1907,6 +1966,30 @@ func humanRenderer() func(io.Writer, any) {
 					tui.MutedS(fmt.Sprintf("%d ports freed. %d instances removed.",
 						v.Totals.Ports, v.Totals.Instances)))
 			}
+		case PlatformResult:
+			if v.Skipped {
+				fmt.Fprintf(w, "%s %s\n", tui.BrandS("Docktree"), tui.MutedS(v.Reason))
+				return
+			}
+			switch v.Action {
+			case "up":
+				if v.Running {
+					fmt.Fprintf(w, "%s Platform %s\n", tui.OKS("✓"), tui.AccentS(v.Project))
+				}
+			case "down":
+				fmt.Fprintf(w, "%s Stopped platform %s\n", tui.OKS("✓"), tui.AccentS(v.Project))
+			case "status":
+				state := "stopped"
+				if v.Running {
+					state = "running"
+				}
+				fmt.Fprintf(w, "%s Platform %s  %s\n",
+					tui.BrandS("Docktree"), tui.AccentS(v.Project), tui.Badge(state, strings.ToUpper(state)))
+				fmt.Fprintf(w, "  %s  %s\n", tui.DimS("network:"), tui.MutedS(v.Network))
+				for _, svc := range v.Services {
+					fmt.Fprintf(w, "  %s  %s\n", tui.DimS("service:"), tui.OKS(svc))
+				}
+			}
 		default:
 			_ = json.NewEncoder(w).Encode(data)
 		}
@@ -1946,6 +2029,7 @@ func printHelp(w io.Writer) {
 	printHelpCmd(w, maxCmd, "status", "Show managed worktree services")
 	printHelpCmd(w, maxCmd, "ports", "Show allocated host ports (use --all for all worktrees)")
 	printHelpCmd(w, maxCmd, "prepare", "Prepare the current worktree's local Docker setup")
+	printHelpCmd(w, maxCmd, "platform", "Manage the repo-scoped shared services platform")
 	printHelpCmd(w, maxCmd, "clean", "Remove stale Docktree-managed resources")
 	printHelpCmd(w, maxCmd, "help", "Show this help text")
 	printHelpCmd(w, maxCmd, "version", "Print the docktree version")
