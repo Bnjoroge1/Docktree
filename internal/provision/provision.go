@@ -196,6 +196,13 @@ func dropPostgresDB(cfg TenantConfig) error {
 
 // WaitForPostgres polls pg_isready inside the platform container until it
 // responds or the timeout elapses. Returns nil when ready.
+// DBExists reports whether a database with the given name exists in the
+// platform Postgres container. Password may be empty if the container
+// accepts peer/trust auth.
+func DBExists(container, dbName, user, password string) (bool, error) {
+	return postgresDBExists(container, dbName, user, password)
+}
+
 func WaitForPostgres(container, user string, timeoutSec int) error {
 	if timeoutSec <= 0 {
 		timeoutSec = 30
