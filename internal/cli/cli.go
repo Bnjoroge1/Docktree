@@ -393,6 +393,33 @@ func runUp(ctx *Context) (any, int, error) {
 				tenantDBs[svcName] = provision.TenantName(repoSlug, instanceName)
 			}
 		}
+		// Warn when a per_database service has no url_envs — tenant DB exists
+		// but no worktree service will actually connect to it.
+		for svcName, svc := range cfg.Shared.Services {
+			if svc.Tenancy != "per_database" || len(svc.URLEnvs) > 0 {
+				continue
+			}
+			// Check whether any worktree service env looks like it references
+			// this service hostname — if not, the tenant DB is dead weight.
+			referenced := false
+			for _, wtSvc := range rawProj.Services {
+				for _, v := range wtSvc.Environment {
+					if v != nil && strings.Contains(*v, svcName) {
+						referenced = true
+						break
+					}
+				}
+				if referenced {
+					break
+				}
+			}
+			if referenced {
+				envWarnings = append(envWarnings, compose.Warning{
+					Key:     "shared." + svcName + ".url_envs",
+					Message: "service " + svcName + " uses tenancy: per_database but url_envs is not declared. DATABASE_URL will NOT be rewritten — all worktrees will hit the same database. Add url_envs: [DATABASE_URL] (or your connection env name) to docktree.yml to fix isolation.",
+				})
+			}
+		}
 		wtProj, serr := compose.SynthesizeWorktree(rawProj, cfg.Shared, repoSlug,
 			compose.SynthesizeWorktreeOptions{TenantDBs: tenantDBs})
 		if serr != nil {
