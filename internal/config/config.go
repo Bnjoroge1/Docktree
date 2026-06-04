@@ -2,8 +2,11 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -14,8 +17,7 @@ type Config struct {
 	Identity   IdentityConfig   `yaml:"identity"`
 	Worktrees  WorktreesConfig  `yaml:"worktrees"`
 	Setup      SetupConfig      `yaml:"setup"`
-	Shared     ServiceSetConfig `yaml:"shared"`
-	Isolated   ServiceSetConfig `yaml:"isolated"`
+	Shared     SharedConfig     `yaml:"shared,omitempty"`
 	Volumes    VolumeSetConfig  `yaml:"volumes"`
 	Ports      PortsConfig      `yaml:"ports"`
 	Transforms TransformConfig  `yaml:"transforms"`
@@ -40,8 +42,51 @@ type SetupConfig struct {
 	Run     []string `yaml:"run,omitempty"`
 }
 
-type ServiceSetConfig struct {
-	Services []string `yaml:"services,omitempty"`
+// SharedConfig declares which compose services run in the repo-scoped
+// platform tier instead of being duplicated per worktree.
+//
+// Empty == no platform tier; behaviour is identical to today's isolated mode.
+type SharedConfig struct {
+	Services map[string]SharedService `yaml:"services,omitempty"`
+}
+
+// SharedService describes one platform-tier service. The map key in
+// SharedConfig.Services is the user's compose service name and is what
+// worktree containers will resolve via Docker DNS.
+type SharedService struct {
+	// Kind selects the provisioning + tenancy semantics. Required.
+	// Valid: postgres, mysql, redis, s3, generic.
+	Kind string `yaml:"kind"`
+
+	// Tenancy is how a worktree gets logical isolation inside the shared
+	// service. Required. Valid values depend on Kind (see ValidateShared).
+	Tenancy string `yaml:"tenancy"`
+
+	// TenantEnv is the env var Docktree writes into each worktree service
+	// carrying the per-tenant identifier (database name, key prefix, etc.).
+	// Optional; defaulted per Kind.
+	TenantEnv string `yaml:"tenant_env,omitempty"`
+
+	// Template is the source database for `CREATE DATABASE ... TEMPLATE`.
+	// Postgres/mysql only. Optional.
+	Template string `yaml:"template,omitempty"`
+
+	// Aliases adds extra DNS names this service answers to on the platform
+	// network, beyond the service name itself. Escape hatch for apps that
+	// connect to a hostname different from the compose service name.
+	Aliases []string `yaml:"aliases,omitempty"`
+
+	// URLEnvs is the list of environment variable names in worktree services
+	// whose values contain a connection URL to this shared service. Docktree
+	// will rewrite the database/path component of each URL to the per-worktree
+	// tenant name at synthesis time.
+	//
+	// Example: ["DATABASE_URL", "DATABASE_REPLICA_URL"]
+	//
+	// Only the path component is rewritten; scheme, host, port, user,
+	// password, and query string are preserved. Only applies when
+	// Tenancy == "per_database".
+	URLEnvs []string `yaml:"url_envs,omitempty"`
 }
 
 type VolumeSetConfig struct {
@@ -110,6 +155,9 @@ func Load(dir string) (*Config, error) {
 		return nil, err
 	}
 	merge(&cfg, user)
+	if err := ValidateShared(cfg.Shared, cfg.Volumes.Share); err != nil {
+		return nil, err
+	}
 	return &cfg, nil
 }
 
@@ -147,9 +195,6 @@ func merge(base *Config, user Config) {
 	if user.Shared.Services != nil {
 		base.Shared.Services = user.Shared.Services
 	}
-	if user.Isolated.Services != nil {
-		base.Isolated.Services = user.Isolated.Services
-	}
 	if user.Volumes.Share != nil {
 		base.Volumes.Share = user.Volumes.Share
 	}
@@ -180,4 +225,103 @@ func merge(base *Config, user Config) {
 	if user.State.Directory != "" {
 		base.State.Directory = user.State.Directory
 	}
+}
+
+// Valid kinds + tenancy combos. Map from kind to its set of allowed tenancy
+// values. v1 keeps Redis/S3/generic to full_share — the plan defers
+// per-key-prefix and per-bucket isolation to a later release.
+var allowedTenancyByKind = map[string]map[string]bool{
+	"postgres": {"per_database": true, "full_share": true},
+	"mysql":    {"per_database": true, "full_share": true},
+	"redis":    {"full_share": true},
+	"s3":       {"full_share": true},
+	"generic":  {"full_share": true},
+}
+
+// DefaultTenantEnv returns the per-kind default name for TenantEnv when the
+// user has not specified one.
+func DefaultTenantEnv(kind string) string {
+	switch kind {
+	case "postgres", "mysql":
+		return "DOCKTREE_DB"
+	case "redis":
+		return "REDIS_KEY_PREFIX"
+	case "s3":
+		return "S3_BUCKET"
+	default:
+		return ""
+	}
+}
+
+// ValidateShared enforces the schema rules for shared.services and surfaces
+// conflicts with volumes.share. Returns the first failure found, deterministic
+// across runs so error messages are reproducible.
+func ValidateShared(shared SharedConfig, sharedVolumes []string) error {
+	if len(shared.Services) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(shared.Services))
+	for name := range shared.Services {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	// Service-level validation (deterministic order).
+	for _, name := range names {
+		svc := shared.Services[name]
+		if name == "" {
+			return fmt.Errorf("shared.services: service key cannot be empty")
+		}
+		if svc.Kind == "" {
+			return fmt.Errorf("shared.services.%s.kind is required", name)
+		}
+		allowed, ok := allowedTenancyByKind[svc.Kind]
+		if !ok {
+			return fmt.Errorf("shared.services.%s.kind %q is not supported (use postgres, mysql, redis, s3, generic)", name, svc.Kind)
+		}
+		if svc.Tenancy == "" {
+			return fmt.Errorf("shared.services.%s.tenancy is required", name)
+		}
+		if !allowed[svc.Tenancy] {
+			allowedList := sortedKeys(allowed)
+			return fmt.Errorf("shared.services.%s.tenancy %q is not valid for kind %q (use %s)", name, svc.Tenancy, svc.Kind, strings.Join(allowedList, ", "))
+		}
+		if svc.Template != "" && svc.Kind != "postgres" && svc.Kind != "mysql" {
+			return fmt.Errorf("shared.services.%s.template only applies to postgres/mysql, not %s", name, svc.Kind)
+		}
+	}
+
+	// Alias uniqueness across the platform network — every service implicitly
+	// claims an alias equal to its own name, plus any explicit aliases. None
+	// of these may collide.
+	owners := map[string]string{} // alias -> service that registered it
+	for _, name := range names {
+		svc := shared.Services[name]
+		aliases := append([]string{name}, svc.Aliases...)
+		for _, alias := range aliases {
+			if owner, taken := owners[alias]; taken && owner != name {
+				return fmt.Errorf("shared.services: alias %q claimed by both %q and %q", alias, owner, name)
+			}
+			owners[alias] = name
+		}
+	}
+
+	// volumes.share + shared.services overlap — platform tier wins, but
+	// surface as an error so users notice the contradiction instead of
+	// silently getting one behaviour.
+	for _, v := range sharedVolumes {
+		if _, taken := shared.Services[v]; taken {
+			return fmt.Errorf("service %q appears in both shared.services and volumes.share; remove from volumes.share (platform tier already owns the data)", v)
+		}
+	}
+	return nil
+}
+
+func sortedKeys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
