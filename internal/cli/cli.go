@@ -79,11 +79,12 @@ type DryRunResult struct {
 }
 
 type DownResult struct {
-	Instance       *state.Instance `json:"instance,omitempty"`
-	AlreadyStopped bool            `json:"already_stopped,omitempty"`
-	DryRun         bool            `json:"dry_run,omitempty"`
-	Services       []string        `json:"services,omitempty"`
-	ComposeFiles   []string        `json:"compose_files,omitempty"`
+	Instance        *state.Instance `json:"instance,omitempty"`
+	AlreadyStopped  bool            `json:"already_stopped,omitempty"`
+	DryRun          bool            `json:"dry_run,omitempty"`
+	Services        []string        `json:"services,omitempty"`
+	ComposeFiles    []string        `json:"compose_files,omitempty"`
+	DroppedTenants  []string        `json:"dropped_tenants,omitempty"`
 }
 
 type StopResult struct {
@@ -638,6 +639,35 @@ func runDown(ctx *Context) (any, int, error) {
 	if ctx.Renderer.JSON {
 		dockerStdout = io.Discard
 	}
+	// Drop tenant databases before stopping containers — containers must still
+	// be running for psql to reach postgres.
+	var droppedTenants []string
+	if options.volumes && len(cfg.Shared.Services) > 0 {
+		repoSlug := dockgit.RepoName(repo.RepoRoot)
+		for svcName, svc := range cfg.Shared.Services {
+			if svc.Kind != "postgres" && svc.Kind != "mysql" {
+				continue
+			}
+			if svc.Tenancy != "per_database" {
+				continue
+			}
+			platformProject := compose.PlatformProjectName(repoSlug)
+			tenantDB := provision.TenantName(repoSlug, inst.Name)
+			provCfg := provision.TenantConfig{
+				Kind:       svc.Kind,
+				Tenancy:    svc.Tenancy,
+				TenantName: tenantDB,
+				Host:       platformProject + "-" + svcName,
+				User:       "postgres",
+			}
+			fmt.Fprintf(ctx.Stderr, "Dropping tenant database: %s\n", tenantDB)
+			if err := provision.Deprovision(provCfg); err != nil {
+				fmt.Fprintf(ctx.Stderr, "warning: failed to drop %s: %v\n", tenantDB, err)
+			} else {
+				droppedTenants = append(droppedTenants, tenantDB)
+			}
+		}
+	}
 	downArgs := []string{"down"}
 	if len(options.services) > 0 {
 		downArgs = append(downArgs, options.services...)
@@ -667,7 +697,7 @@ func runDown(ctx *Context) (any, int, error) {
 	if len(services) == 0 {
 		services = []string{"all"}
 	}
-	return DownResult{Instance: inst, Services: services}, output.ExitOK, nil
+	return DownResult{Instance: inst, Services: services, DroppedTenants: droppedTenants}, output.ExitOK, nil
 }
 
 func runStop(ctx *Context) (any, int, error) {
@@ -1582,6 +1612,12 @@ func humanRenderer() func(io.Writer, any) {
 					tui.DimS("Isolated volumes:"), strings.Join(v.IsolatedVolumes, ", "))
 			}
 		case DownResult:
+			if len(v.DroppedTenants) > 0 {
+				for _, db := range v.DroppedTenants {
+					fmt.Fprintf(w, "%s Dropped tenant database: %s\n",
+						tui.WarningS("!"), tui.MutedS(db))
+				}
+			}
 			if v.AlreadyStopped {
 				if v.Instance != nil {
 					fmt.Fprintf(w, "%s %s is already stopped.\n",
@@ -2088,6 +2124,7 @@ type cleanCandidate struct {
 type downOptions struct {
 	help     bool
 	dryRun   bool
+	volumes  bool
 	services []string
 }
 
@@ -2101,6 +2138,8 @@ func parseDownOptions(args []string) (downOptions, error) {
 			return options, nil
 		case arg == "--dry-run":
 			options.dryRun = true
+		case arg == "-v" || arg == "--volumes":
+			options.volumes = true
 		default:
 			if strings.HasPrefix(arg, "-") {
 				return downOptions{}, fmt.Errorf("unknown down flag %q", arg)
@@ -2118,11 +2157,13 @@ func printDownHelp(w io.Writer) {
 Stop the current worktree's Compose project, or specific services.
 
 Options:
-  --dry-run    Show what would be stopped without making changes
-  -h, --help   Show this help text
+  -v, --volumes  Also drop per-worktree tenant databases (postgres per_database).
+                 Data is permanently deleted. Platform volumes are kept.
+  --dry-run      Show what would be stopped without making changes
+  -h, --help     Show this help text
 
 Arguments:
-  service      One or more service names to stop (default: all services)`)
+  service        One or more service names to stop (default: all services)`)
 }
 
 type stopOptions struct {
