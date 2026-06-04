@@ -332,18 +332,31 @@ func ensurePlatformUp(ctx *Context, instanceName, repoSlug string) (string, stri
 		}
 	}
 	// Run per-tenant provisioning for services that need it (postgres per_database).
-	// Best-effort — a failed provision is logged but does not abort worktree up.
 	for svcName, svc := range plan.Shared.Services {
+		if svc.Kind != "postgres" && svc.Kind != "mysql" {
+			continue
+		}
+		if svc.Tenancy != "per_database" {
+			continue
+		}
+		container := plan.Project + "-" + svcName
+		// Wait for the database to be ready — platform up -d returns before
+		// Postgres finishes its init sequence.
+		if err := provision.WaitForPostgres(container, "postgres", 30); err != nil {
+			fmt.Fprintf(ctx.Stderr, "warning: %s not ready, skipping tenant provisioning: %v\n", svcName, err)
+			continue
+		}
 		provCfg := provision.TenantConfig{
 			Kind:       svc.Kind,
 			Tenancy:    svc.Tenancy,
 			Template:   svc.Template,
 			TenantName: provision.TenantName(repoSlug, instanceName),
-			// Container name follows the pattern set by SynthesizePlatform.
-			Host: plan.Project + "-" + svcName,
-			User: "postgres",
+			Host:       container,
+			User:       "postgres",
 		}
-		_ = provision.Provision(provCfg)
+		if err := provision.Provision(provCfg); err != nil {
+			fmt.Fprintf(ctx.Stderr, "warning: provision %s (%s): %v\n", svcName, provCfg.TenantName, err)
+		}
 	}
 	return plan.Project, plan.ComposeFile, nil
 }
