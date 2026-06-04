@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // TenantConfig carries everything a provisioner needs to create or verify
@@ -152,4 +153,64 @@ func TenantName(repoSlug, instanceName string) string {
 		slug = "docktree"
 	}
 	return slug
+}
+
+// Deprovision drops the per-worktree tenant namespace. Called only on
+// explicit destructive paths (down -v, platform clean --tenant).
+// It is NOT called on a normal down — data is preserved by default.
+func Deprovision(cfg TenantConfig) error {
+	switch cfg.Kind {
+	case "postgres", "mysql":
+		if cfg.Tenancy != "per_database" {
+			return nil
+		}
+		return dropPostgresDB(cfg)
+	case "redis", "s3", "generic":
+		return nil
+	default:
+		return fmt.Errorf("deprovision: unknown kind %q", cfg.Kind)
+	}
+}
+
+func dropPostgresDB(cfg TenantConfig) error {
+	if cfg.TenantName == "" {
+		return fmt.Errorf("deprovision postgres: empty tenant name")
+	}
+	container := cfg.Host
+	exists, err := postgresDBExists(container, cfg.TenantName, cfg.User, cfg.Password)
+	if err != nil {
+		return fmt.Errorf("deprovision postgres: checking database: %w", err)
+	}
+	if !exists {
+		return nil // already gone
+	}
+	// Terminate active connections so DROP DATABASE doesn't block.
+	terminate := fmt.Sprintf(
+		`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='%s' AND pid <> pg_backend_pid()`,
+		cfg.TenantName,
+	)
+	_ = postgresExec(container, cfg.User, cfg.Password, terminate) // best-effort
+	drop := fmt.Sprintf(`DROP DATABASE IF EXISTS "%s"`, cfg.TenantName)
+	return postgresExec(container, cfg.User, cfg.Password, drop)
+}
+
+// WaitForPostgres polls pg_isready inside the platform container until it
+// responds or the timeout elapses. Returns nil when ready.
+func WaitForPostgres(container, user string, timeoutSec int) error {
+	if timeoutSec <= 0 {
+		timeoutSec = 30
+	}
+	var lastErr error
+	for i := 0; i < timeoutSec*2; i++ {
+		cmd := exec.Command("docker", "exec", container,
+			"pg_isready", "-U", user, "-q")
+		if err := cmd.Run(); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+		// 500ms between retries
+		time.Sleep(500 * time.Millisecond)
+	}
+	return fmt.Errorf("postgres in %s not ready after %ds: %w", container, timeoutSec, lastErr)
 }

@@ -59,3 +59,24 @@ func TestProvisionRedisNoOp(t *testing.T) {
 		t.Fatalf("redis should be no-op: %v", err)
 	}
 }
+
+func TestDeprovisionFullShareNoOp(t *testing.T) {
+	err := Deprovision(TenantConfig{Kind: "postgres", Tenancy: "full_share"})
+	if err != nil {
+		t.Fatalf("full_share deprovision should be no-op: %v", err)
+	}
+}
+
+func TestDeprovisionRedisNoOp(t *testing.T) {
+	err := Deprovision(TenantConfig{Kind: "redis", Tenancy: "full_share"})
+	if err != nil {
+		t.Fatalf("redis deprovision should be no-op: %v", err)
+	}
+}
+
+func TestDeprovisionUnknownKindErrors(t *testing.T) {
+	err := Deprovision(TenantConfig{Kind: "neo4j", Tenancy: "per_database"})
+	if err == nil || !strings.Contains(err.Error(), "neo4j") {
+		t.Fatalf("expected error mentioning kind, got: %v", err)
+	}
+}
