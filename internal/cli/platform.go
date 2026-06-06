@@ -16,12 +16,12 @@ import (
 	"github.com/bnjoroge/docktree/internal/state"
 	"github.com/bnjoroge/docktree/internal/config"
 	"github.com/bnjoroge/docktree/internal/docker"
+	composetypes "github.com/compose-spec/compose-go/v2/types"
 	dockgit "github.com/bnjoroge/docktree/internal/git"
 	"github.com/bnjoroge/docktree/internal/output"
 	"github.com/bnjoroge/docktree/internal/tui"
 )
 
-// PlatformResult is the structured result for platform subcommands.
 type PlatformResult struct {
 	Action       string   `json:"action"`
 	Project      string   `json:"project"`
@@ -48,7 +48,6 @@ type PlatformTenantsResult struct {
 	Tenants []TenantEntry `json:"tenants"`
 }
 
-// runPlatform dispatches `docktree platform <sub>` to the matching handler.
 func runPlatform(ctx *Context) (any, int, error) {
 	args := ctx.Args[1:]
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
@@ -95,6 +94,17 @@ func printPlatformHelp(w io.Writer) {
 // it again when already running re-emits the synthesized compose and runs
 // `docker compose up -d`, which no-ops if nothing has drifted.
 func runPlatformUp(ctx *Context) (any, int, error) {
+	current, err := dockgit.DetectRepo()
+	if err != nil {
+		return nil, output.ExitConfig, err
+	}
+	mainRoot, err := dockgit.MainRepoRoot()
+	if err != nil {
+		return nil, output.ExitConfig, err
+	}
+	if current.WorktreeRoot != mainRoot {
+		return nil, output.ExitConfig, fmt.Errorf("docktree platform up must be run from the main repo root; use docktree up in linked worktrees")
+	}
 	plan, err := buildPlatformPlan()
 	if err != nil {
 		return nil, output.ExitConfig, err
@@ -140,6 +150,7 @@ func runPlatformUp(ctx *Context) (any, int, error) {
 	if spin != nil {
 		spin.Stop()
 	}
+	provisionPlatformTenants(plan, plan.RepoSlug)
 	return PlatformResult{
 		Action:      "up",
 		Project:     plan.Project,
@@ -225,6 +236,63 @@ type platformPlan struct {
 	Shared          config.SharedConfig
 	Skipped         bool
 	SkipReason      string
+}
+
+func platformRepoMatches(instRepoRoot, repoSlug string) bool {
+	return dockgit.RepoName(instRepoRoot) == repoSlug
+}
+
+func postgresCredentialsFromEnv(svc composetypes.ServiceConfig) (string, string) {
+	user := "postgres"
+	password := ""
+	if svc.Environment != nil {
+		if v, ok := svc.Environment["POSTGRES_USER"]; ok && v != nil && *v != "" {
+			user = *v
+		}
+		if v, ok := svc.Environment["POSTGRES_PASSWORD"]; ok && v != nil {
+			password = *v
+		}
+	}
+	return user, password
+}
+
+func provisionPlatformTenants(plan *platformPlan, repoSlug string) {
+	instances, err := state.LoadGlobalInstances("")
+	if err != nil {
+		return
+	}
+	for _, inst := range instances {
+		if !platformRepoMatches(inst.RepoRoot, repoSlug) {
+			continue
+		}
+		for svcName, svc := range plan.Shared.Services {
+			if svc.Kind != "postgres" && svc.Kind != "mysql" {
+				continue
+			}
+			if svc.Tenancy != "per_database" {
+				continue
+			}
+			platformSvc, ok := plan.PlatformProject.Services[svcName]
+			if !ok {
+				continue
+			}
+			user, password := postgresCredentialsFromEnv(platformSvc)
+			container := plan.Project + "-" + svcName
+			if err := provision.WaitForPostgres(container, user, 30); err != nil {
+				continue
+			}
+			provCfg := provision.TenantConfig{
+				Kind:       svc.Kind,
+				Tenancy:    svc.Tenancy,
+				Template:   svc.Template,
+				TenantName: provision.TenantName(repoSlug, inst.Name),
+				Host:       container,
+				User:       user,
+				Password:   password,
+			}
+			_ = provision.Provision(provCfg)
+		}
+	}
 }
 
 // buildPlatformPlan locates the main repo root, loads its docktree.yml,
@@ -357,33 +425,7 @@ func ensurePlatformUp(ctx *Context, instanceName, repoSlug string) (string, stri
 			return plan.Project, plan.ComposeFile, err
 		}
 	}
-	// Run per-tenant provisioning for services that need it (postgres per_database).
-	for svcName, svc := range plan.Shared.Services {
-		if svc.Kind != "postgres" && svc.Kind != "mysql" {
-			continue
-		}
-		if svc.Tenancy != "per_database" {
-			continue
-		}
-		container := plan.Project + "-" + svcName
-		// Wait for the database to be ready — platform up -d returns before
-		// Postgres finishes its init sequence.
-		if err := provision.WaitForPostgres(container, "postgres", 30); err != nil {
-			fmt.Fprintf(ctx.Stderr, "warning: %s not ready, skipping tenant provisioning: %v\n", svcName, err)
-			continue
-		}
-		provCfg := provision.TenantConfig{
-			Kind:       svc.Kind,
-			Tenancy:    svc.Tenancy,
-			Template:   svc.Template,
-			TenantName: provision.TenantName(repoSlug, instanceName),
-			Host:       container,
-			User:       "postgres",
-		}
-		if err := provision.Provision(provCfg); err != nil {
-			fmt.Fprintf(ctx.Stderr, "warning: provision %s (%s): %v\n", svcName, provCfg.TenantName, err)
-		}
-	}
+	provisionPlatformTenants(plan, plan.RepoSlug)
 	return plan.Project, plan.ComposeFile, nil
 }
 
@@ -406,14 +448,25 @@ func runPlatformTenants(ctx *Context) (any, int, error) {
 
 	var entries []TenantEntry
 	for _, inst := range instances {
+		if !platformRepoMatches(inst.RepoRoot, plan.RepoSlug) {
+			continue
+		}
 		repoSlug := dockgit.RepoName(inst.RepoRoot)
 		for svcName, svc := range plan.Shared.Services {
 			if svc.Tenancy != "per_database" {
 				continue
 			}
+			platformSvc, ok := plan.PlatformProject.Services[svcName]
+			if !ok {
+				continue
+			}
+			user, password := postgresCredentialsFromEnv(platformSvc)
 			tenantDB := provision.TenantName(repoSlug, inst.Name)
 			container := plan.Project + "-" + svcName
-			exists, _ := provision.DBExists(container, tenantDB, "postgres", "")
+			exists, err := provision.DBExists(container, tenantDB, user, password)
+			if err != nil {
+				return nil, output.ExitDocker, fmt.Errorf("checking tenant %s for %s: %w", tenantDB, inst.Name, err)
+			}
 			entries = append(entries, TenantEntry{
 				Instance: inst.Name,
 				Service:  svcName,

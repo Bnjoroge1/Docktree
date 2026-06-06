@@ -78,7 +78,7 @@ func normalizeComposeToken(value string) string {
 // volumes/networks/secrets/configs are dropped.
 func SynthesizePlatform(raw *composetypes.Project, shared config.SharedConfig, repoSlug string) (*composetypes.Project, error) {
 	if raw == nil {
-		return nil, fmt.Errorf("nil compose project")
+		return nil, fmt.Errorf("no compose project")
 	}
 	if len(shared.Services) == 0 {
 		return nil, fmt.Errorf("no shared services declared")
@@ -107,8 +107,7 @@ func SynthesizePlatform(raw *composetypes.Project, shared config.SharedConfig, r
 		}
 		kept[name] = true
 		clone := svc
-		// Strip host-bound things — platform services talk over the
-		// repo network only.
+		// platform services shouldnt talk to the internet
 		clone.Ports = nil
 		clone.DependsOn = nil
 		// Replace networks with the platform network + aliases.
@@ -116,10 +115,7 @@ func SynthesizePlatform(raw *composetypes.Project, shared config.SharedConfig, r
 		clone.Networks = map[string]*composetypes.ServiceNetworkConfig{
 			netName: {Aliases: aliases},
 		}
-		// Container name: pin to a deterministic platform-scoped name so
-		// repeated `platform up` calls don't collide with worktree
-		// containers. compose's default scheme would prefix with project
-		// name anyway; we override to keep labels readable.
+		// only reason we override is to keep the labels stable/ 
 		clone.ContainerName = projectName + "-" + name
 		clone.Labels = mergeLabels(clone.Labels, map[string]string{
 			"docktree.managed":      "true",
@@ -141,8 +137,7 @@ func SynthesizePlatform(raw *composetypes.Project, shared config.SharedConfig, r
 		return nil, fmt.Errorf("no services in user compose match shared.services declaration")
 	}
 
-	// Single platform network — external (created out-of-band by platform up
-	// or already by another worktree's earlier `up`).
+	
 	out.Networks[netName] = composetypes.NetworkConfig{
 		Name:     netName,
 		External: composetypes.External(true),
@@ -153,10 +148,7 @@ func SynthesizePlatform(raw *composetypes.Project, shared config.SharedConfig, r
 			continue
 		}
 		clone := vol
-		// Keep the volume scoped to this platform project — let compose
-		// prefix it with the project name as usual; do not pin Name=
-		// explicitly so two repos' platforms don't collide on a shared
-		// volume name.
+		// docker compose will autoamatically create a unique name for this.
 		clone.Name = ""
 		clone.External = composetypes.External(false)
 		out.Volumes[volName] = clone
@@ -165,23 +157,10 @@ func SynthesizePlatform(raw *composetypes.Project, shared config.SharedConfig, r
 	return out, nil
 }
 
-// SynthesizeWorktree returns a compose Project with shared services removed,
-// depends_on edges pointing at them stripped, and the platform external
-// network declared so remaining services can reach the platform tier by DNS.
-//
-// Every remaining service is attached to the platform network so its DNS
-// resolves the shared service hostnames without per-service env scanning.
-// (Cheap to do, harder to get wrong, matches the plan's "DNS just works".)
-//
-// If no service references the platform tier (no depends_on, no envs), the
-// returned project still works — the network membership is a no-op for those
-// services.
-// SynthesizeWorktreeOptions carries optional parameters for worktree synthesis
-// that vary per-worktree (tenant names, etc.).
+//returns a compose Project with shared services removed, depends_on edges pointing at them stripped, and the platform external
 type SynthesizeWorktreeOptions struct {
 	// TenantDBs maps shared service name → per-worktree database name.
-	// When provided and a service has url_envs declared, those env vars in
-	// worktree services are rewritten to use the tenant database name.
+	// When provided and a service has url_envs declared, those env vars in worktree services are rewritten to use the tenant database name.
 	TenantDBs map[string]string
 }
 
@@ -204,8 +183,7 @@ func SynthesizeWorktree(raw *composetypes.Project, shared config.SharedConfig, r
 		Environment: raw.Environment,
 	}
 
-	// No shared services? Round-trip the project unchanged so callers can
-	// always use the synthesized file uniformly.
+
 	if len(shared.Services) == 0 {
 		for name, svc := range raw.Services {
 			out.Services[name] = svc
@@ -249,17 +227,14 @@ func SynthesizeWorktree(raw *composetypes.Project, shared config.SharedConfig, r
 			clone.DependsOn = pruned
 		}
 		// Attach to the platform network in addition to its existing
-		// networks. compose's default behaviour gives services that
-		// declare no networks the "default" network; once we add an
-		// explicit network we have to re-add default ourselves or the
-		// service loses it. So: preserve existing entries, add platform.
+		// networks.  we have to re-add default ourselves or the service loses it.
 		if clone.Networks == nil {
 			clone.Networks = map[string]*composetypes.ServiceNetworkConfig{
 				"default": nil,
 			}
 		}
 		clone.Networks[netName] = nil
-		// Rewrite declared URL env vars to point at the per-worktree tenant DB.
+		
 		if len(clone.Environment) > 0 && opt.TenantDBs != nil {
 			for svcName, svcDecl := range shared.Services {
 				if len(svcDecl.URLEnvs) == 0 || svcDecl.Tenancy != "per_database" {
@@ -279,7 +254,7 @@ func SynthesizeWorktree(raw *composetypes.Project, shared config.SharedConfig, r
 				}
 				rewritten, _ := RewriteURLEnvs(plain, svcDecl.URLEnvs, tenantDB)
 				for k, v := range rewritten {
-					v := v // capture
+					v := v 
 					if _, exists := clone.Environment[k]; exists {
 						clone.Environment[k] = &v
 					}
@@ -290,12 +265,7 @@ func SynthesizeWorktree(raw *composetypes.Project, shared config.SharedConfig, r
 	}
 
 	// Preserve user-declared networks/volumes; drop only those tied
-	// exclusively to removed platform services. Heuristic in v1: keep
-	// everything the user declared, since removing a network/volume the
-	// user listed could break things subtly. If platform services
-	// referenced a top-level volume, the worktree services may still
-	// reference it (e.g. shared seed data) — let compose error out
-	// rather than silently dropping.
+	// exclusively to removed platform services. 
 	for name, net := range raw.Networks {
 		out.Networks[name] = net
 	}
@@ -303,13 +273,10 @@ func SynthesizeWorktree(raw *composetypes.Project, shared config.SharedConfig, r
 		out.Volumes[name] = vol
 	}
 	// Make sure compose's implicit default network exists explicitly,
-	// because we touched ServiceConfig.Networks above (which suppresses
-	// the implicit default).
+	// because we touched ServiceConfig.Networks above (which suppresses he implicit default).
 	if _, ok := out.Networks["default"]; !ok {
 		out.Networks["default"] = composetypes.NetworkConfig{}
 	}
-	// Declare the platform network as external — it is created by
-	// platform up (or pre-existing).
 	out.Networks[netName] = composetypes.NetworkConfig{
 		Name:     netName,
 		External: composetypes.External(true),
@@ -317,8 +284,7 @@ func SynthesizeWorktree(raw *composetypes.Project, shared config.SharedConfig, r
 	return out, nil
 }
 
-// WriteComposeFile marshals a compose Project to disk via compose-go's
-// canonical marshaller. Parent directory is created if missing.
+
 func WriteComposeFile(project *composetypes.Project, path string) error {
 	if project == nil {
 		return fmt.Errorf("nil compose project")
@@ -344,8 +310,7 @@ func mergeLabels(base, additions map[string]string) map[string]string {
 	return merged
 }
 
-// SortedServiceNames returns the service names of a project in stable order,
-// helpful for deterministic test assertions and human output.
+
 func SortedServiceNames(p *composetypes.Project) []string {
 	names := make([]string, 0, len(p.Services))
 	for name := range p.Services {
