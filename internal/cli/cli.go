@@ -2065,7 +2065,12 @@ func humanRenderer() func(io.Writer, any) {
 				if !e.Exists {
 					existsStr = tui.WarningS("no")
 				}
-				tbl.Rows = append(tbl.Rows, []string{e.Instance, e.Service, e.TenantDB, existsStr})
+				tbl.Rows = append(tbl.Rows, []string{
+					truncate(e.Instance, 35),
+					e.Service,
+					truncate(e.TenantDB, 40),
+					existsStr,
+				})
 			}
 			fmt.Fprintln(w, tbl.RenderBorderedStyled(func(row, col int, val string) string {
 				if row == -1 {
@@ -2085,6 +2090,18 @@ func humanRenderer() func(io.Writer, any) {
 			_ = json.NewEncoder(w).Encode(data)
 		}
 	}
+}
+
+// truncate returns s truncated to max runes, with "…" appended if truncated.
+func truncate(s string, max int) string {
+	if max <= 3 {
+		return s
+	}
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	return string(runes[:max-1]) + "…"
 }
 
 func errorCode(code int) string {

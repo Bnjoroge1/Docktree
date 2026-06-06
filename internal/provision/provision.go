@@ -16,7 +16,7 @@ import (
 type TenantConfig struct {
 	// Kind matches config.SharedService.Kind (postgres, mysql, redis, s3, generic).
 	Kind string
-	// Tenancy matches config.SharedService.Tenancy (per_database, full_share, …).
+	// Tenancy matches config.SharedService.Tenancy (per_database, full_share)
 	Tenancy string
 	// TenantName is the computed per-worktree identifier: the database name
 	// for postgres/mysql, the bucket name for s3, etc.
@@ -28,16 +28,12 @@ type TenantConfig struct {
 	Host string
 	// Port is the port the service listens on inside the platform network.
 	Port int
-	// User and Password are the credentials to authenticate with.
 	User     string
 	Password string
 }
 
-// Provision creates the per-worktree tenant inside the shared service, or
-// verifies it already exists. It is safe to call multiple times.
-//
-// It shells out to the appropriate CLI tool rather than pulling in a database
-// SDK, keeping the binary dependency surface small.
+// Provision creates the per-worktree tenant inside the shared service, or verifies it already exists. It is safe to call multiple times.
+// It shells out to the appropriate CLI tool rather than pulling in a database SDK, keeping the binary dependency surface small.
 func Provision(cfg TenantConfig) error {
 	switch cfg.Kind {
 	case "postgres", "mysql":
@@ -46,7 +42,7 @@ func Provision(cfg TenantConfig) error {
 		}
 		return provisionPostgres(cfg)
 	case "redis", "s3", "generic":
-		return nil // no provisioning in v1 for these kinds
+		return nil // no provisioning for now, will think about how to add later
 	default:
 		return fmt.Errorf("provision: unknown kind %q", cfg.Kind)
 	}
@@ -61,8 +57,7 @@ func provisionPostgres(cfg TenantConfig) error {
 	}
 	containerName := "docktree-platform-" + cfg.Host + "-" + "db" // best-effort; callers may override
 	// Prefer using the container name set by SynthesizePlatform:
-	// docktree-platform-<repo>-<service>. Callers that pass the correct
-	// container name in cfg.Host can skip this heuristic.
+	// docktree-platform-<repo>-<service>. If you that pass the correct container name in cfg.Host can skip this heuristic.
 	container := cfg.Host
 
 	// Check if the database already exists.
@@ -102,7 +97,6 @@ func postgresExec(container, user, password, stmt string) error {
 }
 
 // psql shells out via `docker exec` so the host needs no psql binary.
-// If password is non-empty it is passed via PGPASSWORD env on the exec call.
 func psql(container, database, user, password, query string) (string, error) {
 	args := []string{"exec"}
 	if password != "" {
@@ -113,7 +107,7 @@ func psql(container, database, user, password, query string) (string, error) {
 		"psql",
 		"-U", user,
 		"-d", database,
-		"-t", "-A", // tuples-only, unaligned — easier to parse
+		"-t", "-A", 
 		"-c", query,
 	)
 	cmd := exec.Command("docker", args...)
@@ -127,10 +121,10 @@ func psql(container, database, user, password, query string) (string, error) {
 }
 
 // TenantName returns the deterministic database/bucket/key-prefix name for
-// a given (repoSlug, instance, serviceKind) triple. Stable across calls.
+// a given (repoSlug, instance, serviceKind) triple. Intended to be stable across calls
 func TenantName(repoSlug, instanceName string) string {
 	// Flatten to a valid Postgres identifier: only lowercase alnum and _.
-	// Postgres identifiers max 63 bytes; we stay well under.
+	// Postgres identifiers max 63 bytes;
 	slug := strings.Map(func(r rune) rune {
 		switch {
 		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
@@ -157,7 +151,6 @@ func TenantName(repoSlug, instanceName string) string {
 
 // Deprovision drops the per-worktree tenant namespace. Called only on
 // explicit destructive paths (down -v, platform clean --tenant).
-// It is NOT called on a normal down — data is preserved by default.
 func Deprovision(cfg TenantConfig) error {
 	switch cfg.Kind {
 	case "postgres", "mysql":
@@ -166,7 +159,7 @@ func Deprovision(cfg TenantConfig) error {
 		}
 		return dropPostgresDB(cfg)
 	case "redis", "s3", "generic":
-		return nil
+		return nil //will ad later
 	default:
 		return fmt.Errorf("deprovision: unknown kind %q", cfg.Kind)
 	}
@@ -189,16 +182,14 @@ func dropPostgresDB(cfg TenantConfig) error {
 		`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='%s' AND pid <> pg_backend_pid()`,
 		cfg.TenantName,
 	)
-	_ = postgresExec(container, cfg.User, cfg.Password, terminate) // best-effort
+	_ = postgresExec(container, cfg.User, cfg.Password, terminate) // best-effort because u can get all sorts of issues like concurrent reconnets etc
 	drop := fmt.Sprintf(`DROP DATABASE IF EXISTS "%s"`, cfg.TenantName)
 	return postgresExec(container, cfg.User, cfg.Password, drop)
 }
 
 // WaitForPostgres polls pg_isready inside the platform container until it
 // responds or the timeout elapses. Returns nil when ready.
-// DBExists reports whether a database with the given name exists in the
-// platform Postgres container. Password may be empty if the container
-// accepts peer/trust auth.
+
 func DBExists(container, dbName, user, password string) (bool, error) {
 	return postgresDBExists(container, dbName, user, password)
 }

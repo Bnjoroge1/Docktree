@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/bnjoroge/docktree/internal/config"
 	composetypes "github.com/compose-spec/compose-go/v2/types"
@@ -17,13 +18,47 @@ type PlatformComposeProject = composetypes.Project
 // PlatformProjectName returns the docker-compose project name for the
 // repo-scoped platform tier. One platform stack per repo.
 func PlatformProjectName(repoSlug string) string {
-	return "docktree-platform-" + repoSlug
+	return "docktree-platform-" + normalizeComposeToken(repoSlug)
 }
 
 // PlatformNetworkName returns the external docker network name worktree
 // services join to reach platform services via DNS aliases.
 func PlatformNetworkName(repoSlug string) string {
-	return "docktree-platform-" + repoSlug + "-net"
+	return "docktree-platform-" + normalizeComposeToken(repoSlug) + "-net"
+}
+
+func normalizeComposeToken(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return "repo"
+	}
+	var b strings.Builder
+	b.Grow(len(value))
+	lastDash := false
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			lastDash = false
+		case r == '-' || r == '_':
+			if b.Len() == 0 || lastDash {
+				continue
+			}
+			b.WriteRune('-')
+			lastDash = true
+		default:
+			if b.Len() == 0 || lastDash {
+				continue
+			}
+			b.WriteRune('-')
+			lastDash = true
+		}
+	}
+	out := strings.Trim(b.String(), "-_")
+	if out == "" {
+		return "repo"
+	}
+	return out
 }
 
 // SynthesizePlatform returns a compose Project containing only the
