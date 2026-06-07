@@ -1410,8 +1410,24 @@ func parseComposeRunState(out string) (composeRunState, error) {
 	var entries []struct {
 		State string `json:"State"`
 	}
-	if err := json.Unmarshal([]byte(trimmed), &entries); err != nil {
-		return composeRunUnknown, err
+	if strings.HasPrefix(trimmed, "[") {
+		if err := json.Unmarshal([]byte(trimmed), &entries); err != nil {
+			return composeRunUnknown, err
+		}
+	} else {
+		for _, line := range strings.Split(trimmed, "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			var entry struct {
+				State string `json:"State"`
+			}
+			if err := json.Unmarshal([]byte(line), &entry); err != nil {
+				return composeRunUnknown, err
+			}
+			entries = append(entries, entry)
+		}
 	}
 	for _, entry := range entries {
 		if strings.EqualFold(strings.TrimSpace(entry.State), "running") {
