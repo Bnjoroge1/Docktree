@@ -10,12 +10,15 @@ import (
 // tenantDB, preserving everything else (scheme, credentials, host, port,
 // query string).
 //
-// Handles the common Postgres URL shapes:
+// Handles standard connection URL shapes for Postgres, MySQL, and MariaDB:
 //
 //	postgres://host:5432/mydb
 //	postgresql://user:pass@host:5432/mydb?sslmode=require
 //	postgresql+asyncpg://host/mydb          (SQLAlchemy dialect prefix)
 //	jdbc:postgresql://host:5432/mydb        (Java — jdbc: prefix stripped/re-added)
+//	mysql://user:pass@host:3306/mydb
+//	mysql2://user:pass@host:3306/mydb?charset=utf8mb4
+//	mariadb://user:pass@host:3306/mydb
 //
 // Returns the original value unchanged if it cannot be parsed as a URL or
 // has no path component to rewrite.
