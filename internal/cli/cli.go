@@ -18,17 +18,18 @@ import (
 	composecli "github.com/compose-spec/compose-go/v2/cli"
 
 	"github.com/bnjoroge/docktree/internal/compose"
-	"github.com/bnjoroge/docktree/internal/provision"
 	"github.com/bnjoroge/docktree/internal/config"
 	"github.com/bnjoroge/docktree/internal/docker"
 	dockgit "github.com/bnjoroge/docktree/internal/git"
 	"github.com/bnjoroge/docktree/internal/output"
 	"github.com/bnjoroge/docktree/internal/ports"
+	"github.com/bnjoroge/docktree/internal/provision"
 	"github.com/bnjoroge/docktree/internal/setup"
 	"github.com/bnjoroge/docktree/internal/state"
 	"github.com/bnjoroge/docktree/internal/tui"
 	"gopkg.in/yaml.v3"
 )
+
 const version = "0.1.0-dev"
 
 type commandFunc func(*Context) (any, int, error)
@@ -58,33 +59,33 @@ type UpResult struct {
 }
 
 type ValidateResult struct {
-	Valid           bool              `json:"valid"`
-	Services       []string          `json:"services"`
+	Valid           bool               `json:"valid"`
+	Services        []string           `json:"services"`
 	Ports           []ports.Assignment `json:"ports,omitempty"`
-	IsolatedVolumes []string          `json:"isolated_volumes,omitempty"`
-	EnvWarnings     []compose.Warning `json:"env_warnings,omitempty"`
+	IsolatedVolumes []string           `json:"isolated_volumes,omitempty"`
+	EnvWarnings     []compose.Warning  `json:"env_warnings,omitempty"`
 	Errors          []string           `json:"errors,omitempty"`
 }
 
 type DryRunResult struct {
-	DryRun          bool              `json:"dry_run"`
-	InstanceName    string            `json:"instance_name"`
-	ComposeFiles    []string          `json:"compose_files"`
-	Services       []string          `json:"services"`
+	DryRun          bool               `json:"dry_run"`
+	InstanceName    string             `json:"instance_name"`
+	ComposeFiles    []string           `json:"compose_files"`
+	Services        []string           `json:"services"`
 	Ports           []ports.Assignment `json:"ports,omitempty"`
-	IsolatedVolumes []string          `json:"isolated_volumes,omitempty"`
-	EnvWarnings     []compose.Warning `json:"env_warnings,omitempty"`
-	OverridePreview string            `json:"override_preview,omitempty"`
-	ClearPreview    string            `json:"clear_preview,omitempty"`
+	IsolatedVolumes []string           `json:"isolated_volumes,omitempty"`
+	EnvWarnings     []compose.Warning  `json:"env_warnings,omitempty"`
+	OverridePreview string             `json:"override_preview,omitempty"`
+	ClearPreview    string             `json:"clear_preview,omitempty"`
 }
 
 type DownResult struct {
-	Instance        *state.Instance `json:"instance,omitempty"`
-	AlreadyStopped  bool            `json:"already_stopped,omitempty"`
-	DryRun          bool            `json:"dry_run,omitempty"`
-	Services        []string        `json:"services,omitempty"`
-	ComposeFiles    []string        `json:"compose_files,omitempty"`
-	DroppedTenants  []string        `json:"dropped_tenants,omitempty"`
+	Instance       *state.Instance `json:"instance,omitempty"`
+	AlreadyStopped bool            `json:"already_stopped,omitempty"`
+	DryRun         bool            `json:"dry_run,omitempty"`
+	Services       []string        `json:"services,omitempty"`
+	ComposeFiles   []string        `json:"compose_files,omitempty"`
+	DroppedTenants []string        `json:"dropped_tenants,omitempty"`
 }
 
 type StopResult struct {
@@ -110,9 +111,9 @@ type StatusResult struct {
 }
 
 type PortsResult struct {
-	Instance string             `json:"instance,omitempty"`
-	All      bool               `json:"all,omitempty"`
-	Entries  []PortsEntry        `json:"entries,omitempty"`
+	Instance string       `json:"instance,omitempty"`
+	All      bool         `json:"all,omitempty"`
+	Entries  []PortsEntry `json:"entries,omitempty"`
 }
 
 type PortsEntry struct {
@@ -164,12 +165,12 @@ type CleanResult struct {
 }
 
 type composePsEntry struct {
-	Service    string              `json:"Service"`
-	Name       string              `json:"Name"`
-	State      string              `json:"State"`
-	Status     string              `json:"Status"`
-	Health     string              `json:"Health"`
-	Image      string              `json:"Image"`
+	Service    string               `json:"Service"`
+	Name       string               `json:"Name"`
+	State      string               `json:"State"`
+	Status     string               `json:"Status"`
+	Health     string               `json:"Health"`
+	Image      string               `json:"Image"`
 	Publishers []composePsPublisher `json:"Publishers"`
 }
 
@@ -179,6 +180,7 @@ type composePsPublisher struct {
 	PublishedPort int    `json:"PublishedPort"`
 	Protocol      string `json:"Protocol"`
 }
+
 func Run(args []string, stdout, stderr io.Writer) int {
 	jsonMode, rest := parseGlobalFlags(args)
 	renderer := output.New(stdout, jsonMode)

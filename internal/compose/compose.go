@@ -38,7 +38,6 @@ type Volume struct {
 	Name     string `yaml:"name,omitempty"`
 }
 
-
 type ServiceOverride struct {
 	ContainerName *string           `yaml:"container_name,omitempty"`
 	Image         string            `yaml:"image,omitempty"`

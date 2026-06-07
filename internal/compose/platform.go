@@ -115,14 +115,14 @@ func SynthesizePlatform(raw *composetypes.Project, shared config.SharedConfig, r
 		clone.Networks = map[string]*composetypes.ServiceNetworkConfig{
 			netName: {Aliases: aliases},
 		}
-		// only reason we override is to keep the labels stable/ 
+		// only reason we override is to keep the labels stable/
 		clone.ContainerName = projectName + "-" + name
 		clone.Labels = mergeLabels(clone.Labels, map[string]string{
-			"docktree.managed":      "true",
-			"docktree.tier":         "platform",
-			"docktree.repo":         repoSlug,
-			"docktree.shared.kind":  decl.Kind,
-			"docktree.shared.name":  name,
+			"docktree.managed":     "true",
+			"docktree.tier":        "platform",
+			"docktree.repo":        repoSlug,
+			"docktree.shared.kind": decl.Kind,
+			"docktree.shared.name": name,
 		})
 		// Track volume references so we keep their top-level declaration.
 		for _, vol := range clone.Volumes {
@@ -137,7 +137,6 @@ func SynthesizePlatform(raw *composetypes.Project, shared config.SharedConfig, r
 		return nil, fmt.Errorf("no services in user compose match shared.services declaration")
 	}
 
-	
 	out.Networks[netName] = composetypes.NetworkConfig{
 		Name:     netName,
 		External: composetypes.External(true),
@@ -183,7 +182,6 @@ func SynthesizeWorktree(raw *composetypes.Project, shared config.SharedConfig, r
 		WorkingDir:  raw.WorkingDir,
 		Environment: raw.Environment,
 	}
-
 
 	if len(shared.Services) == 0 {
 		for name, svc := range raw.Services {
@@ -274,7 +272,7 @@ func SynthesizeWorktree(raw *composetypes.Project, shared config.SharedConfig, r
 	}
 
 	// Preserve user-declared networks/volumes; drop only those tied
-	// exclusively to removed platform services. 
+	// exclusively to removed platform services.
 	for name, net := range raw.Networks {
 		out.Networks[name] = net
 	}
@@ -292,7 +290,6 @@ func SynthesizeWorktree(raw *composetypes.Project, shared config.SharedConfig, r
 	}
 	return out, nil
 }
-
 
 func WriteComposeFile(project *composetypes.Project, path string) error {
 	if project == nil {
@@ -318,7 +315,6 @@ func mergeLabels(base, additions map[string]string) map[string]string {
 	}
 	return merged
 }
-
 
 func SortedServiceNames(p *composetypes.Project) []string {
 	names := make([]string, 0, len(p.Services))

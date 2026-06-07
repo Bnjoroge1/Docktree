@@ -84,12 +84,12 @@ func InstanceName(repoName, worktreeName, repoPath, worktreePath string) string 
 		worktree = "worktree"
 	}
 
-  //hash repo + worktree to avoid duplicate project names.
+	//hash repo + worktree to avoid duplicate project names.
 	sum := sha1.Sum([]byte(repoPath + "\x00" + worktreePath))
 	hash := hex.EncodeToString(sum[:])[:6]
 	suffix := "-" + hash
 
-	// docker compose spec has a project limit of 64 chars so we divide the remainder of 
+	// docker compose spec has a project limit of 64 chars so we divide the remainder of
 	//name(after the hash) by 2 and share between the repo name and worktree
 	avail := 64 - 1 - len(suffix)
 	repo = truncateSlug(repo, avail/2)
