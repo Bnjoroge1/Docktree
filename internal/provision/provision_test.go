@@ -61,7 +61,7 @@ func TestProvisionRedisNoOp(t *testing.T) {
 }
 
 func TestTenantDriversRegistered(t *testing.T) {
-	for _, kind := range []string{"postgres", "mysql"} {
+	for _, kind := range []string{"postgres", "mysql", "mongodb"} {
 		if _, ok := tenantDrivers[kind]; !ok {
 			t.Fatalf("expected %s tenant driver to be registered", kind)
 		}
@@ -79,6 +79,13 @@ func TestSQLStringEscaping(t *testing.T) {
 	got := escapeSQLString("tenant'db")
 	if got != "tenant''db" {
 		t.Fatalf("escapeSQLString = %q, want %q", got, "tenant''db")
+	}
+}
+
+func TestQuoteJSString(t *testing.T) {
+	got := quoteJSString(`tenant"db\name`)
+	if got != `"tenant\"db\\name"` {
+		t.Fatalf("quoteJSString = %q", got)
 	}
 }
 

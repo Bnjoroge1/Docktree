@@ -176,3 +176,20 @@ func TestDatabaseCredentialsFromEnvMySQLFallsBackToUserPassword(t *testing.T) {
 		t.Fatalf("password = %q, want app-secret", gotPassword)
 	}
 }
+
+func TestDatabaseCredentialsFromEnvMongoDB(t *testing.T) {
+	user := "root"
+	password := "mongo-secret"
+	svc := composetypes.ServiceConfig{Environment: map[string]*string{
+		"MONGO_INITDB_ROOT_USERNAME": &user,
+		"MONGO_INITDB_ROOT_PASSWORD": &password,
+	}}
+
+	gotUser, gotPassword := databaseCredentialsFromEnv("mongodb", svc)
+	if gotUser != "root" {
+		t.Fatalf("user = %q, want root", gotUser)
+	}
+	if gotPassword != "mongo-secret" {
+		t.Fatalf("password = %q, want mongo-secret", gotPassword)
+	}
+}

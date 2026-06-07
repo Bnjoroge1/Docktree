@@ -10,7 +10,7 @@ import (
 // tenantDB, preserving everything else (scheme, credentials, host, port,
 // query string).
 //
-// Handles standard connection URL shapes for Postgres, MySQL, and MariaDB:
+// Handles standard connection URL shapes for Postgres, MySQL, MariaDB, and MongoDB:
 //
 //	postgres://host:5432/mydb
 //	postgresql://user:pass@host:5432/mydb?sslmode=require
@@ -19,6 +19,8 @@ import (
 //	mysql://user:pass@host:3306/mydb
 //	mysql2://user:pass@host:3306/mydb?charset=utf8mb4
 //	mariadb://user:pass@host:3306/mydb
+//	mongodb://user:pass@host:27017/mydb?authSource=admin
+//	mongodb+srv://user:pass@cluster.example.com/mydb
 //
 // Returns the original value unchanged if it cannot be parsed as a URL or
 // has no path component to rewrite.
@@ -36,7 +38,7 @@ func RewriteURL(raw, tenantDB string) (string, error) {
 		s = s[len("jdbc:"):]
 	}
 
-	// SQLAlchemy dialect suffixes like "postgresql+asyncpg://" confuse
+	// Scheme suffixes like "postgresql+asyncpg://" and "mongodb+srv://" confuse
 	// url.Parse's scheme detection. Normalise to a plain scheme for parsing.
 	dialectSuffix := ""
 	if idx := strings.Index(s, "+"); idx > 0 && idx < strings.Index(s, "://") {

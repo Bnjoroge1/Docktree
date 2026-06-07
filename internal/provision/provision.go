@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -14,15 +15,15 @@ import (
 // TenantConfig carries everything a provisioner needs to create or verify
 // one worktree's logical namespace inside a shared service.
 type TenantConfig struct {
-	// Kind matches config.SharedService.Kind (postgres, mysql, redis, s3, generic).
+	// Kind matches config.SharedService.Kind (postgres, mysql, mongodb, redis, s3, generic).
 	Kind string
 	// Tenancy matches config.SharedService.Tenancy (per_database, full_share)
 	Tenancy string
 	// TenantName is the computed per-worktree identifier: the database name
-	// for postgres/mysql, the bucket name for s3, etc.
+	// for postgres/mysql/mongodb, the bucket name for s3, etc.
 	TenantName string
 	// Template is the optional source database for CREATE DATABASE ... TEMPLATE.
-	// Postgres/mysql only; empty means no template.
+	// Postgres only; empty means no template.
 	Template string
 	// Host is the hostname of the platform service container.
 	Host string
@@ -42,6 +43,7 @@ type tenantDriver interface {
 var tenantDrivers = map[string]tenantDriver{
 	"postgres": postgresDriver{},
 	"mysql":    mysqlDriver{},
+	"mongodb":  mongoDriver{},
 }
 
 // Provision creates the per-worktree tenant inside the shared service, or verifies it already exists. It is safe to call multiple times.
@@ -299,6 +301,93 @@ func escapeMySQLIdentifier(value string) string {
 
 func escapeSQLString(value string) string {
 	return strings.ReplaceAll(value, "'", "''")
+}
+
+type mongoDriver struct{}
+
+const mongoMarkerCollection = "__docktree_tenant"
+
+func (mongoDriver) Provision(cfg TenantConfig) error {
+	if cfg.TenantName == "" {
+		return fmt.Errorf("provision mongodb: empty tenant name")
+	}
+	if cfg.Template != "" {
+		return fmt.Errorf("provision mongodb: templates are not supported")
+	}
+	script := fmt.Sprintf(
+		`const tenant = db.getSiblingDB(%s); if (!tenant.getCollectionNames().includes(%s)) tenant.createCollection(%s);`,
+		quoteJSString(cfg.TenantName),
+		quoteJSString(mongoMarkerCollection),
+		quoteJSString(mongoMarkerCollection),
+	)
+	_, err := mongosh(cfg.Host, cfg.User, cfg.Password, script)
+	return err
+}
+
+func (mongoDriver) Deprovision(cfg TenantConfig) error {
+	if cfg.TenantName == "" {
+		return fmt.Errorf("deprovision mongodb: empty tenant name")
+	}
+	script := fmt.Sprintf(`db.getSiblingDB(%s).dropDatabase();`, quoteJSString(cfg.TenantName))
+	_, err := mongosh(cfg.Host, cfg.User, cfg.Password, script)
+	return err
+}
+
+func (mongoDriver) Exists(cfg TenantConfig) (bool, error) {
+	if cfg.TenantName == "" {
+		return false, fmt.Errorf("exists mongodb: empty tenant name")
+	}
+	script := fmt.Sprintf(
+		`const exists = db.adminCommand({listDatabases: 1, nameOnly: true}).databases.some(d => d.name === %s); print(exists ? "1" : "0");`,
+		quoteJSString(cfg.TenantName),
+	)
+	out, err := mongosh(cfg.Host, cfg.User, cfg.Password, script)
+	if err != nil {
+		return false, err
+	}
+	return strings.Contains(out, "1"), nil
+}
+
+func (mongoDriver) Wait(cfg TenantConfig, timeoutSec int) error {
+	if timeoutSec <= 0 {
+		timeoutSec = 30
+	}
+	var lastErr error
+	for i := 0; i < timeoutSec*2; i++ {
+		_, err := mongosh(cfg.Host, cfg.User, cfg.Password, `db.adminCommand({ping: 1})`)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		time.Sleep(500 * time.Millisecond)
+	}
+	return fmt.Errorf("mongodb in %s not ready after %ds: %w", cfg.Host, timeoutSec, lastErr)
+}
+
+func mongosh(container, user, password, script string) (string, error) {
+	args := []string{"exec", container, "mongosh", "--quiet"}
+	if user != "" {
+		args = append(args, "-u", user)
+	}
+	if password != "" {
+		args = append(args, "-p", password)
+	}
+	if user != "" || password != "" {
+		args = append(args, "--authenticationDatabase", "admin")
+	}
+	args = append(args, "--eval", script)
+	cmd := exec.Command("docker", args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("mongosh: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	return strings.TrimSpace(stdout.String()), nil
+}
+
+func quoteJSString(value string) string {
+	return strconv.Quote(value)
 }
 
 // TenantName returns the deterministic tenant identifier for the legacy
