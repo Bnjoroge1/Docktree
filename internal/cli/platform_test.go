@@ -4,11 +4,11 @@ import (
 	"sort"
 	"testing"
 
-	composetypes "github.com/compose-spec/compose-go/v2/types"
 	"github.com/bnjoroge/docktree/internal/compose"
 	"github.com/bnjoroge/docktree/internal/config"
 	"github.com/bnjoroge/docktree/internal/provision"
 	"github.com/bnjoroge/docktree/internal/state"
+	composetypes "github.com/compose-spec/compose-go/v2/types"
 )
 
 func makePlan(services map[string]config.SharedService, platformServices map[string]composetypes.ServiceConfig) *platformPlan {
@@ -140,5 +140,39 @@ func TestTenantEntryLogicalDBField(t *testing.T) {
 	empty := TenantEntry{Service: "db", TenantDB: "myrepo_feat_abc123"}
 	if empty.LogicalDB != "" {
 		t.Errorf("expected empty LogicalDB for single-db entry")
+	}
+}
+
+func TestDatabaseCredentialsFromEnvMySQL(t *testing.T) {
+	rootPassword := "root-secret"
+	user := "app"
+	password := "app-secret"
+	svc := composetypes.ServiceConfig{Environment: map[string]*string{
+		"MYSQL_ROOT_PASSWORD": &rootPassword,
+		"MYSQL_USER":          &user,
+		"MYSQL_PASSWORD":      &password,
+	}}
+
+	gotUser, gotPassword := databaseCredentialsFromEnv("mysql", svc)
+	if gotUser != "root" {
+		t.Fatalf("user = %q, want root", gotUser)
+	}
+	if gotPassword != "root-secret" {
+		t.Fatalf("password = %q, want root-secret", gotPassword)
+	}
+}
+
+func TestDatabaseCredentialsFromEnvMySQLFallsBackToUserPassword(t *testing.T) {
+	password := "app-secret"
+	svc := composetypes.ServiceConfig{Environment: map[string]*string{
+		"MYSQL_PASSWORD": &password,
+	}}
+
+	gotUser, gotPassword := databaseCredentialsFromEnv("mysql", svc)
+	if gotUser != "root" {
+		t.Fatalf("user = %q, want root", gotUser)
+	}
+	if gotPassword != "app-secret" {
+		t.Fatalf("password = %q, want app-secret", gotPassword)
 	}
 }
