@@ -148,7 +148,9 @@ func runPlatformUp(ctx *Context) (any, int, error) {
 	if spin != nil {
 		spin.Stop()
 	}
-	provisionPlatformTenants(plan, plan.RepoSlug)
+	if err := provisionPlatformTenants(plan, plan.RepoSlug); err != nil {
+		return nil, output.ExitDocker, err
+	}
 	return PlatformResult{
 		Action:      "up",
 		Project:     plan.Project,
@@ -290,10 +292,10 @@ func databaseCredentialsFromEnv(kind string, svc composetypes.ServiceConfig) (st
 	}
 }
 
-func provisionPlatformTenants(plan *platformPlan, repoSlug string) {
+func provisionPlatformTenants(plan *platformPlan, repoSlug string) error {
 	instances, err := state.LoadGlobalInstances("")
 	if err != nil {
-		return
+		return fmt.Errorf("load global instances: %w", err)
 	}
 	for _, inst := range instances {
 		if !platformRepoMatches(inst.RepoRoot, repoSlug) {
@@ -314,7 +316,7 @@ func provisionPlatformTenants(plan *platformPlan, repoSlug string) {
 			container := plan.Project + "-" + svcName
 			readyCfg := provision.TenantConfig{Kind: svc.Kind, Tenancy: svc.Tenancy, Host: container, User: user, Password: password}
 			if err := provision.WaitForService(readyCfg, 30); err != nil {
-				continue
+				return fmt.Errorf("service %s not ready: %w", container, err)
 			}
 			for logicalName, dbTarget := range svc.DatabaseTargets() {
 				template := dbTarget.Template
@@ -330,10 +332,13 @@ func provisionPlatformTenants(plan *platformPlan, repoSlug string) {
 					User:       user,
 					Password:   password,
 				}
-				_ = provision.Provision(provCfg)
+				if err := provision.Provision(provCfg); err != nil {
+					return fmt.Errorf("failed to provision tenant database %s: %w", provCfg.TenantName, err)
+				}
 			}
 		}
 	}
+	return nil
 }
 
 // tenantBinding pairs a human-readable tenant DB name with the TenantConfig
@@ -415,7 +420,7 @@ func buildPlatformPlan() (*platformPlan, error) {
 		Network:         compose.PlatformNetworkName(repoSlug),
 		RepoSlug:        repoSlug,
 		ComposeFile:     filepath.Join(generatedDir, "platform-compose.yml"),
-		PlatformProject: (*compose.PlatformComposeProject)(platformProj),
+		PlatformProject: platformProj,
 		Shared:          cfg.Shared,
 	}, nil
 }
@@ -511,7 +516,9 @@ func ensurePlatformUp(ctx *Context, instanceName, repoSlug string) (string, stri
 			return plan.Project, plan.ComposeFile, err
 		}
 	}
-	provisionPlatformTenants(plan, plan.RepoSlug)
+	if err := provisionPlatformTenants(plan, plan.RepoSlug); err != nil {
+		return plan.Project, plan.ComposeFile, err
+	}
 	return plan.Project, plan.ComposeFile, nil
 }
 
@@ -681,11 +688,7 @@ func runPlatformClean(ctx *Context) (any, int, error) {
 				continue
 			}
 			user, password := databaseCredentialsFromEnv(svc.Kind, platformSvc)
-			for logicalName, dbTarget := range svc.DatabaseTargets() {
-				template := dbTarget.Template
-				if template == "" {
-					template = svc.Template
-				}
+			for logicalName := range svc.DatabaseTargets() {
 				tenantDB := provision.TenantNameForDatabase(repoSlug, inst.Name, logicalName)
 				fmt.Fprintf(ctx.Stderr, "Dropping tenant database: %s\n", tenantDB)
 				deprovCfg := provision.TenantConfig{

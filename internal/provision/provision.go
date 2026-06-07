@@ -333,7 +333,7 @@ func TenantNameForDatabase(repoSlug, instanceName, logicalDB string) string {
 	}
 	slug = strings.Trim(slug, "_")
 	if len(slug) > 63 {
-		slug = slug[:63]
+		slug = strings.TrimRight(slug[:63], "_")
 	}
 	if slug == "" {
 		slug = "docktree"
