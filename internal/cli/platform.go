@@ -315,40 +315,52 @@ func provisionPlatformTenants(plan *platformPlan, repoSlug string) error {
 	if err != nil {
 		return fmt.Errorf("load global instances: %w", err)
 	}
+
+	// Wait for each service once before provisioning any tenants.
+	type serviceReady struct {
+		name, kind, container, user, password string
+		svcDecl                               config.SharedService
+	}
+	var services []serviceReady
+	for svcName, svc := range plan.Shared.Services {
+		if svc.Kind != "postgres" && svc.Kind != "mysql" && svc.Kind != "mongodb" {
+			continue
+		}
+		if svc.Tenancy != "per_database" {
+			continue
+		}
+		platformSvc, ok := plan.PlatformProject.Services[svcName]
+		if !ok {
+			continue
+		}
+		user, password := databaseCredentialsFromEnv(svc.Kind, platformSvc)
+		container := plan.Project + "-" + svcName
+		readyCfg := provision.TenantConfig{Kind: svc.Kind, Tenancy: svc.Tenancy, Host: container, User: user, Password: password}
+		if err := provision.WaitForService(readyCfg, 30); err != nil {
+			return fmt.Errorf("service %s not ready: %w", container, err)
+		}
+		services = append(services, serviceReady{name: svcName, kind: svc.Kind, container: container, user: user, password: password, svcDecl: svc})
+	}
+
+	// Provision all tenants across all instances.
 	for _, inst := range instances {
 		if !platformRepoMatches(inst.RepoRoot, repoSlug) {
 			continue
 		}
-		for svcName, svc := range plan.Shared.Services {
-			if svc.Kind != "postgres" && svc.Kind != "mysql" && svc.Kind != "mongodb" {
-				continue
-			}
-			if svc.Tenancy != "per_database" {
-				continue
-			}
-			platformSvc, ok := plan.PlatformProject.Services[svcName]
-			if !ok {
-				continue
-			}
-			user, password := databaseCredentialsFromEnv(svc.Kind, platformSvc)
-			container := plan.Project + "-" + svcName
-			readyCfg := provision.TenantConfig{Kind: svc.Kind, Tenancy: svc.Tenancy, Host: container, User: user, Password: password}
-			if err := provision.WaitForService(readyCfg, 30); err != nil {
-				return fmt.Errorf("service %s not ready: %w", container, err)
-			}
-			for logicalName, dbTarget := range svc.DatabaseTargets() {
+		for _, svc := range services {
+			for logicalName, dbTarget := range svc.svcDecl.DatabaseTargets() {
 				template := dbTarget.Template
 				if template == "" {
-					template = svc.Template
+					template = svc.svcDecl.Template
 				}
 				provCfg := provision.TenantConfig{
-					Kind:       svc.Kind,
-					Tenancy:    svc.Tenancy,
+					Kind:       svc.kind,
+					Tenancy:    svc.svcDecl.Tenancy,
 					Template:   template,
 					TenantName: provision.TenantNameForDatabase(repoSlug, inst.Name, logicalName),
-					Host:       container,
-					User:       user,
-					Password:   password,
+					Host:       svc.container,
+					User:       svc.user,
+					Password:   svc.password,
 				}
 				if err := provision.Provision(provCfg); err != nil {
 					return fmt.Errorf("failed to provision tenant database %s: %w", provCfg.TenantName, err)
