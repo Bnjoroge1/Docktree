@@ -242,6 +242,14 @@ func platformRepoMatches(instRepoRoot, repoSlug string) bool {
 	return dockgit.RepoName(instMainRoot) == repoSlug
 }
 
+func platformRepoSlugForInstance(instRepoRoot string) string {
+	instMainRoot, err := dockgit.MainRepoRootForPath(instRepoRoot)
+	if err != nil {
+		return dockgit.RepoName(instRepoRoot)
+	}
+	return dockgit.RepoName(instMainRoot)
+}
+
 func postgresCredentialsFromEnv(svc composetypes.ServiceConfig) (string, string) {
 	user := "postgres"
 	password := ""
@@ -311,7 +319,7 @@ type tenantBinding struct {
 // tenantBindingsForInstance returns one binding per logical database that
 // the given instance owns across all per_database shared services.
 func tenantBindingsForInstance(plan *platformPlan, inst *state.Instance) []tenantBinding {
-	repoSlug := dockgit.RepoName(inst.RepoRoot)
+	repoSlug := platformRepoSlugForInstance(inst.RepoRoot)
 	var bindings []tenantBinding
 	for svcName, svc := range plan.Shared.Services {
 		if svc.Tenancy != "per_database" {
@@ -502,7 +510,7 @@ func runPlatformTenants(ctx *Context) (any, int, error) {
 		if !platformRepoMatches(inst.RepoRoot, plan.RepoSlug) {
 			continue
 		}
-		repoSlug := dockgit.RepoName(inst.RepoRoot)
+		repoSlug := platformRepoSlugForInstance(inst.RepoRoot)
 		for svcName, svc := range plan.Shared.Services {
 			if svc.Tenancy != "per_database" {
 				continue
@@ -610,7 +618,7 @@ func runPlatformClean(ctx *Context) (any, int, error) {
 		fmt.Fprintf(ctx.Stdout, "Would remove: %s\n", plan.Network)
 		instances, _ := state.LoadGlobalInstances("")
 		for _, inst := range instances {
-			repoSlug := dockgit.RepoName(inst.RepoRoot)
+			repoSlug := platformRepoSlugForInstance(inst.RepoRoot)
 			for svcName, svc := range plan.Shared.Services {
 				if svc.Tenancy != "per_database" {
 					continue
@@ -628,7 +636,7 @@ func runPlatformClean(ctx *Context) (any, int, error) {
 	// 1. Drop all known tenant databases while platform containers are still up.
 	instances, _ := state.LoadGlobalInstances("")
 	for _, inst := range instances {
-		repoSlug := dockgit.RepoName(inst.RepoRoot)
+		repoSlug := platformRepoSlugForInstance(inst.RepoRoot)
 		for svcName, svc := range plan.Shared.Services {
 			if svc.Tenancy != "per_database" {
 				continue
