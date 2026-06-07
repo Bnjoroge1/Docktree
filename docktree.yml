@@ -14,5 +14,19 @@ transforms:
     container_name: strip
     built_image: rewrite
     docker_socket: warn
+shared:
+  services:
+    db:
+      kind: postgres
+      tenancy: per_database
+      tenant_env: DOCKTREE_DB
+      aliases: []
+      url_envs: [DATABASE_URL, DATABASE_REPLICA_URL]
+    redis:
+      kind: redis
+      tenancy: full_share
+    bucket:
+      kind: s3
+      tenancy: full_share
 state:
     directory: .docktree

@@ -120,22 +120,34 @@ func psql(container, database, user, password, query string) (string, error) {
 	return strings.TrimSpace(stdout.String()), nil
 }
 
-// TenantName returns the deterministic database/bucket/key-prefix name for
-// a given (repoSlug, instance, serviceKind) triple. Intended to be stable across calls
+// TenantName returns the deterministic tenant identifier for the legacy
+// single-database/shared-resource case.
 func TenantName(repoSlug, instanceName string) string {
-	// Flatten to a valid Postgres identifier: only lowercase alnum and _.
-	// Postgres identifiers max 63 bytes;
+	return TenantNameForDatabase(repoSlug, instanceName, "")
+}
+
+// TenantNameForDatabase returns the deterministic database/bucket/key-prefix
+// name for a given repo, worktree instance, and optional logical database key.
+func TenantNameForDatabase(repoSlug, instanceName, logicalDB string) string {
+	// Put logicalDB first so that when the joined slug exceeds Postgres's
+	// 63-byte identifier cap, the suffix that gets truncated is the
+	// repo/instance tail, not the discriminator between two logical DBs of
+	// the same worktree.
+	var parts []string
+	if logicalDB != "" {
+		parts = append(parts, logicalDB)
+	}
+	parts = append(parts, repoSlug, instanceName)
 	slug := strings.Map(func(r rune) rune {
 		switch {
 		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
 			return r
 		case r >= 'A' && r <= 'Z':
-			return r + 32 // toLower
+			return r + 32
 		default:
 			return '_'
 		}
-	}, repoSlug+"_"+instanceName)
-	// Collapse consecutive underscores.
+	}, strings.Join(parts, "_"))
 	for strings.Contains(slug, "__") {
 		slug = strings.ReplaceAll(slug, "__", "_")
 	}

@@ -11,7 +11,7 @@ func TestValidateSharedAccepts(t *testing.T) {
 	cases := map[string]SharedService{
 		"db":     {Kind: "postgres", Tenancy: "per_database", Template: "myapp_base"},
 		"db2":    {Kind: "postgres", Tenancy: "full_share"},
-		"mysql":  {Kind: "mysql", Tenancy: "per_database"},
+		"mysql":  {Kind: "mysql", Tenancy: "per_database", Databases: map[string]SharedDatabase{"app": {URLEnvs: []string{"DATABASE_URL"}}}},
 		"redis":  {Kind: "redis", Tenancy: "full_share"},
 		"bucket": {Kind: "s3", Tenancy: "full_share"},
 		"misc":   {Kind: "generic", Tenancy: "full_share"},
@@ -62,6 +62,53 @@ func TestValidateSharedRejects(t *testing.T) {
 			wantSub: "alias",
 		},
 		{
+			name: "mixed legacy and databases",
+			shared: SharedConfig{Services: map[string]SharedService{"db": {
+				Kind: "postgres", Tenancy: "per_database", URLEnvs: []string{"DATABASE_URL"}, Databases: map[string]SharedDatabase{"app": {URLEnvs: []string{"DB_CONNECTION_URI"}}},
+			}}},
+			wantSub: "cannot mix",
+		},
+		{
+			name: "databases require per_database",
+			shared: SharedConfig{Services: map[string]SharedService{"db": {
+				Kind: "postgres", Tenancy: "full_share", Databases: map[string]SharedDatabase{"app": {URLEnvs: []string{"DATABASE_URL"}}},
+			}}},
+			wantSub: "requires tenancy per_database",
+		},
+		{
+			name: "database entry requires url envs",
+			shared: SharedConfig{Services: map[string]SharedService{"db": {
+				Kind: "postgres", Tenancy: "per_database", Databases: map[string]SharedDatabase{"app": {}},
+			}}},
+			wantSub: "must declare at least one env var",
+		},
+		{
+			name: "empty url_env entry in databases",
+			shared: SharedConfig{Services: map[string]SharedService{"db": {
+				Kind: "postgres", Tenancy: "per_database", Databases: map[string]SharedDatabase{"app": {URLEnvs: []string{""}}},
+			}}},
+			wantSub: "cannot contain empty entries",
+		},
+		{
+			name: "duplicate url env across services",
+			shared: SharedConfig{Services: map[string]SharedService{
+				"a": {Kind: "postgres", Tenancy: "per_database", URLEnvs: []string{"DATABASE_URL"}},
+				"b": {Kind: "postgres", Tenancy: "per_database", Databases: map[string]SharedDatabase{"app": {URLEnvs: []string{"DATABASE_URL"}}}},
+			}},
+			wantSub: "claimed by both",
+		},
+		{
+			name: "duplicate url env across logical dbs",
+			shared: SharedConfig{Services: map[string]SharedService{"db": {
+				Kind: "postgres", Tenancy: "per_database", Databases: map[string]SharedDatabase{
+					"app": {URLEnvs: []string{"DATABASE_URL"}},
+					"infisical": {URLEnvs: []string{"DATABASE_URL"}},
+				},
+			}}},
+			wantSub: "claimed by both",
+		},
+
+		{
 			name:     "volume.share overlap",
 			shared:   SharedConfig{Services: map[string]SharedService{"db": {Kind: "postgres", Tenancy: "per_database"}}},
 			volShare: []string{"db"},
@@ -89,8 +136,13 @@ func TestLoadParsesSharedMap(t *testing.T) {
       kind: postgres
       tenancy: per_database
       tenant_env: DOCKTREE_DB
-      template: myapp_base
       aliases: [database]
+      databases:
+        app:
+          url_envs: [DATABASE_URL]
+          template: myapp_base
+        infisical:
+          url_envs: [DB_CONNECTION_URI]
     redis:
       kind: redis
       tenancy: full_share
@@ -106,8 +158,11 @@ func TestLoadParsesSharedMap(t *testing.T) {
 	if !ok {
 		t.Fatalf("db service not parsed: %#v", cfg.Shared.Services)
 	}
-	if db.Kind != "postgres" || db.Tenancy != "per_database" || db.TenantEnv != "DOCKTREE_DB" || db.Template != "myapp_base" {
+	if db.Kind != "postgres" || db.Tenancy != "per_database" || db.TenantEnv != "DOCKTREE_DB" || db.Template != "" {
 		t.Fatalf("db parsed wrong: %#v", db)
+	}
+	if len(db.Databases) != 2 || db.Databases["app"].Template != "myapp_base" {
+		t.Fatalf("db databases parsed wrong: %#v", db.Databases)
 	}
 	if len(db.Aliases) != 1 || db.Aliases[0] != "database" {
 		t.Fatalf("aliases parsed wrong: %#v", db.Aliases)

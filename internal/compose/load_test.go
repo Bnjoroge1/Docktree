@@ -181,3 +181,37 @@ services:
 		t.Fatalf("port = %#v, want 127.0.0.1:5432:5432", db.Ports[0])
 	}
 }
+
+
+func TestLoadFullMaterializesEnvFileIntoServiceEnvironment(t *testing.T) {
+	dir := t.TempDir()
+	envPath := filepath.Join(dir, "infisical.env")
+	if err := os.WriteFile(envPath, []byte("DB_CONNECTION_URI=postgres://infisical:secret@db:5432/infisical\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	composePath := filepath.Join(dir, "compose.yml")
+	if err := os.WriteFile(composePath, []byte(`
+services:
+  infisical:
+    image: infisical/infisical:latest
+    env_file:
+      - infisical.env
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	raw, reduced, err := LoadFull([]string{composePath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawSvc, ok := raw.Services["infisical"]
+	if !ok {
+		t.Fatalf("raw service infisical missing: %#v", raw.Services)
+	}
+	rawURL := rawSvc.Environment["DB_CONNECTION_URI"]
+	if rawURL == nil || *rawURL != "postgres://infisical:secret@db:5432/infisical" {
+		t.Fatalf("raw DB_CONNECTION_URI = %v, want materialized env_file value", rawURL)
+	}
+	if got := reduced.Services["infisical"].Environment["DB_CONNECTION_URI"]; got != "postgres://infisical:secret@db:5432/infisical" {
+		t.Fatalf("reduced DB_CONNECTION_URI = %q, want env_file value", got)
+	}
+}
