@@ -283,10 +283,26 @@ func mysqlCredentialsFromEnv(svc composetypes.ServiceConfig) (string, string) {
 	return user, password
 }
 
+func mongoCredentialsFromEnv(svc composetypes.ServiceConfig) (string, string) {
+	user := ""
+	password := ""
+	if svc.Environment != nil {
+		if v, ok := svc.Environment["MONGO_INITDB_ROOT_USERNAME"]; ok && v != nil {
+			user = *v
+		}
+		if v, ok := svc.Environment["MONGO_INITDB_ROOT_PASSWORD"]; ok && v != nil {
+			password = *v
+		}
+	}
+	return user, password
+}
+
 func databaseCredentialsFromEnv(kind string, svc composetypes.ServiceConfig) (string, string) {
 	switch kind {
 	case "mysql":
 		return mysqlCredentialsFromEnv(svc)
+	case "mongodb":
+		return mongoCredentialsFromEnv(svc)
 	default:
 		return postgresCredentialsFromEnv(svc)
 	}
@@ -302,7 +318,7 @@ func provisionPlatformTenants(plan *platformPlan, repoSlug string) error {
 			continue
 		}
 		for svcName, svc := range plan.Shared.Services {
-			if svc.Kind != "postgres" && svc.Kind != "mysql" {
+			if svc.Kind != "postgres" && svc.Kind != "mysql" && svc.Kind != "mongodb" {
 				continue
 			}
 			if svc.Tenancy != "per_database" {

@@ -13,15 +13,15 @@ import (
 
 // Config is the project-level docktree.yml model.
 type Config struct {
-	Compose    ComposeConfig    `yaml:"compose"`
-	Identity   IdentityConfig   `yaml:"identity"`
-	Worktrees  WorktreesConfig  `yaml:"worktrees"`
-	Setup      SetupConfig      `yaml:"setup"`
-	Shared     SharedConfig     `yaml:"shared,omitempty"`
-	Volumes    VolumeSetConfig  `yaml:"volumes"`
-	Ports      PortsConfig      `yaml:"ports"`
-	Transforms TransformConfig  `yaml:"transforms"`
-	State      StateConfig      `yaml:"state"`
+	Compose    ComposeConfig   `yaml:"compose"`
+	Identity   IdentityConfig  `yaml:"identity"`
+	Worktrees  WorktreesConfig `yaml:"worktrees"`
+	Setup      SetupConfig     `yaml:"setup"`
+	Shared     SharedConfig    `yaml:"shared,omitempty"`
+	Volumes    VolumeSetConfig `yaml:"volumes"`
+	Ports      PortsConfig     `yaml:"ports"`
+	Transforms TransformConfig `yaml:"transforms"`
+	State      StateConfig     `yaml:"state"`
 }
 
 type ComposeConfig struct {
@@ -63,10 +63,10 @@ type SharedDatabase struct {
 }
 
 // describes one platform-tier service. The docker compose service name is what
-//docker compose will resolve via DNS
+// docker compose will resolve via DNS
 type SharedService struct {
 	// Kind selects the provisioning + tenancy semantics. Required.
-	// Valid: postgres, mysql, redis, s3, generic.
+	// Valid: postgres, mysql, mongodb, redis, s3, generic.
 	Kind string `yaml:"kind"`
 
 	// thIS is how a worktree gets logical isolation inside the shared
@@ -78,7 +78,6 @@ type SharedService struct {
 	// Optional; defaulted per Kind.
 	TenantEnv string `yaml:"tenant_env,omitempty"`
 
-
 	Template string `yaml:"template,omitempty"`
 
 	// Aliases adds extra DNS names this service answers to on the platform
@@ -89,7 +88,6 @@ type SharedService struct {
 	//This should only be used if databases below is not declare
 	URLEnvs []string `yaml:"url_envs,omitempty"`
 
-	
 	Databases map[string]SharedDatabase `yaml:"databases,omitempty"`
 }
 
@@ -260,6 +258,7 @@ func merge(base *Config, user Config) {
 var allowedTenancyByKind = map[string]map[string]bool{
 	"postgres": {"per_database": true, "full_share": true},
 	"mysql":    {"per_database": true, "full_share": true},
+	"mongodb":  {"per_database": true, "full_share": true},
 	"redis":    {"full_share": true},
 	"s3":       {"full_share": true},
 	"generic":  {"full_share": true},
@@ -269,7 +268,7 @@ var allowedTenancyByKind = map[string]map[string]bool{
 // user has not specified one.
 func DefaultTenantEnv(kind string) string {
 	switch kind {
-	case "postgres", "mysql":
+	case "postgres", "mysql", "mongodb":
 		return "DOCKTREE_DB"
 	case "redis":
 		return "REDIS_KEY_PREFIX"
@@ -306,7 +305,7 @@ func ValidateShared(shared SharedConfig, sharedVolumes []string) error {
 		}
 		allowed, ok := allowedTenancyByKind[svc.Kind]
 		if !ok {
-			return fmt.Errorf("shared.services.%s.kind %q is not supported (use postgres, mysql, redis, s3, generic)", name, svc.Kind)
+			return fmt.Errorf("shared.services.%s.kind %q is not supported (use postgres, mysql, mongodb, redis, s3, generic)", name, svc.Kind)
 		}
 		if svc.Tenancy == "" {
 			return fmt.Errorf("shared.services.%s.tenancy is required", name)
@@ -319,8 +318,8 @@ func ValidateShared(shared SharedConfig, sharedVolumes []string) error {
 			return fmt.Errorf("shared.services.%s cannot mix top-level url_envs/template with databases; choose one model", name)
 		}
 		if len(svc.Databases) > 0 {
-			if svc.Kind != "postgres" && svc.Kind != "mysql" {
-				return fmt.Errorf("shared.services.%s.databases only applies to postgres/mysql, not %s", name, svc.Kind)
+			if svc.Kind != "postgres" && svc.Kind != "mysql" && svc.Kind != "mongodb" {
+				return fmt.Errorf("shared.services.%s.databases only applies to postgres/mysql/mongodb, not %s", name, svc.Kind)
 			}
 			if svc.Tenancy != "per_database" {
 				return fmt.Errorf("shared.services.%s.databases requires tenancy per_database", name)
@@ -334,6 +333,9 @@ func ValidateShared(shared SharedConfig, sharedVolumes []string) error {
 				db := svc.Databases[dbName]
 				if dbName == "" {
 					return fmt.Errorf("shared.services.%s.databases: database key cannot be empty", name)
+				}
+				if db.Template != "" && svc.Kind != "postgres" && svc.Kind != "mysql" {
+					return fmt.Errorf("shared.services.%s.databases.%s.template only applies to postgres/mysql, not %s", name, dbName, svc.Kind)
 				}
 				if len(db.URLEnvs) == 0 {
 					return fmt.Errorf("shared.services.%s.databases.%s.url_envs must declare at least one env var", name, dbName)
