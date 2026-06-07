@@ -117,4 +117,12 @@ func TestMainRepoRootMatchesRepoRoot(t *testing.T) {
 	if mainRoot != repoRoot {
 		t.Logf("running from main repo: both should match, got mainRoot=%q repoRoot=%q", mainRoot, repoRoot)
 	}
+
+	mainRootForPath, err := MainRepoRootForPath(repo.RepoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Clean(mainRootForPath) != mainRoot {
+		t.Errorf("MainRepoRootForPath(%q) = %q, want %q", repo.RepoRoot, mainRootForPath, mainRoot)
+	}
 }

@@ -235,7 +235,11 @@ type platformPlan struct {
 }
 
 func platformRepoMatches(instRepoRoot, repoSlug string) bool {
-	return dockgit.RepoName(instRepoRoot) == repoSlug
+	instMainRoot, err := dockgit.MainRepoRootForPath(instRepoRoot)
+	if err != nil {
+		return dockgit.RepoName(instRepoRoot) == repoSlug
+	}
+	return dockgit.RepoName(instMainRoot) == repoSlug
 }
 
 func postgresCredentialsFromEnv(svc composetypes.ServiceConfig) (string, string) {

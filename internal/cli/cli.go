@@ -384,7 +384,11 @@ func runUp(ctx *Context) (any, int, error) {
 		if lerr != nil {
 			return nil, output.ExitConfig, lerr
 		}
-		repoSlug := dockgit.RepoName(repo.RepoRoot)
+		mainRoot, err := dockgit.MainRepoRoot()
+		if err != nil {
+			return nil, output.ExitConfig, err
+		}
+		repoSlug := dockgit.RepoName(mainRoot)
 		// Build per-tenant database names so SynthesizeWorktree can rewrite
 		// declared URL envs (e.g. DATABASE_URL, DB_CONNECTION_URI) in place.
 		tenantDBs := make(map[string]map[string]string, len(cfg.Shared.Services))
@@ -467,7 +471,11 @@ func runUp(ctx *Context) (any, int, error) {
 	}
 	// Platform must be up before we start worktree containers.
 	if len(cfg.Shared.Services) > 0 {
-		if _, _, platErr := ensurePlatformUp(ctx, instanceName, dockgit.RepoName(repo.RepoRoot)); platErr != nil {
+		mainRoot, err := dockgit.MainRepoRoot()
+		if err != nil {
+			return nil, output.ExitConfig, err
+		}
+		if _, _, platErr := ensurePlatformUp(ctx, instanceName, dockgit.RepoName(mainRoot)); platErr != nil {
 			return nil, output.ExitDocker, platErr
 		}
 		if steps != nil {
