@@ -187,7 +187,7 @@ func dropPostgresDB(cfg TenantConfig) error {
 		return fmt.Errorf("deprovision postgres: checking database: %w", err)
 	}
 	if !exists {
-		return nil // already gone
+		return nil
 	}
 	// Terminate active connections so DROP DATABASE doesn't block.
 	terminate := fmt.Sprintf(
@@ -199,8 +199,7 @@ func dropPostgresDB(cfg TenantConfig) error {
 	return postgresExec(container, cfg.User, cfg.Password, drop)
 }
 
-// WaitForPostgres polls pg_isready inside the platform container until it
-// responds or the timeout elapses. Returns nil when ready.
+
 
 func DBExists(container, dbName, user, password string) (bool, error) {
 	return postgresDBExists(container, dbName, user, password)
@@ -219,7 +218,6 @@ func WaitForPostgres(container, user string, timeoutSec int) error {
 		} else {
 			lastErr = err
 		}
-		// 500ms between retries
 		time.Sleep(500 * time.Millisecond)
 	}
 	return fmt.Errorf("postgres in %s not ready after %ds: %w", container, timeoutSec, lastErr)
