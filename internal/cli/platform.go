@@ -299,12 +299,14 @@ func mongoCredentialsFromEnv(svc composetypes.ServiceConfig) (string, string) {
 
 func databaseCredentialsFromEnv(kind string, svc composetypes.ServiceConfig) (string, string) {
 	switch kind {
+	case "postgres":
+		return postgresCredentialsFromEnv(svc)
 	case "mysql":
 		return mysqlCredentialsFromEnv(svc)
 	case "mongodb":
 		return mongoCredentialsFromEnv(svc)
 	default:
-		return postgresCredentialsFromEnv(svc)
+		return "", ""
 	}
 }
 
