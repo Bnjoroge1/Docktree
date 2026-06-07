@@ -12,14 +12,14 @@ import (
 	"strings"
 
 	"github.com/bnjoroge/docktree/internal/compose"
-	"github.com/bnjoroge/docktree/internal/provision"
-	"github.com/bnjoroge/docktree/internal/state"
 	"github.com/bnjoroge/docktree/internal/config"
 	"github.com/bnjoroge/docktree/internal/docker"
-	composetypes "github.com/compose-spec/compose-go/v2/types"
 	dockgit "github.com/bnjoroge/docktree/internal/git"
 	"github.com/bnjoroge/docktree/internal/output"
+	"github.com/bnjoroge/docktree/internal/provision"
+	"github.com/bnjoroge/docktree/internal/state"
 	"github.com/bnjoroge/docktree/internal/tui"
+	composetypes "github.com/compose-spec/compose-go/v2/types"
 )
 
 type PlatformResult struct {
@@ -197,7 +197,6 @@ func runPlatformDown(ctx *Context) (any, int, error) {
 	}, output.ExitOK, nil
 }
 
-
 func runPlatformStatus(ctx *Context) (any, int, error) {
 	plan, err := buildPlatformPlan()
 	if err != nil {
@@ -264,6 +263,33 @@ func postgresCredentialsFromEnv(svc composetypes.ServiceConfig) (string, string)
 	return user, password
 }
 
+func mysqlCredentialsFromEnv(svc composetypes.ServiceConfig) (string, string) {
+	user := "root"
+	password := ""
+	if svc.Environment != nil {
+		if v, ok := svc.Environment["MYSQL_ROOT_PASSWORD"]; ok && v != nil {
+			password = *v
+			return user, password
+		}
+		if v, ok := svc.Environment["MYSQL_USER"]; ok && v != nil && *v != "" {
+			user = *v
+		}
+		if v, ok := svc.Environment["MYSQL_PASSWORD"]; ok && v != nil {
+			password = *v
+		}
+	}
+	return user, password
+}
+
+func databaseCredentialsFromEnv(kind string, svc composetypes.ServiceConfig) (string, string) {
+	switch kind {
+	case "mysql":
+		return mysqlCredentialsFromEnv(svc)
+	default:
+		return postgresCredentialsFromEnv(svc)
+	}
+}
+
 func provisionPlatformTenants(plan *platformPlan, repoSlug string) {
 	instances, err := state.LoadGlobalInstances("")
 	if err != nil {
@@ -284,27 +310,28 @@ func provisionPlatformTenants(plan *platformPlan, repoSlug string) {
 			if !ok {
 				continue
 			}
-		user, password := postgresCredentialsFromEnv(platformSvc)
-		container := plan.Project + "-" + svcName
-		if err := provision.WaitForPostgres(container, user, 30); err != nil {
-			continue
-		}
-		for logicalName, dbTarget := range svc.DatabaseTargets() {
-			template := dbTarget.Template
-			if template == "" {
-				template = svc.Template
+			user, password := databaseCredentialsFromEnv(svc.Kind, platformSvc)
+			container := plan.Project + "-" + svcName
+			readyCfg := provision.TenantConfig{Kind: svc.Kind, Tenancy: svc.Tenancy, Host: container, User: user, Password: password}
+			if err := provision.WaitForService(readyCfg, 30); err != nil {
+				continue
 			}
-			provCfg := provision.TenantConfig{
-				Kind:       svc.Kind,
-				Tenancy:    svc.Tenancy,
-				Template:   template,
-				TenantName: provision.TenantNameForDatabase(repoSlug, inst.Name, logicalName),
-				Host:       container,
-				User:       user,
-				Password:   password,
+			for logicalName, dbTarget := range svc.DatabaseTargets() {
+				template := dbTarget.Template
+				if template == "" {
+					template = svc.Template
+				}
+				provCfg := provision.TenantConfig{
+					Kind:       svc.Kind,
+					Tenancy:    svc.Tenancy,
+					Template:   template,
+					TenantName: provision.TenantNameForDatabase(repoSlug, inst.Name, logicalName),
+					Host:       container,
+					User:       user,
+					Password:   password,
+				}
+				_ = provision.Provision(provCfg)
 			}
-			_ = provision.Provision(provCfg)
-		}
 		}
 	}
 }
@@ -329,7 +356,7 @@ func tenantBindingsForInstance(plan *platformPlan, inst *state.Instance) []tenan
 		if !ok {
 			continue
 		}
-		user, password := postgresCredentialsFromEnv(platformSvc)
+		user, password := databaseCredentialsFromEnv(svc.Kind, platformSvc)
 		container := plan.Project + "-" + svcName
 		for logicalName, dbTarget := range svc.DatabaseTargets() {
 			template := dbTarget.Template
@@ -519,11 +546,18 @@ func runPlatformTenants(ctx *Context) (any, int, error) {
 			if !ok {
 				continue
 			}
-			user, password := postgresCredentialsFromEnv(platformSvc)
+			user, password := databaseCredentialsFromEnv(svc.Kind, platformSvc)
 			container := plan.Project + "-" + svcName
 			for logicalName := range svc.DatabaseTargets() {
 				tenantDB := provision.TenantNameForDatabase(repoSlug, inst.Name, logicalName)
-				exists, err := provision.DBExists(container, tenantDB, user, password)
+				exists, err := provision.DBExists(provision.TenantConfig{
+					Kind:       svc.Kind,
+					Tenancy:    svc.Tenancy,
+					TenantName: tenantDB,
+					Host:       container,
+					User:       user,
+					Password:   password,
+				})
 				if err != nil {
 					return nil, output.ExitDocker, fmt.Errorf("checking tenant %s for %s: %w", tenantDB, inst.Name, err)
 				}
@@ -646,7 +680,7 @@ func runPlatformClean(ctx *Context) (any, int, error) {
 			if !ok {
 				continue
 			}
-			user, password := postgresCredentialsFromEnv(platformSvc)
+			user, password := databaseCredentialsFromEnv(svc.Kind, platformSvc)
 			for logicalName, dbTarget := range svc.DatabaseTargets() {
 				template := dbTarget.Template
 				if template == "" {
