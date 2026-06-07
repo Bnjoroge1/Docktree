@@ -1,6 +1,8 @@
 package compose
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/bnjoroge/docktree/internal/config"
@@ -170,7 +172,7 @@ services:
 	}}
 
 	wt, err := SynthesizeWorktree(raw, shared, "myrepo", SynthesizeWorktreeOptions{
-		TenantDBs: map[string]string{"db": "myrepo_main_abc123"},
+		TenantDBs: map[string]map[string]string{"db": {"": "myrepo_main_abc123"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -219,5 +221,95 @@ services:
 	dbURL := api.Environment["DATABASE_URL"]
 	if dbURL == nil || *dbURL != "postgres://db:5432/myapp" {
 		t.Fatalf("DATABASE_URL should be unchanged, got %v", dbURL)
+	}
+}
+
+
+func TestSynthesizeWorktreeRewritesEnvFileBackedURLEnv(t *testing.T) {
+	dir := t.TempDir()
+	envPath := filepath.Join(dir, "infisical.env")
+	if err := os.WriteFile(envPath, []byte("DB_CONNECTION_URI=postgres://infisical:secret@db:5432/infisical\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	composePath := filepath.Join(dir, "docker-compose.yml")
+	if err := os.WriteFile(composePath, []byte(`
+services:
+  infisical:
+    image: infisical/infisical:latest
+    env_file:
+      - infisical.env
+    depends_on:
+      - db
+  db:
+    image: postgres:15
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	raw, _, err := LoadFull([]string{composePath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shared := config.SharedConfig{Services: map[string]config.SharedService{
+		"db": {Kind: "postgres", Tenancy: "per_database", URLEnvs: []string{"DB_CONNECTION_URI"}},
+	}}
+	wt, err := SynthesizeWorktree(raw, shared, "myrepo", SynthesizeWorktreeOptions{
+		TenantDBs: map[string]map[string]string{"db": {"": "myrepo_feature_infisical"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	infisical := wt.Services["infisical"]
+	dbURL := infisical.Environment["DB_CONNECTION_URI"]
+	if dbURL == nil {
+		t.Fatal("DB_CONNECTION_URI missing from infisical env")
+	}
+	if *dbURL != "postgres://infisical:secret@db:5432/myrepo_feature_infisical" {
+		t.Fatalf("DB_CONNECTION_URI = %q, want postgres://infisical:secret@db:5432/myrepo_feature_infisical", *dbURL)
+	}
+}
+
+
+func TestSynthesizeWorktreeRewritesMultipleLogicalDatabases(t *testing.T) {
+	path := loadRaw(t, `
+services:
+  api:
+    image: api:1
+    environment:
+      DATABASE_URL: postgres://db:5432/app
+      DB_CONNECTION_URI: postgres://db:5432/infisical
+    depends_on:
+      - db
+  db:
+    image: postgres:15
+`)
+	raw, _, err := LoadFull([]string{path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shared := config.SharedConfig{Services: map[string]config.SharedService{
+		"db": {
+			Kind:    "postgres",
+			Tenancy: "per_database",
+			Databases: map[string]config.SharedDatabase{
+				"app":        {URLEnvs: []string{"DATABASE_URL"}},
+				"infisical":  {URLEnvs: []string{"DB_CONNECTION_URI"}},
+			},
+		},
+	}}
+	wt, err := SynthesizeWorktree(raw, shared, "myrepo", SynthesizeWorktreeOptions{
+		TenantDBs: map[string]map[string]string{"db": {
+			"app":       "myrepo_feature_app",
+			"infisical": "myrepo_feature_infisical",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	api := wt.Services["api"]
+	if got := api.Environment["DATABASE_URL"]; got == nil || *got != "postgres://db:5432/myrepo_feature_app" {
+		t.Fatalf("DATABASE_URL = %v", got)
+	}
+	if got := api.Environment["DB_CONNECTION_URI"]; got == nil || *got != "postgres://db:5432/myrepo_feature_infisical" {
+		t.Fatalf("DB_CONNECTION_URI = %v", got)
 	}
 }

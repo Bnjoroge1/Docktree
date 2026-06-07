@@ -80,3 +80,29 @@ func TestDeprovisionUnknownKindErrors(t *testing.T) {
 		t.Fatalf("expected error mentioning kind, got: %v", err)
 	}
 }
+
+
+func TestTenantNameForDatabaseAddsLogicalSuffix(t *testing.T) {
+	got := TenantNameForDatabase("docktree", "feature-main-123abc", "infisical")
+	if got != "infisical_docktree_feature_main_123abc" {
+		t.Fatalf("TenantNameForDatabase = %q", got)
+	}
+}
+
+func TestTenantNameForDatabaseLogicalSuffixSurvivesTruncation(t *testing.T) {
+	long := strings.Repeat("x", 70)
+	a := TenantNameForDatabase("r", long, "app")
+	b := TenantNameForDatabase("r", long, "infisical")
+	if a == b {
+		t.Fatalf("logical DBs collided after truncation: %q", a)
+	}
+	if len(a) > 63 || len(b) > 63 {
+		t.Fatalf("exceeds 63 bytes: a=%d b=%d", len(a), len(b))
+	}
+}
+
+func TestTenantNameForDatabaseLegacyParityWithTenantName(t *testing.T) {
+	if got, want := TenantNameForDatabase("repo", "branch-abc123", ""), TenantName("repo", "branch-abc123"); got != want {
+		t.Fatalf("legacy parity broken: %q vs %q", got, want)
+	}
+}
