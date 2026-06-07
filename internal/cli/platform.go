@@ -90,9 +90,6 @@ func printPlatformHelp(w io.Writer) {
 	fmt.Fprintln(w, tui.MutedS("external network."))
 }
 
-// runPlatformUp starts the repo-scoped platform stack. Idempotent — calling
-// it again when already running re-emits the synthesized compose and runs
-// `docker compose up -d`, which no-ops if nothing has drifted.
 func runPlatformUp(ctx *Context) (any, int, error) {
 	current, err := dockgit.DetectRepo()
 	if err != nil {
@@ -162,8 +159,7 @@ func runPlatformUp(ctx *Context) (any, int, error) {
 }
 
 // runPlatformDown stops the platform stack but keeps named volumes and the
-// external network — explicit destructive paths (`docktree clean --platform`,
-// future flag) own data deletion.
+// external network owns data deletion.
 func runPlatformDown(ctx *Context) (any, int, error) {
 	plan, err := buildPlatformPlan()
 	if err != nil {
@@ -200,8 +196,7 @@ func runPlatformDown(ctx *Context) (any, int, error) {
 	}, output.ExitOK, nil
 }
 
-// runPlatformStatus reports project name, network, services, and whether the
-// platform stack appears to be up.
+
 func runPlatformStatus(ctx *Context) (any, int, error) {
 	plan, err := buildPlatformPlan()
 	if err != nil {

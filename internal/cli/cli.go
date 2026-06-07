@@ -386,21 +386,24 @@ func runUp(ctx *Context) (any, int, error) {
 		}
 		repoSlug := dockgit.RepoName(repo.RepoRoot)
 		// Build per-tenant database names so SynthesizeWorktree can rewrite
-		// declared url_envs (e.g. DATABASE_URL) in place.
-		tenantDBs := make(map[string]string, len(cfg.Shared.Services))
+		// declared URL envs (e.g. DATABASE_URL, DB_CONNECTION_URI) in place.
+		tenantDBs := make(map[string]map[string]string, len(cfg.Shared.Services))
 		for svcName, svc := range cfg.Shared.Services {
-			if svc.Tenancy == "per_database" && len(svc.URLEnvs) > 0 {
-				tenantDBs[svcName] = provision.TenantName(repoSlug, instanceName)
-			}
-		}
-		// Warn when a per_database service has no url_envs — tenant DB exists
-		// but no worktree service will actually connect to it.
-		for svcName, svc := range cfg.Shared.Services {
-			if svc.Tenancy != "per_database" || len(svc.URLEnvs) > 0 {
+			if svc.Tenancy != "per_database" {
 				continue
 			}
-			// Check whether any worktree service env looks like it references
-			// this service hostname — if not, the tenant DB is dead weight.
+			logicalDBs := make(map[string]string, len(svc.DatabaseTargets()))
+			for logicalName := range svc.DatabaseTargets() {
+				logicalDBs[logicalName] = provision.TenantNameForDatabase(repoSlug, instanceName, logicalName)
+			}
+			tenantDBs[svcName] = logicalDBs
+		}
+		// Warn when a per_database service  has no declared url_envs — tenant DB exists but no worktree service will
+		// have its connection string rewritten automatically.
+		for svcName, svc := range cfg.Shared.Services {
+			if svc.Tenancy != "per_database" || len(svc.Databases) > 0 || len(svc.URLEnvs) > 0 {
+				continue
+			}
 			referenced := false
 			for _, wtSvc := range rawProj.Services {
 				for _, v := range wtSvc.Environment {
@@ -670,28 +673,16 @@ func runDown(ctx *Context) (any, int, error) {
 	// be running for psql to reach postgres.
 	var droppedTenants []string
 	if options.volumes && len(cfg.Shared.Services) > 0 {
-		repoSlug := dockgit.RepoName(repo.RepoRoot)
-		for svcName, svc := range cfg.Shared.Services {
-			if svc.Kind != "postgres" && svc.Kind != "mysql" {
-				continue
-			}
-			if svc.Tenancy != "per_database" {
-				continue
-			}
-			platformProject := compose.PlatformProjectName(repoSlug)
-			tenantDB := provision.TenantName(repoSlug, inst.Name)
-			provCfg := provision.TenantConfig{
-				Kind:       svc.Kind,
-				Tenancy:    svc.Tenancy,
-				TenantName: tenantDB,
-				Host:       platformProject + "-" + svcName,
-				User:       "postgres",
-			}
-			fmt.Fprintf(ctx.Stderr, "Dropping tenant database: %s\n", tenantDB)
-			if err := provision.Deprovision(provCfg); err != nil {
-				fmt.Fprintf(ctx.Stderr, "warning: failed to drop %s: %v\n", tenantDB, err)
+		plan, planErr := buildPlatformPlan()
+		if planErr != nil {
+			return nil, output.ExitConfig, planErr
+		}
+		for _, binding := range tenantBindingsForInstance(plan, inst) {
+			fmt.Fprintf(ctx.Stderr, "Dropping tenant database: %s\n", binding.TenantDB)
+			if err := provision.Deprovision(binding.Config); err != nil {
+				fmt.Fprintf(ctx.Stderr, "warning: failed to drop %s: %v\n", binding.TenantDB, err)
 			} else {
-				droppedTenants = append(droppedTenants, tenantDB)
+				droppedTenants = append(droppedTenants, binding.TenantDB)
 			}
 		}
 	}
@@ -2059,15 +2050,20 @@ func humanRenderer() func(io.Writer, any) {
 				return
 			}
 			var tbl tui.Table
-			tbl.Headers = []string{"INSTANCE", "SERVICE", "TENANT DB", "EXISTS"}
+			tbl.Headers = []string{"INSTANCE", "SERVICE", "LOGICAL DB", "TENANT DB", "EXISTS"}
 			for _, e := range v.Tenants {
 				existsStr := tui.OKS("yes")
 				if !e.Exists {
 					existsStr = tui.WarningS("no")
 				}
+				logical := e.LogicalDB
+				if logical == "" {
+					logical = "default"
+				}
 				tbl.Rows = append(tbl.Rows, []string{
 					truncate(e.Instance, 35),
 					e.Service,
+					truncate(logical, 18),
 					truncate(e.TenantDB, 40),
 					existsStr,
 				})
@@ -2081,7 +2077,7 @@ func humanRenderer() func(io.Writer, any) {
 					return tui.MutedS(val)
 				case 1:
 					return tui.AccentS(val)
-				case 2:
+				case 2, 3:
 					return tui.TextS(val)
 				}
 				return val

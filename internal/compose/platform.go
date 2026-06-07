@@ -157,11 +157,12 @@ func SynthesizePlatform(raw *composetypes.Project, shared config.SharedConfig, r
 	return out, nil
 }
 
-//returns a compose Project with shared services removed, depends_on edges pointing at them stripped, and the platform external
+// SynthesizeWorktreeOptions carries per-worktree tenant database names.
 type SynthesizeWorktreeOptions struct {
-	// TenantDBs maps shared service name → per-worktree database name.
-	// When provided and a service has url_envs declared, those env vars in worktree services are rewritten to use the tenant database name.
-	TenantDBs map[string]string
+	// TenantDBs maps shared service name -> logical database key -> per-worktree
+	// tenant database name. The empty logical database key preserves the legacy
+	// single-database per service model.
+	TenantDBs map[string]map[string]string
 }
 
 func SynthesizeWorktree(raw *composetypes.Project, shared config.SharedConfig, repoSlug string, opts ...SynthesizeWorktreeOptions) (*composetypes.Project, error) {
@@ -234,30 +235,38 @@ func SynthesizeWorktree(raw *composetypes.Project, shared config.SharedConfig, r
 			}
 		}
 		clone.Networks[netName] = nil
-		
+
 		if len(clone.Environment) > 0 && opt.TenantDBs != nil {
+			plain := make(map[string]string, len(clone.Environment))
+			for k, v := range clone.Environment {
+				if v != nil {
+					plain[k] = *v
+				}
+			}
 			for svcName, svcDecl := range shared.Services {
-				if len(svcDecl.URLEnvs) == 0 || svcDecl.Tenancy != "per_database" {
+				if svcDecl.Tenancy != "per_database" {
 					continue
 				}
-				tenantDB, ok := opt.TenantDBs[svcName]
-				if !ok || tenantDB == "" {
+				logicalDBs, ok := opt.TenantDBs[svcName]
+				if !ok {
 					continue
 				}
-				// clone.Environment is MappingWithEquals; convert to plain map,
-				// rewrite, convert back.
-				plain := make(map[string]string, len(clone.Environment))
-				for k, v := range clone.Environment {
-					if v != nil {
-						plain[k] = *v
+				for logicalName, dbDecl := range svcDecl.DatabaseTargets() {
+					tenantDB := logicalDBs[logicalName]
+					if tenantDB == "" || len(dbDecl.URLEnvs) == 0 {
+						continue
 					}
+					rewritten, err := RewriteURLEnvs(plain, dbDecl.URLEnvs, tenantDB)
+					if err != nil {
+						return nil, err
+					}
+					plain = rewritten
 				}
-				rewritten, _ := RewriteURLEnvs(plain, svcDecl.URLEnvs, tenantDB)
-				for k, v := range rewritten {
-					v := v 
-					if _, exists := clone.Environment[k]; exists {
-						clone.Environment[k] = &v
-					}
+			}
+			for k, v := range plain {
+				if _, exists := clone.Environment[k]; exists {
+					value := v
+					clone.Environment[k] = &value
 				}
 			}
 		}

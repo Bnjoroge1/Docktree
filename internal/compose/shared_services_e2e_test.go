@@ -82,7 +82,7 @@ func TestSharedServicesSynthesisE2E(t *testing.T) {
 
 	// --- Worktree synthesis ---
 	wt, err := SynthesizeWorktree(raw, shared, repoSlug, SynthesizeWorktreeOptions{
-		TenantDBs: map[string]string{"db": tenantDB},
+		TenantDBs: map[string]map[string]string{"db": {"": tenantDB}},
 	})
 	if err != nil {
 		t.Fatalf("SynthesizeWorktree: %v", err)
