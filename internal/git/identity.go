@@ -133,6 +133,34 @@ func gitOutput(args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+func gitOutputForPath(path string, args ...string) (string, error) {
+	cmd := exec.Command("git", append([]string{"-C", path}, args...)...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		return "", fmt.Errorf("git -C %s %s: %s", path, strings.Join(args, " "), msg)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// MainRepoRootForPath returns the path to the main repository root of the git repository containing path.
+func MainRepoRootForPath(path string) (string, error) {
+	out, err := gitOutputForPath(path, "worktree", "list", "--porcelain")
+	if err != nil {
+		return gitOutputForPath(path, "rev-parse", "--show-toplevel")
+	}
+	entries := parseWorktreeList(out)
+	if len(entries) == 0 {
+		return gitOutputForPath(path, "rev-parse", "--show-toplevel")
+	}
+	return entries[0].Path, nil
+}
+
 func parseWorktreeList(out string) []WorktreeInfo {
 	var entries []WorktreeInfo
 	var current *WorktreeInfo
