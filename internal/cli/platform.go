@@ -36,10 +36,11 @@ type PlatformResult struct {
 
 // TenantEntry describes one per-worktree tenant namespace inside a shared service.
 type TenantEntry struct {
-	Instance string `json:"instance"`
-	Service  string `json:"service"`
-	TenantDB string `json:"tenant_db"`
-	Exists   bool   `json:"exists"`
+	Instance  string `json:"instance"`
+	Service   string `json:"service"`
+	LogicalDB string `json:"logical_db,omitempty"`
+	TenantDB  string `json:"tenant_db"`
+	Exists    bool   `json:"exists"`
 }
 
 // PlatformTenantsResult is the result of `docktree platform tenants`.
@@ -271,23 +272,74 @@ func provisionPlatformTenants(plan *platformPlan, repoSlug string) {
 			if !ok {
 				continue
 			}
-			user, password := postgresCredentialsFromEnv(platformSvc)
-			container := plan.Project + "-" + svcName
-			if err := provision.WaitForPostgres(container, user, 30); err != nil {
-				continue
+		user, password := postgresCredentialsFromEnv(platformSvc)
+		container := plan.Project + "-" + svcName
+		if err := provision.WaitForPostgres(container, user, 30); err != nil {
+			continue
+		}
+		for logicalName, dbTarget := range svc.DatabaseTargets() {
+			template := dbTarget.Template
+			if template == "" {
+				template = svc.Template
 			}
 			provCfg := provision.TenantConfig{
 				Kind:       svc.Kind,
 				Tenancy:    svc.Tenancy,
-				Template:   svc.Template,
-				TenantName: provision.TenantName(repoSlug, inst.Name),
+				Template:   template,
+				TenantName: provision.TenantNameForDatabase(repoSlug, inst.Name, logicalName),
 				Host:       container,
 				User:       user,
 				Password:   password,
 			}
 			_ = provision.Provision(provCfg)
 		}
+		}
 	}
+}
+
+// tenantBinding pairs a human-readable tenant DB name with the TenantConfig
+// needed to deprovision it.
+type tenantBinding struct {
+	TenantDB string
+	Config   provision.TenantConfig
+}
+
+// tenantBindingsForInstance returns one binding per logical database that
+// the given instance owns across all per_database shared services.
+func tenantBindingsForInstance(plan *platformPlan, inst *state.Instance) []tenantBinding {
+	repoSlug := dockgit.RepoName(inst.RepoRoot)
+	var bindings []tenantBinding
+	for svcName, svc := range plan.Shared.Services {
+		if svc.Tenancy != "per_database" {
+			continue
+		}
+		platformSvc, ok := plan.PlatformProject.Services[svcName]
+		if !ok {
+			continue
+		}
+		user, password := postgresCredentialsFromEnv(platformSvc)
+		container := plan.Project + "-" + svcName
+		for logicalName, dbTarget := range svc.DatabaseTargets() {
+			template := dbTarget.Template
+			if template == "" {
+				template = svc.Template
+			}
+			tenantDB := provision.TenantNameForDatabase(repoSlug, inst.Name, logicalName)
+			bindings = append(bindings, tenantBinding{
+				TenantDB: tenantDB,
+				Config: provision.TenantConfig{
+					Kind:       svc.Kind,
+					Tenancy:    svc.Tenancy,
+					Template:   template,
+					TenantName: tenantDB,
+					Host:       container,
+					User:       user,
+					Password:   password,
+				},
+			})
+		}
+	}
+	return bindings
 }
 
 // buildPlatformPlan locates the main repo root, loads its docktree.yml,
@@ -456,18 +508,21 @@ func runPlatformTenants(ctx *Context) (any, int, error) {
 				continue
 			}
 			user, password := postgresCredentialsFromEnv(platformSvc)
-			tenantDB := provision.TenantName(repoSlug, inst.Name)
 			container := plan.Project + "-" + svcName
-			exists, err := provision.DBExists(container, tenantDB, user, password)
-			if err != nil {
-				return nil, output.ExitDocker, fmt.Errorf("checking tenant %s for %s: %w", tenantDB, inst.Name, err)
+			for logicalName := range svc.DatabaseTargets() {
+				tenantDB := provision.TenantNameForDatabase(repoSlug, inst.Name, logicalName)
+				exists, err := provision.DBExists(container, tenantDB, user, password)
+				if err != nil {
+					return nil, output.ExitDocker, fmt.Errorf("checking tenant %s for %s: %w", tenantDB, inst.Name, err)
+				}
+				entries = append(entries, TenantEntry{
+					Instance:  inst.Name,
+					Service:   svcName,
+					LogicalDB: logicalName,
+					TenantDB:  tenantDB,
+					Exists:    exists,
+				})
 			}
-			entries = append(entries, TenantEntry{
-				Instance: inst.Name,
-				Service:  svcName,
-				TenantDB: tenantDB,
-				Exists:   exists,
-			})
 		}
 	}
 
@@ -553,9 +608,13 @@ func runPlatformClean(ctx *Context) (any, int, error) {
 		for _, inst := range instances {
 			repoSlug := dockgit.RepoName(inst.RepoRoot)
 			for svcName, svc := range plan.Shared.Services {
-				if svc.Tenancy == "per_database" {
+				if svc.Tenancy != "per_database" {
+					continue
+				}
+				for logicalName := range svc.DatabaseTargets() {
+					tenantDB := provision.TenantNameForDatabase(repoSlug, inst.Name, logicalName)
 					fmt.Fprintf(ctx.Stdout, "Would drop:   %s (instance %s, service %s)\n",
-						provision.TenantName(repoSlug, inst.Name), inst.Name, svcName)
+						tenantDB, inst.Name, svcName)
 				}
 			}
 		}
@@ -570,18 +629,30 @@ func runPlatformClean(ctx *Context) (any, int, error) {
 			if svc.Tenancy != "per_database" {
 				continue
 			}
-			tenantDB := provision.TenantName(repoSlug, inst.Name)
 			container := plan.Project + "-" + svcName
-			fmt.Fprintf(ctx.Stderr, "Dropping tenant database: %s\n", tenantDB)
-			deprovCfg := provision.TenantConfig{
-				Kind:       svc.Kind,
-				Tenancy:    svc.Tenancy,
-				TenantName: tenantDB,
-				Host:       container,
-				User:       "postgres",
+			platformSvc, ok := plan.PlatformProject.Services[svcName]
+			if !ok {
+				continue
 			}
-			if err := provision.Deprovision(deprovCfg); err != nil {
-				fmt.Fprintf(ctx.Stderr, "warning: drop %s: %v\n", tenantDB, err)
+			user, password := postgresCredentialsFromEnv(platformSvc)
+			for logicalName, dbTarget := range svc.DatabaseTargets() {
+				template := dbTarget.Template
+				if template == "" {
+					template = svc.Template
+				}
+				tenantDB := provision.TenantNameForDatabase(repoSlug, inst.Name, logicalName)
+				fmt.Fprintf(ctx.Stderr, "Dropping tenant database: %s\n", tenantDB)
+				deprovCfg := provision.TenantConfig{
+					Kind:       svc.Kind,
+					Tenancy:    svc.Tenancy,
+					TenantName: tenantDB,
+					Host:       container,
+					User:       user,
+					Password:   password,
+				}
+				if err := provision.Deprovision(deprovCfg); err != nil {
+					fmt.Fprintf(ctx.Stderr, "warning: drop %s: %v\n", tenantDB, err)
+				}
 			}
 		}
 	}
