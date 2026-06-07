@@ -19,11 +19,11 @@ func TestInstanceNameStableAndSafe(t *testing.T) {
 
 func TestInstanceNameTruncatesAt64CharsKeepingHash(t *testing.T) {
 	tests := []struct {
-		name       string
-		repoName   string
-		workName   string
-		repoPath   string
-		workPath   string
+		name     string
+		repoName string
+		workName string
+		repoPath string
+		workPath string
 	}{
 		{
 			name:     "long worktree",

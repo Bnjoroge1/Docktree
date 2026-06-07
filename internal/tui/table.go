@@ -187,4 +187,3 @@ func (t *Table) RenderBordered() string {
 		return val
 	})
 }
-

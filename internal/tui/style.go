@@ -44,28 +44,28 @@ var (
 		Bold(true)
 
 	BadgeError = lipgloss.NewStyle().
-		Foreground(lipgloss.Color(ColorError)).
-		Background(lipgloss.Color("#2e1a1a")).
-		Padding(0, 1).
-		Bold(true)
+			Foreground(lipgloss.Color(ColorError)).
+			Background(lipgloss.Color("#2e1a1a")).
+			Padding(0, 1).
+			Bold(true)
 
 	BadgeWarning = lipgloss.NewStyle().
-		Foreground(lipgloss.Color(ColorWarning)).
-		Background(lipgloss.Color("#2e2a1a")).
-		Padding(0, 1).
-		Bold(true)
+			Foreground(lipgloss.Color(ColorWarning)).
+			Background(lipgloss.Color("#2e2a1a")).
+			Padding(0, 1).
+			Bold(true)
 
 	BadgeInfo = lipgloss.NewStyle().
-		Foreground(lipgloss.Color(ColorAccentLight)).
-		Background(lipgloss.Color("#2e231a")).
-		Padding(0, 1).
-		Bold(true)
+			Foreground(lipgloss.Color(ColorAccentLight)).
+			Background(lipgloss.Color("#2e231a")).
+			Padding(0, 1).
+			Bold(true)
 
 	BadgeDim = lipgloss.NewStyle().
-		Foreground(lipgloss.Color(ColorTextDim)).
-		Background(lipgloss.Color("#2a2420")).
-		Padding(0, 1).
-		Bold(true)
+			Foreground(lipgloss.Color(ColorTextDim)).
+			Background(lipgloss.Color("#2a2420")).
+			Padding(0, 1).
+			Bold(true)
 
 	BoldOK = lipgloss.NewStyle().
 		Foreground(lipgloss.Color(ColorOK)).
@@ -79,16 +79,16 @@ var (
 		MarginBottom(0)
 
 	BoxWithTitle = lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(ColorBorder)).
-		Padding(1, 2)
+			BorderStyle(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color(ColorBorder)).
+			Padding(1, 2)
 
 	Divider = lipgloss.NewStyle().
 		Foreground(lipgloss.Color(ColorBorder))
 
 	TableHeader = lipgloss.NewStyle().
-		Foreground(lipgloss.Color(ColorWarning)).
-		Bold(true)
+			Foreground(lipgloss.Color(ColorWarning)).
+			Bold(true)
 
 	Prompt = lipgloss.NewStyle().
 		Foreground(lipgloss.Color(ColorWarning)).
@@ -100,14 +100,14 @@ func BrandS(s string) string   { return Brand.Render(s) }
 func AccentS(s string) string  { return Accent.Render(s) }
 func OKS(s string) string      { return OK.Render(s) }
 func OKDimS(s string) string   { return OKDim.Render(s) }
-func ErrorS(s string) string  { return Error.Render(s) }
+func ErrorS(s string) string   { return Error.Render(s) }
 func WarningS(s string) string { return Warning.Render(s) }
 func InfoS(s string) string    { return Info.Render(s) }
 func TextS(s string) string    { return Text.Render(s) }
 func MutedS(s string) string   { return Muted.Render(s) }
 func DimS(s string) string     { return Dim.Render(s) }
 func BoldOKS(s string) string  { return BoldOK.Render(s) }
-func URLS(s string) string    { return URL.Render(s) }
+func URLS(s string) string     { return URL.Render(s) }
 
 // HorizontalDivider returns a line of dashes.
 func HorizontalDivider(width int) string {
