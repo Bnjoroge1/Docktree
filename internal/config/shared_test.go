@@ -55,6 +55,19 @@ func TestValidateSharedRejects(t *testing.T) {
 			wantSub: "template only applies",
 		},
 		{
+			name:    "top-level template on mongodb",
+			shared:  SharedConfig{Services: map[string]SharedService{"mongo": {Kind: "mongodb", Tenancy: "per_database", Template: "myapp_base"}}},
+			wantSub: "template only applies",
+		},
+		{
+			name: "per-db template on mongodb",
+			shared: SharedConfig{Services: map[string]SharedService{"mongo": {
+				Kind: "mongodb", Tenancy: "per_database",
+				Databases: map[string]SharedDatabase{"app": {Template: "myapp_base", URLEnvs: []string{"MONGODB_URI"}}},
+			}}},
+			wantSub: "template only applies",
+		},
+		{
 			name: "alias collision between services",
 			shared: SharedConfig{Services: map[string]SharedService{
 				"db":     {Kind: "postgres", Tenancy: "per_database"},

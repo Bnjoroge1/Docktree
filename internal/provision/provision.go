@@ -103,6 +103,18 @@ func isNoopKind(kind string) bool {
 	}
 }
 
+// escapePostgresIdentifier escapes a PostgreSQL identifier by doubling
+// embedded double-quote characters, safe for use inside "..." quotes.
+func escapePostgresIdentifier(value string) string {
+	return strings.ReplaceAll(value, `"`, `""`)
+}
+
+// escapePostgresLiteral escapes a PostgreSQL string literal by doubling
+// embedded single-quote characters, safe for use inside '...' quotes.
+func escapePostgresLiteral(value string) string {
+	return strings.ReplaceAll(value, "'", "''")
+}
+
 type postgresDriver struct{}
 
 func (postgresDriver) Provision(cfg TenantConfig) error {
@@ -119,9 +131,9 @@ func (postgresDriver) Provision(cfg TenantConfig) error {
 
 	var stmt string
 	if cfg.Template != "" {
-		stmt = fmt.Sprintf(`CREATE DATABASE "%s" TEMPLATE "%s"`, cfg.TenantName, cfg.Template)
+		stmt = fmt.Sprintf(`CREATE DATABASE "%s" TEMPLATE "%s"`, escapePostgresIdentifier(cfg.TenantName), escapePostgresIdentifier(cfg.Template))
 	} else {
-		stmt = fmt.Sprintf(`CREATE DATABASE "%s"`, cfg.TenantName)
+		stmt = fmt.Sprintf(`CREATE DATABASE "%s"`, escapePostgresIdentifier(cfg.TenantName))
 	}
 	return postgresExec(cfg.Host, cfg.User, cfg.Password, stmt)
 }
@@ -139,10 +151,10 @@ func (postgresDriver) Deprovision(cfg TenantConfig) error {
 	}
 	terminate := fmt.Sprintf(
 		`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='%s' AND pid <> pg_backend_pid()`,
-		cfg.TenantName,
+		escapePostgresLiteral(cfg.TenantName),
 	)
 	_ = postgresExec(cfg.Host, cfg.User, cfg.Password, terminate)
-	drop := fmt.Sprintf(`DROP DATABASE IF EXISTS "%s"`, cfg.TenantName)
+	drop := fmt.Sprintf(`DROP DATABASE IF EXISTS "%s"`, escapePostgresIdentifier(cfg.TenantName))
 	return postgresExec(cfg.Host, cfg.User, cfg.Password, drop)
 }
 
@@ -168,7 +180,7 @@ func (postgresDriver) Wait(cfg TenantConfig, timeoutSec int) error {
 }
 
 func postgresDBExists(container, dbName, user, password string) (bool, error) {
-	query := fmt.Sprintf(`SELECT 1 FROM pg_database WHERE datname='%s'`, dbName)
+	query := fmt.Sprintf(`SELECT 1 FROM pg_database WHERE datname='%s'`, escapePostgresLiteral(dbName))
 	out, err := psql(container, "postgres", user, password, query)
 	if err != nil {
 		return false, err
