@@ -149,9 +149,10 @@ func (postgresDriver) Deprovision(cfg TenantConfig) error {
 	if !exists {
 		return nil
 	}
+	tenantLiteral := postgresDollarQuote(cfg.TenantName)
 	terminate := fmt.Sprintf(
-		`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='%s' AND pid <> pg_backend_pid()`,
-		escapePostgresLiteral(cfg.TenantName),
+		`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname=%s AND pid <> pg_backend_pid()`,
+		tenantLiteral,
 	)
 	_ = postgresExec(cfg.Host, cfg.User, cfg.Password, terminate)
 	drop := fmt.Sprintf(`DROP DATABASE IF EXISTS "%s"`, escapePostgresIdentifier(cfg.TenantName))
@@ -180,12 +181,20 @@ func (postgresDriver) Wait(cfg TenantConfig, timeoutSec int) error {
 }
 
 func postgresDBExists(container, dbName, user, password string) (bool, error) {
-	query := fmt.Sprintf(`SELECT 1 FROM pg_database WHERE datname='%s'`, escapePostgresLiteral(dbName))
+	query := fmt.Sprintf(`SELECT 1 FROM pg_database WHERE datname=%s`, postgresDollarQuote(dbName))
 	out, err := psql(container, "postgres", user, password, query)
 	if err != nil {
 		return false, err
 	}
 	return strings.Contains(out, "1"), nil
+}
+
+func postgresDollarQuote(value string) string {
+	tag := "$tenant$"
+	for strings.Contains(value, tag) {
+		tag = "$x" + tag + "x$"
+	}
+	return tag + value + tag
 }
 
 func postgresExec(container, user, password, stmt string) error {
