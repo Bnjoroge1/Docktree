@@ -345,7 +345,16 @@ func (mongoDriver) Exists(cfg TenantConfig) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return strings.Contains(out, "1"), nil
+	// Check only the last non-empty line to avoid false positives from
+	// mongosh noise (deprecation notices, connection info, etc.).
+	lines := strings.Split(out, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		l := strings.TrimSpace(lines[i])
+		if l != "" {
+			return l == "1", nil
+		}
+	}
+	return false, nil
 }
 
 func (mongoDriver) Wait(cfg TenantConfig, timeoutSec int) error {
