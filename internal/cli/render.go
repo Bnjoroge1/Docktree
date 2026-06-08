@@ -490,8 +490,27 @@ func humanRenderer() func(io.Writer, any) {
 				for _, svc := range v.Services {
 					fmt.Fprintf(w, "  %s  %s\n", tui.DimS("service:"), tui.OKS(svc))
 				}
+			case "clean":
+				if v.DryRun {
+					fmt.Fprintf(w, "%s Dry run — platform %s\n", tui.BrandS("Docktree"), tui.AccentS(v.Project))
+					fmt.Fprintf(w, "  %s  %s\n", tui.DimS("would stop:"), v.Project)
+					fmt.Fprintf(w, "  %s  %s\n", tui.DimS("would remove:"), v.Network)
+					if len(v.WouldDrop) > 0 {
+						fmt.Fprintf(w, "  %s\n", tui.DimS("would drop databases:"))
+						for _, db := range v.WouldDrop {
+							fmt.Fprintf(w, "    %s\n", tui.MutedS(db))
+						}
+					}
+					return
+				}
+				fmt.Fprintf(w, "%s Platform %s cleaned\n", tui.OKS("✓"), tui.AccentS(v.Project))
+				if len(v.DroppedDatabases) > 0 {
+					fmt.Fprintf(w, "  %s\n", tui.DimS("dropped databases:"))
+					for _, db := range v.DroppedDatabases {
+						fmt.Fprintf(w, "    %s %s\n", tui.OKS("✓"), tui.MutedS(db))
+					}
+				}
 			}
-		case PlatformTenantsResult:
 			if len(v.Tenants) == 0 {
 				fmt.Fprintf(w, "%s No tenant databases found.\n", tui.BrandS("Docktree"))
 				return

@@ -23,15 +23,19 @@ import (
 )
 
 type PlatformResult struct {
-	Action       string   `json:"action"`
-	Project      string   `json:"project"`
-	Network      string   `json:"network"`
-	Services     []string `json:"services,omitempty"`
-	ComposeFile  string   `json:"compose_file,omitempty"`
-	Running      bool     `json:"running"`
-	AlreadyState bool     `json:"already_state,omitempty"`
-	Skipped      bool     `json:"skipped,omitempty"`
-	Reason       string   `json:"reason,omitempty"`
+	Action            string   `json:"action"`
+	Project           string   `json:"project"`
+	Network           string   `json:"network"`
+	Services          []string `json:"services,omitempty"`
+	ComposeFile       string   `json:"compose_file,omitempty"`
+	Running           bool     `json:"running"`
+	AlreadyState      bool     `json:"already_state,omitempty"`
+	Skipped           bool     `json:"skipped,omitempty"`
+	Reason            string   `json:"reason,omitempty"`
+	DroppedDatabases  []string `json:"dropped_databases,omitempty"`
+	DryRun            bool     `json:"dry_run,omitempty"`
+	WouldDrop         []string `json:"would_drop,omitempty"`
+	WarningMessage    string   `json:"warning_message,omitempty"`
 }
 
 // TenantEntry describes one per-worktree tenant namespace inside a shared service.
@@ -563,6 +567,13 @@ func runPlatformTenants(ctx *Context) (any, int, error) {
 	if plan.Skipped {
 		return PlatformTenantsResult{}, output.ExitNoop, nil
 	}
+	running, err := platformIsRunning(plan.Project)
+	if err != nil {
+		return nil, output.ExitDocker, fmt.Errorf("checking platform status: %w", err)
+	}
+	if !running {
+		return nil, output.ExitDocker, fmt.Errorf("platform stack is not running — run `docktree platform up` first")
+	}
 
 	instances, err := state.LoadGlobalInstances("")
 	if err != nil {
@@ -683,26 +694,49 @@ func runPlatformClean(ctx *Context) (any, int, error) {
 		return PlatformResult{Action: "clean", Skipped: true, Reason: plan.SkipReason}, output.ExitNoop, nil
 	}
 
+	if !dryRun {
+		running, err := platformIsRunning(plan.Project)
+		if err != nil {
+			return nil, output.ExitDocker, fmt.Errorf("checking platform status: %w", err)
+		}
+		if !running {
+			return nil, output.ExitDocker, fmt.Errorf("platform stack is not running — run `docktree platform up` first")
+		}
+	}
+
+	steps := ctx.Steps
+	if steps != nil {
+		steps.Header("Cleaning platform…", plan.Project)
+	}
+
 	if dryRun {
-		fmt.Fprintf(ctx.Stdout, "Would stop:   %s\n", plan.Project)
-		fmt.Fprintf(ctx.Stdout, "Would remove: %s\n", plan.Network)
+		var wouldDrop []string
 		instances, _ := state.LoadGlobalInstances("")
 		for _, inst := range instances {
 			repoSlug := platformRepoSlugForInstance(inst.RepoRoot)
-			for svcName, svc := range plan.Shared.Services {
+			for _, svc := range plan.Shared.Services {
 				if svc.Tenancy != "per_database" {
 					continue
 				}
 				for logicalName := range svc.DatabaseTargets() {
 					tenantDB := provision.TenantNameForDatabase(repoSlug, inst.Name, logicalName)
-					fmt.Fprintf(ctx.Stdout, "Would drop:   %s (instance %s, service %s)\n",
-						tenantDB, inst.Name, svcName)
+					wouldDrop = append(wouldDrop, tenantDB)
 				}
 			}
 		}
-		return nil, output.ExitOK, nil
+		if steps != nil {
+			steps.Done(fmt.Sprintf("Would stop %s, remove %s, drop %d database(s)", plan.Project, plan.Network, len(wouldDrop)))
+		}
+		return PlatformResult{
+			Action:       "clean",
+			Project:      plan.Project,
+			Network:      plan.Network,
+			DryRun:       true,
+			WouldDrop:    wouldDrop,
+		}, output.ExitOK, nil
 	}
 
+	var dropped []string
 	instances, _ := state.LoadGlobalInstances("")
 	for _, inst := range instances {
 		repoSlug := platformRepoSlugForInstance(inst.RepoRoot)
@@ -718,7 +752,10 @@ func runPlatformClean(ctx *Context) (any, int, error) {
 			user, password := databaseCredentialsFromEnv(svc.Kind, platformSvc)
 			for logicalName := range svc.DatabaseTargets() {
 				tenantDB := provision.TenantNameForDatabase(repoSlug, inst.Name, logicalName)
-				fmt.Fprintf(ctx.Stderr, "Dropping tenant database: %s\n", tenantDB)
+				var spin *tui.SpinStep
+				if steps != nil {
+					spin = steps.StartSpin(fmt.Sprintf("Dropping %s", tenantDB))
+				}
 				deprovCfg := provision.TenantConfig{
 					Kind:       svc.Kind,
 					Tenancy:    svc.Tenancy,
@@ -728,12 +765,26 @@ func runPlatformClean(ctx *Context) (any, int, error) {
 					Password:   password,
 				}
 				if err := provision.Deprovision(deprovCfg); err != nil {
-					fmt.Fprintf(ctx.Stderr, "warning: drop %s: %v\n", tenantDB, err)
+					if spin != nil {
+						spin.Stop()
+					}
+					if steps != nil {
+						steps.Sub(fmt.Sprintf("Failed to drop %s: %v", tenantDB, err))
+					}
+				} else {
+					dropped = append(dropped, tenantDB)
+					if spin != nil {
+						spin.Stop()
+					}
 				}
 			}
 		}
 	}
 
+	var spin *tui.SpinStep
+	if steps != nil {
+		spin = steps.StartSpin("Stopping platform stack")
+	}
 	if _, err := os.Stat(plan.ComposeFile); err == nil {
 		cmd := docker.ComposeCommand{
 			ProjectName: plan.Project,
@@ -742,9 +793,31 @@ func runPlatformClean(ctx *Context) (any, int, error) {
 		}
 		_ = docker.Run(cmd, io.Discard, ctx.Stderr)
 	}
+	if spin != nil {
+		spin.Stop()
+	}
+	if steps != nil {
+		steps.Sub("Platform stack stopped")
+	}
 
+	if steps != nil {
+		spin = steps.StartSpin("Removing platform network")
+	}
 	_ = dockerSilent("network", "rm", plan.Network)
+	if spin != nil {
+		spin.Stop()
+	}
+	if steps != nil {
+		steps.Sub("Platform network removed")
+	}
+	if steps != nil {
+		steps.Done(fmt.Sprintf("Platform %s cleaned", plan.Project))
+	}
 
-	fmt.Fprintf(ctx.Stdout, "%s Platform cleaned: %s\n", tui.OKS("✓"), plan.Project)
-	return PlatformResult{Action: "clean", Project: plan.Project, Network: plan.Network}, output.ExitOK, nil
+	return PlatformResult{
+		Action:           "clean",
+		Project:          plan.Project,
+		Network:          plan.Network,
+		DroppedDatabases: dropped,
+	}, output.ExitOK, nil
 }

@@ -19,7 +19,7 @@ func parsePortsOptions(args []string) (portsOptions, error) {
 	var options portsOptions
 	for _, arg := range args {
 		switch arg {
-		case "-a", "--all":
+		case "-a", "--all", "-all":
 			options.all = true
 		case "-h", "--help":
 			options.help = true
