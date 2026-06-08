@@ -334,8 +334,8 @@ func ValidateShared(shared SharedConfig, sharedVolumes []string) error {
 				if dbName == "" {
 					return fmt.Errorf("shared.services.%s.databases: database key cannot be empty", name)
 				}
-				if db.Template != "" && svc.Kind != "postgres" && svc.Kind != "mysql" {
-					return fmt.Errorf("shared.services.%s.databases.%s.template only applies to postgres/mysql, not %s", name, dbName, svc.Kind)
+				if db.Template != "" && svc.Kind != "postgres" {
+					return fmt.Errorf("shared.services.%s.databases.%s.template only applies to postgres, not %s (mysql templates are not supported)", name, dbName, svc.Kind)
 				}
 				if len(db.URLEnvs) == 0 {
 					return fmt.Errorf("shared.services.%s.databases.%s.url_envs must declare at least one env var", name, dbName)
@@ -352,8 +352,8 @@ func ValidateShared(shared SharedConfig, sharedVolumes []string) error {
 				}
 			}
 		} else {
-			if svc.Template != "" && svc.Kind != "postgres" && svc.Kind != "mysql" {
-				return fmt.Errorf("shared.services.%s.template only applies to postgres/mysql, not %s", name, svc.Kind)
+			if svc.Template != "" && svc.Kind != "postgres" {
+				return fmt.Errorf("shared.services.%s.template only applies to postgres, not %s (mysql templates are not supported)", name, svc.Kind)
 			}
 			for _, envName := range svc.URLEnvs {
 				if envName == "" {
