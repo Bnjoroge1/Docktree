@@ -4,14 +4,24 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/bnjoroge/docktree/internal/output"
 	"github.com/bnjoroge/docktree/internal/tui"
 )
 
+// termWidth returns the terminal width for the given writer, or 0 if unknown.
+func termWidth(w io.Writer) int {
+	if f, ok := w.(*os.File); ok {
+		return tui.GetTerminalWidthFrom(f)
+	}
+	return 0
+}
+
 func humanRenderer() func(io.Writer, any) {
 	return func(w io.Writer, data any) {
+		tw := termWidth(w)
 		switch v := data.(type) {
 		case UpResult:
 			projectName := v.Instance.ProjectName
@@ -341,7 +351,8 @@ func humanRenderer() func(io.Writer, any) {
 			}
 			fmt.Fprintln(w)
 			var tbl tui.Table
-			if v.All {
+			tbl.TermWidth = tw
+			if v.All && len(v.Entries) > 1 {
 				tbl.Headers = []string{"INSTANCE", "SERVICE", "CONTAINER", "HOST", "BIND", "URL"}
 				for _, entry := range v.Entries {
 					for _, a := range entry.Ports {
@@ -511,11 +522,13 @@ func humanRenderer() func(io.Writer, any) {
 					}
 				}
 			}
+		case PlatformTenantsResult:
 			if len(v.Tenants) == 0 {
 				fmt.Fprintf(w, "%s No tenant databases found.\n", tui.BrandS("Docktree"))
 				return
 			}
 			var tbl tui.Table
+			tbl.TermWidth = tw
 			tbl.Headers = []string{"INSTANCE", "SERVICE", "LOGICAL DB", "TENANT DB", "EXISTS"}
 			for _, e := range v.Tenants {
 				existsStr := tui.OKS("yes")

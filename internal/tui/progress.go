@@ -6,63 +6,98 @@ import (
 	"os"
 	"sync"
 	"time"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 type StepPrinter struct {
 	w     io.Writer
-	lines int
+	lines int    // number of logical lines written
 	tty   bool
 	mu    sync.Mutex
+	termW int // terminal width for wrap detection; 0 = no wrap tracking
 }
 
 func NewStepPrinter(w io.Writer, tty bool) *StepPrinter {
-	return &StepPrinter{w: w, tty: tty}
+	tw := 0
+	if f, ok := w.(*os.File); ok {
+		tw = GetTerminalWidthFrom(f)
+	}
+	return &StepPrinter{w: w, tty: tty, termW: tw}
+}
+
+// linesFor returns the number of terminal rows a styled string occupies,
+// accounting for terminal width wrapping. Falls back to 1 if width is unknown.
+func (p *StepPrinter) linesFor(s string) int {
+	if p.termW <= 0 {
+		return 1
+	}
+	visible := lipgloss.Width(s)
+	if visible <= p.termW {
+		return 1
+	}
+	n := visible / p.termW
+	if visible%p.termW != 0 {
+		n++
+	}
+	return n
 }
 
 func (p *StepPrinter) Header(title, subtitle string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	fmt.Fprintf(p.w, "%s  %s\n", Brand.Bold(true).Render(title), DimS(subtitle))
-	p.lines++
+	line := fmt.Sprintf("%s  %s", Brand.Bold(true).Render(title), DimS(subtitle))
+	fmt.Fprintln(p.w, line)
+	p.lines += p.linesFor(line)
 }
 
 func (p *StepPrinter) Done(msg string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	fmt.Fprintf(p.w, "%s %s\n", OKS("✓"), msg)
-	p.lines++
+	line := fmt.Sprintf("%s %s", OKS("✓"), msg)
+	fmt.Fprintln(p.w, line)
+	p.lines += p.linesFor(line)
 }
 
 func (p *StepPrinter) Active(msg string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	fmt.Fprintf(p.w, "%s %s\n", BrandS("◐"), BrandS(msg))
-	p.lines++
+	line := fmt.Sprintf("%s %s", BrandS("◐"), BrandS(msg))
+	fmt.Fprintln(p.w, line)
+	p.lines += p.linesFor(line)
 }
 
 func (p *StepPrinter) ReplaceLast(msg string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.tty && p.lines > 0 {
-		fmt.Fprint(p.w, "\x1b[A\x1b[2K")
+		// Move cursor up by the number of actual terminal lines, then clear
+		for i := 0; i < p.lines; i++ {
+			fmt.Fprint(p.w, "\x1b[A")
+		}
+		fmt.Fprint(p.w, "\x1b[2K")
 	} else {
 		p.lines++
 	}
-	fmt.Fprintf(p.w, "%s %s\n", OKS("✓"), msg)
+	line := fmt.Sprintf("%s %s", OKS("✓"), msg)
+	fmt.Fprintln(p.w, line)
+	p.lines = p.linesFor(line)
 }
 
 func (p *StepPrinter) Sub(msg string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	fmt.Fprintf(p.w, "  %s\n", msg)
-	p.lines++
+	line := fmt.Sprintf("  %s", msg)
+	fmt.Fprintln(p.w, line)
+	p.lines += p.linesFor(line)
 }
 
 func (p *StepPrinter) SubDone(msg string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	fmt.Fprintf(p.w, "  %s %s\n", OKS("✓"), msg)
-	p.lines++
+	line := fmt.Sprintf("  %s %s", OKS("✓"), msg)
+	fmt.Fprintln(p.w, line)
+	p.lines += p.linesFor(line)
 }
 
 func (p *StepPrinter) Clear() {
@@ -103,8 +138,9 @@ func (s *SpinStep) loop(msg string) {
 	w := s.printer.w
 
 	s.printer.mu.Lock()
-	fmt.Fprintf(w, "%s %s", Brand.Render(frames[0]), BrandS(msg))
-	s.printer.lines++
+	line := fmt.Sprintf("%s %s", Brand.Render(frames[0]), BrandS(msg))
+	fmt.Fprint(w, line)
+	s.printer.lines += s.printer.linesFor(line)
 	s.printer.mu.Unlock()
 
 	i := 0
@@ -116,17 +152,21 @@ func (s *SpinStep) loop(msg string) {
 			s.printer.mu.Lock()
 			if s.printer.tty {
 				fmt.Fprint(w, "\x1b[2K\r")
-				fmt.Fprintf(w, "%s %s\n", OKS("✓"), msg)
+				doneLine := fmt.Sprintf("%s %s", OKS("✓"), msg)
+				fmt.Fprintln(w, doneLine)
+				s.printer.lines = s.printer.linesFor(doneLine)
 			} else {
-				fmt.Fprintf(w, "\n%s %s\n", OKS("✓"), msg)
-				s.printer.lines++
+				doneLine := fmt.Sprintf("%s %s", OKS("✓"), msg)
+				fmt.Fprintln(w, doneLine)
+				s.printer.lines += s.printer.linesFor(doneLine)
 			}
 			s.printer.mu.Unlock()
 			return
 		case <-ticker.C:
 			i++
 			if s.printer.tty {
-				fmt.Fprintf(w, "\r%s %s", Brand.Render(frames[i%len(frames)]), BrandS(msg))
+				spinLine := fmt.Sprintf("\r%s %s", Brand.Render(frames[i%len(frames)]), BrandS(msg))
+				fmt.Fprint(w, spinLine)
 			}
 		}
 	}
