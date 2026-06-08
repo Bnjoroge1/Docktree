@@ -387,7 +387,7 @@ func runUp(ctx *Context) (any, int, error) {
 		if lerr != nil {
 			return nil, output.ExitConfig, lerr
 		}
-		mainRoot, err := dockgit.MainRepoRoot()
+		mainRoot, err := dockgit.MainRepoRootForPath(repo.RepoRoot)
 		if err != nil {
 			return nil, output.ExitConfig, err
 		}
@@ -474,7 +474,7 @@ func runUp(ctx *Context) (any, int, error) {
 	}
 	// Platform must be up before we start worktree containers.
 	if len(cfg.Shared.Services) > 0 {
-		mainRoot, err := dockgit.MainRepoRoot()
+		mainRoot, err := dockgit.MainRepoRootForPath(repo.RepoRoot)
 		if err != nil {
 			return nil, output.ExitConfig, err
 		}

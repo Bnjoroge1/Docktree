@@ -82,6 +82,32 @@ func TestSQLStringEscaping(t *testing.T) {
 	}
 }
 
+func TestEscapePostgresIdentifier(t *testing.T) {
+	cases := []struct{ input, want string }{
+		{"app", "app"},
+		{"my\"db", "my\"\"db"},
+		{"\"quoted\"", "\"\"quoted\"\""},
+	}
+	for _, tc := range cases {
+		if got := escapePostgresIdentifier(tc.input); got != tc.want {
+			t.Errorf("escapePostgresIdentifier(%q) = %q, want %q", tc.input, got, tc.want)
+		}
+	}
+}
+
+func TestEscapePostgresLiteral(t *testing.T) {
+	cases := []struct{ input, want string }{
+		{"app", "app"},
+		{"tenant'db", "tenant''db"},
+		{"it''s", "it''''s"},
+	}
+	for _, tc := range cases {
+		if got := escapePostgresLiteral(tc.input); got != tc.want {
+			t.Errorf("escapePostgresLiteral(%q) = %q, want %q", tc.input, got, tc.want)
+		}
+	}
+}
+
 func TestQuoteJSString(t *testing.T) {
 	got := quoteJSString(`tenant"db\name`)
 	if got != `"tenant\"db\\name"` {
