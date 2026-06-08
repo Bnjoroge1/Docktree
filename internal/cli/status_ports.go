@@ -80,6 +80,7 @@ func runPorts(ctx *Context) (any, int, error) {
 // SERVICE | PORT | URL  (internal services show "(internal)" in the URL column).
 func renderPortList(w io.Writer, portAssignments []ports.Assignment) {
 	var tbl tui.Table
+	tbl.TermWidth = termWidth(w)
 	tbl.Headers = []string{"SERVICE", "PORT", "URL"}
 	for _, a := range portAssignments {
 		if a.HostPort == 0 {

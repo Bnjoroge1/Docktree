@@ -16,6 +16,9 @@ type Table struct {
 	Padding int
 	// CellPad is the padding inside each cell for bordered tables (default 1)
 	CellPad int
+	// TermWidth is the maximum total width for the table output.
+	// 0 means unlimited.
+	TermWidth int
 }
 
 func (t *Table) padding() int {
@@ -23,6 +26,13 @@ func (t *Table) padding() int {
 		return 2
 	}
 	return t.Padding
+}
+
+func (t *Table) cellPad() int {
+	if t.CellPad == 0 {
+		return 1
+	}
+	return t.CellPad
 }
 
 func (t *Table) computeWidths(vals [][]string) []int {
@@ -39,6 +49,126 @@ func (t *Table) computeWidths(vals [][]string) []int {
 		}
 	}
 	return widths
+}
+
+// capWidths reduces column widths to fit within maxWidth, subtracting
+// border/separator overhead for bordered tables. Returns the effective
+// per-column overhead (borders + cellPad) so callers can account for it.
+func (t *Table) capWidths(widths []int, bordered bool, maxWidth int) int {
+	if maxWidth <= 0 {
+		return 0
+	}
+
+	colCount := len(widths)
+	cp := t.cellPad()
+
+	// Calculate overhead per column for bordered tables:
+	// left cellPad + right cellPad + │ border = cp*2 + 1
+	// Plus separator │ between columns (colCount - 1 of them)
+	var overhead int
+	if bordered {
+		overhead = colCount*(cp*2+1) + (colCount - 1)
+	}
+
+	available := maxWidth - overhead
+	if available <= 0 {
+		// Terminal too narrow for borders; use at least 4 chars per column
+		available = colCount * 4
+	}
+
+	// Sum current widths
+	total := 0
+	for _, w := range widths {
+		total += w
+	}
+
+	if total <= available {
+		return overhead
+	}
+
+	// Reduce proportionally, but never below 3 chars per column
+	// First, ensure minimum widths
+	minWidth := 3
+	remaining := available
+	for i := range widths {
+		if widths[i] < minWidth {
+			remaining -= minWidth
+		} else {
+			remaining -= widths[i]
+		}
+	}
+
+	// If we went negative, scale down from minWidth
+	if remaining < 0 {
+		// Give each column at least minWidth, distribute rest proportionally
+		for i := range widths {
+			widths[i] = minWidth
+		}
+		remaining = available - colCount*minWidth
+		if remaining > 0 {
+			// Distribute proportionally based on original relative sizes
+			totalOrig := 0
+			for _, w := range widths {
+				totalOrig += w
+			}
+			if totalOrig > 0 {
+				for i := range widths {
+					widths[i] = minWidth + (remaining * minWidth / totalOrig)
+				}
+			}
+		}
+	} else {
+		// Scale down proportionally
+		scale := float64(available) / float64(total)
+		for i := range widths {
+			w := int(float64(widths[i]) * scale)
+			if w < minWidth {
+				w = minWidth
+			}
+			widths[i] = w
+		}
+	}
+
+	return overhead
+}
+
+// truncateStyled truncates a styled string to maxVisible visible characters,
+// appending "…" if truncated. It preserves ANSI escape codes.
+func truncateStyled(s string, maxVisible int) string {
+	visible := lipgloss.Width(s)
+	if visible <= maxVisible {
+		return s
+	}
+	if maxVisible <= 1 {
+		return s[:maxVisible]
+	}
+	// Find the byte position that corresponds to maxVisible-1 visible chars
+	// by walking the string and counting visible runes
+	var b strings.Builder
+	visibleCount := 0
+	inEscape := false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == '\x1b' {
+			inEscape = true
+			b.WriteByte(c)
+			continue
+		}
+		if inEscape {
+			b.WriteByte(c)
+			// ANSI escape sequences end with a letter in [A-Za-z]
+			if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') {
+				inEscape = false
+			}
+			continue
+		}
+		if visibleCount < maxVisible-1 {
+			b.WriteByte(c)
+			visibleCount++
+		}
+	}
+	b.WriteString("…")
+	return b.String()
 }
 
 // Render returns the aligned table content (no border).
@@ -75,13 +205,15 @@ func (t *Table) RenderStyled(styleFn func(row, col int, val string) string) stri
 	}
 
 	widths := t.computeWidths(append([][]string{styledHeaders}, styledRows...))
+	t.capWidths(widths, false, t.TermWidth)
 
 	var b strings.Builder
 	for i := 0; i < colCount; i++ {
 		if i > 0 {
 			b.WriteString(pad)
 		}
-		b.WriteString(fmt.Sprintf("%-*s", widths[i], styledHeaders[i]))
+		cell := truncateStyled(styledHeaders[i], widths[i])
+		b.WriteString(fmt.Sprintf("%-*s", widths[i], cell))
 	}
 	b.WriteByte('\n')
 	for _, row := range styledRows {
@@ -89,18 +221,12 @@ func (t *Table) RenderStyled(styleFn func(row, col int, val string) string) stri
 			if i > 0 {
 				b.WriteString(pad)
 			}
-			b.WriteString(fmt.Sprintf("%-*s", widths[i], row[i]))
+			cell := truncateStyled(row[i], widths[i])
+			b.WriteString(fmt.Sprintf("%-*s", widths[i], cell))
 		}
 		b.WriteByte('\n')
 	}
 	return strings.TrimSuffix(b.String(), "\n")
-}
-
-func (t *Table) cellPad() int {
-	if t.CellPad == 0 {
-		return 1
-	}
-	return t.CellPad
 }
 
 // RenderBorderedStyled returns a table with box-drawing borders and column separators.
@@ -127,6 +253,7 @@ func (t *Table) RenderBorderedStyled(styleFn func(row, col int, val string) stri
 	}
 
 	widths := t.computeWidths(append([][]string{styledHeaders}, styledRows...))
+	t.capWidths(widths, true, t.TermWidth)
 
 	borderColor := lipgloss.NewStyle().Foreground(lipgloss.Color(ColorBorder))
 	bc := func(s string) string { return borderColor.Render(s) }
@@ -149,13 +276,14 @@ func (t *Table) RenderBorderedStyled(styleFn func(row, col int, val string) stri
 		b.WriteString(bc("│"))
 		for i, cell := range cells {
 			w := widths[i]
-			visible := lipgloss.Width(cell)
+			truncated := truncateStyled(cell, w)
+			visible := lipgloss.Width(truncated)
 			fill := w - visible
 			if fill < 0 {
 				fill = 0
 			}
 			b.WriteString(pad)
-			b.WriteString(cell)
+			b.WriteString(truncated)
 			b.WriteString(strings.Repeat(" ", fill))
 			b.WriteString(pad)
 			b.WriteString(bc("│"))
