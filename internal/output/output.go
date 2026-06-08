@@ -33,7 +33,7 @@ func New(stdout io.Writer, jsonMode bool) *Renderer {
 	return &Renderer{JSON: jsonMode, IsTTY: IsTerminal(os.Stdin), Writer: stdout}
 }
 
-//render diff things if user is a tty or non-interactve such as an agent(support json)
+// render diff things if user is a tty or non-interactve such as an agent(support json)
 func (r *Renderer) Render(data any, humanFn func(io.Writer, any)) {
 	if r.Writer == nil {
 		r.Writer = io.Discard
@@ -54,7 +54,7 @@ func (r *Renderer) Error(code string, message string, details any) {
 	fmt.Fprintf(r.Writer, "Error [%s]: %s\n", code, message)
 }
 
-//we check if term is a char device
+// we check if term is a char device
 func IsTerminal(file *os.File) bool {
 	info, err := file.Stat()
 	if err != nil {
