@@ -622,7 +622,6 @@ func runPlatformTenants(ctx *Context) (any, int, error) {
 
 // runPlatformLogs streams logs from the platform compose project.
 // Passes remaining args directly to docker compose logs so standard flags
-// (--follow, --tail, service name) all work.
 func runPlatformLogs(ctx *Context) (any, int, error) {
 	plan, err := buildPlatformPlan()
 	if err != nil {
@@ -704,7 +703,6 @@ func runPlatformClean(ctx *Context) (any, int, error) {
 		return nil, output.ExitOK, nil
 	}
 
-	// 1. Drop all known tenant databases while platform containers are still up.
 	instances, _ := state.LoadGlobalInstances("")
 	for _, inst := range instances {
 		repoSlug := platformRepoSlugForInstance(inst.RepoRoot)
@@ -736,7 +734,6 @@ func runPlatformClean(ctx *Context) (any, int, error) {
 		}
 	}
 
-	// 2. Stop the platform stack.
 	if _, err := os.Stat(plan.ComposeFile); err == nil {
 		cmd := docker.ComposeCommand{
 			ProjectName: plan.Project,
@@ -746,7 +743,6 @@ func runPlatformClean(ctx *Context) (any, int, error) {
 		_ = docker.Run(cmd, io.Discard, ctx.Stderr)
 	}
 
-	// 3. Remove the external network.
 	_ = dockerSilent("network", "rm", plan.Network)
 
 	fmt.Fprintf(ctx.Stdout, "%s Platform cleaned: %s\n", tui.OKS("✓"), plan.Project)
