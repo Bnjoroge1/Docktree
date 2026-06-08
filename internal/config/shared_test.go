@@ -12,6 +12,7 @@ func TestValidateSharedAccepts(t *testing.T) {
 		"db":     {Kind: "postgres", Tenancy: "per_database", Template: "myapp_base"},
 		"db2":    {Kind: "postgres", Tenancy: "full_share"},
 		"mysql":  {Kind: "mysql", Tenancy: "per_database", Databases: map[string]SharedDatabase{"app": {URLEnvs: []string{"DATABASE_URL"}}}},
+		"mongo":  {Kind: "mongodb", Tenancy: "per_database", Databases: map[string]SharedDatabase{"app": {URLEnvs: []string{"MONGODB_URI"}}}},
 		"redis":  {Kind: "redis", Tenancy: "full_share"},
 		"bucket": {Kind: "s3", Tenancy: "full_share"},
 		"misc":   {Kind: "generic", Tenancy: "full_share"},
@@ -23,10 +24,10 @@ func TestValidateSharedAccepts(t *testing.T) {
 
 func TestValidateSharedRejects(t *testing.T) {
 	tests := []struct {
-		name      string
-		shared    SharedConfig
-		volShare  []string
-		wantSub   string
+		name     string
+		shared   SharedConfig
+		volShare []string
+		wantSub  string
 	}{
 		{
 			name:    "missing kind",
@@ -56,8 +57,8 @@ func TestValidateSharedRejects(t *testing.T) {
 		{
 			name: "alias collision between services",
 			shared: SharedConfig{Services: map[string]SharedService{
-				"db":      {Kind: "postgres", Tenancy: "per_database"},
-				"db-rep":  {Kind: "postgres", Tenancy: "full_share", Aliases: []string{"db"}},
+				"db":     {Kind: "postgres", Tenancy: "per_database"},
+				"db-rep": {Kind: "postgres", Tenancy: "full_share", Aliases: []string{"db"}},
 			}},
 			wantSub: "alias",
 		},
@@ -101,7 +102,7 @@ func TestValidateSharedRejects(t *testing.T) {
 			name: "duplicate url env across logical dbs",
 			shared: SharedConfig{Services: map[string]SharedService{"db": {
 				Kind: "postgres", Tenancy: "per_database", Databases: map[string]SharedDatabase{
-					"app": {URLEnvs: []string{"DATABASE_URL"}},
+					"app":       {URLEnvs: []string{"DATABASE_URL"}},
 					"infisical": {URLEnvs: []string{"DATABASE_URL"}},
 				},
 			}}},
@@ -192,6 +193,7 @@ func TestDefaultTenantEnv(t *testing.T) {
 	cases := map[string]string{
 		"postgres": "DOCKTREE_DB",
 		"mysql":    "DOCKTREE_DB",
+		"mongodb":  "DOCKTREE_DB",
 		"redis":    "REDIS_KEY_PREFIX",
 		"s3":       "S3_BUCKET",
 		"unknown":  "",

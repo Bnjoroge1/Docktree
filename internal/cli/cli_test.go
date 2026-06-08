@@ -27,6 +27,11 @@ func TestParseComposeRunState(t *testing.T) {
 			want: composeRunStopped,
 		},
 		{
+			name: "newline delimited json",
+			out:  "{\"State\":\"running\"}\n{\"State\":\"exited\"}",
+			want: composeRunRunning,
+		},
+		{
 			name:    "invalid json",
 			out:     `not json`,
 			want:    composeRunUnknown,

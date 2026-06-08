@@ -182,7 +182,6 @@ services:
 	}
 }
 
-
 func TestLoadFullMaterializesEnvFileIntoServiceEnvironment(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, "infisical.env")

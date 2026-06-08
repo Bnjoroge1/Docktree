@@ -84,12 +84,12 @@ func InstanceName(repoName, worktreeName, repoPath, worktreePath string) string 
 		worktree = "worktree"
 	}
 
-  //hash repo + worktree to avoid duplicate project names.
+	//hash repo + worktree to avoid duplicate project names.
 	sum := sha1.Sum([]byte(repoPath + "\x00" + worktreePath))
 	hash := hex.EncodeToString(sum[:])[:6]
 	suffix := "-" + hash
 
-	// docker compose spec has a project limit of 64 chars so we divide the remainder of 
+	// docker compose spec has a project limit of 64 chars so we divide the remainder of
 	//name(after the hash) by 2 and share between the repo name and worktree
 	avail := 64 - 1 - len(suffix)
 	repo = truncateSlug(repo, avail/2)
@@ -131,6 +131,34 @@ func gitOutput(args ...string) (string, error) {
 		return "", fmt.Errorf("git %s: %s", strings.Join(args, " "), msg)
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+func gitOutputForPath(path string, args ...string) (string, error) {
+	cmd := exec.Command("git", append([]string{"-C", path}, args...)...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		return "", fmt.Errorf("git -C %s %s: %s", path, strings.Join(args, " "), msg)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// MainRepoRootForPath returns the path to the main repository root of the git repository containing path.
+func MainRepoRootForPath(path string) (string, error) {
+	out, err := gitOutputForPath(path, "worktree", "list", "--porcelain")
+	if err != nil {
+		return gitOutputForPath(path, "rev-parse", "--show-toplevel")
+	}
+	entries := parseWorktreeList(out)
+	if len(entries) == 0 {
+		return gitOutputForPath(path, "rev-parse", "--show-toplevel")
+	}
+	return entries[0].Path, nil
 }
 
 func parseWorktreeList(out string) []WorktreeInfo {

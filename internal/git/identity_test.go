@@ -19,11 +19,11 @@ func TestInstanceNameStableAndSafe(t *testing.T) {
 
 func TestInstanceNameTruncatesAt64CharsKeepingHash(t *testing.T) {
 	tests := []struct {
-		name       string
-		repoName   string
-		workName   string
-		repoPath   string
-		workPath   string
+		name     string
+		repoName string
+		workName string
+		repoPath string
+		workPath string
 	}{
 		{
 			name:     "long worktree",
@@ -116,5 +116,13 @@ func TestMainRepoRootMatchesRepoRoot(t *testing.T) {
 	repoRoot := filepath.Clean(repo.RepoRoot)
 	if mainRoot != repoRoot {
 		t.Logf("running from main repo: both should match, got mainRoot=%q repoRoot=%q", mainRoot, repoRoot)
+	}
+
+	mainRootForPath, err := MainRepoRootForPath(repo.RepoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Clean(mainRootForPath) != mainRoot {
+		t.Errorf("MainRepoRootForPath(%q) = %q, want %q", repo.RepoRoot, mainRootForPath, mainRoot)
 	}
 }

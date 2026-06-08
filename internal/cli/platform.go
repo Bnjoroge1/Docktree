@@ -12,14 +12,14 @@ import (
 	"strings"
 
 	"github.com/bnjoroge/docktree/internal/compose"
-	"github.com/bnjoroge/docktree/internal/provision"
-	"github.com/bnjoroge/docktree/internal/state"
 	"github.com/bnjoroge/docktree/internal/config"
 	"github.com/bnjoroge/docktree/internal/docker"
-	composetypes "github.com/compose-spec/compose-go/v2/types"
 	dockgit "github.com/bnjoroge/docktree/internal/git"
 	"github.com/bnjoroge/docktree/internal/output"
+	"github.com/bnjoroge/docktree/internal/provision"
+	"github.com/bnjoroge/docktree/internal/state"
 	"github.com/bnjoroge/docktree/internal/tui"
+	composetypes "github.com/compose-spec/compose-go/v2/types"
 )
 
 type PlatformResult struct {
@@ -148,7 +148,9 @@ func runPlatformUp(ctx *Context) (any, int, error) {
 	if spin != nil {
 		spin.Stop()
 	}
-	provisionPlatformTenants(plan, plan.RepoSlug)
+	if err := provisionPlatformTenants(plan, plan.RepoSlug); err != nil {
+		return nil, output.ExitDocker, err
+	}
 	return PlatformResult{
 		Action:      "up",
 		Project:     plan.Project,
@@ -197,7 +199,6 @@ func runPlatformDown(ctx *Context) (any, int, error) {
 	}, output.ExitOK, nil
 }
 
-
 func runPlatformStatus(ctx *Context) (any, int, error) {
 	plan, err := buildPlatformPlan()
 	if err != nil {
@@ -235,7 +236,19 @@ type platformPlan struct {
 }
 
 func platformRepoMatches(instRepoRoot, repoSlug string) bool {
-	return dockgit.RepoName(instRepoRoot) == repoSlug
+	instMainRoot, err := dockgit.MainRepoRootForPath(instRepoRoot)
+	if err != nil {
+		return dockgit.RepoName(instRepoRoot) == repoSlug
+	}
+	return dockgit.RepoName(instMainRoot) == repoSlug
+}
+
+func platformRepoSlugForInstance(instRepoRoot string) string {
+	instMainRoot, err := dockgit.MainRepoRootForPath(instRepoRoot)
+	if err != nil {
+		return dockgit.RepoName(instRepoRoot)
+	}
+	return dockgit.RepoName(instMainRoot)
 }
 
 func postgresCredentialsFromEnv(svc composetypes.ServiceConfig) (string, string) {
@@ -252,17 +265,60 @@ func postgresCredentialsFromEnv(svc composetypes.ServiceConfig) (string, string)
 	return user, password
 }
 
-func provisionPlatformTenants(plan *platformPlan, repoSlug string) {
+func mysqlCredentialsFromEnv(svc composetypes.ServiceConfig) (string, string) {
+	user := "root"
+	password := ""
+	if svc.Environment != nil {
+		if v, ok := svc.Environment["MYSQL_ROOT_PASSWORD"]; ok && v != nil {
+			password = *v
+			return user, password
+		}
+		if v, ok := svc.Environment["MYSQL_USER"]; ok && v != nil && *v != "" {
+			user = *v
+		}
+		if v, ok := svc.Environment["MYSQL_PASSWORD"]; ok && v != nil {
+			password = *v
+		}
+	}
+	return user, password
+}
+
+func mongoCredentialsFromEnv(svc composetypes.ServiceConfig) (string, string) {
+	user := ""
+	password := ""
+	if svc.Environment != nil {
+		if v, ok := svc.Environment["MONGO_INITDB_ROOT_USERNAME"]; ok && v != nil {
+			user = *v
+		}
+		if v, ok := svc.Environment["MONGO_INITDB_ROOT_PASSWORD"]; ok && v != nil {
+			password = *v
+		}
+	}
+	return user, password
+}
+
+func databaseCredentialsFromEnv(kind string, svc composetypes.ServiceConfig) (string, string) {
+	switch kind {
+	case "mysql":
+		return mysqlCredentialsFromEnv(svc)
+	case "mongodb":
+		return mongoCredentialsFromEnv(svc)
+	default:
+		return postgresCredentialsFromEnv(svc)
+	}
+}
+
+func provisionPlatformTenants(plan *platformPlan, repoSlug string) error {
 	instances, err := state.LoadGlobalInstances("")
 	if err != nil {
-		return
+		return fmt.Errorf("load global instances: %w", err)
 	}
 	for _, inst := range instances {
 		if !platformRepoMatches(inst.RepoRoot, repoSlug) {
 			continue
 		}
 		for svcName, svc := range plan.Shared.Services {
-			if svc.Kind != "postgres" && svc.Kind != "mysql" {
+			if svc.Kind != "postgres" && svc.Kind != "mysql" && svc.Kind != "mongodb" {
 				continue
 			}
 			if svc.Tenancy != "per_database" {
@@ -272,29 +328,33 @@ func provisionPlatformTenants(plan *platformPlan, repoSlug string) {
 			if !ok {
 				continue
 			}
-		user, password := postgresCredentialsFromEnv(platformSvc)
-		container := plan.Project + "-" + svcName
-		if err := provision.WaitForPostgres(container, user, 30); err != nil {
-			continue
-		}
-		for logicalName, dbTarget := range svc.DatabaseTargets() {
-			template := dbTarget.Template
-			if template == "" {
-				template = svc.Template
+			user, password := databaseCredentialsFromEnv(svc.Kind, platformSvc)
+			container := plan.Project + "-" + svcName
+			readyCfg := provision.TenantConfig{Kind: svc.Kind, Tenancy: svc.Tenancy, Host: container, User: user, Password: password}
+			if err := provision.WaitForService(readyCfg, 30); err != nil {
+				return fmt.Errorf("service %s not ready: %w", container, err)
 			}
-			provCfg := provision.TenantConfig{
-				Kind:       svc.Kind,
-				Tenancy:    svc.Tenancy,
-				Template:   template,
-				TenantName: provision.TenantNameForDatabase(repoSlug, inst.Name, logicalName),
-				Host:       container,
-				User:       user,
-				Password:   password,
+			for logicalName, dbTarget := range svc.DatabaseTargets() {
+				template := dbTarget.Template
+				if template == "" {
+					template = svc.Template
+				}
+				provCfg := provision.TenantConfig{
+					Kind:       svc.Kind,
+					Tenancy:    svc.Tenancy,
+					Template:   template,
+					TenantName: provision.TenantNameForDatabase(repoSlug, inst.Name, logicalName),
+					Host:       container,
+					User:       user,
+					Password:   password,
+				}
+				if err := provision.Provision(provCfg); err != nil {
+					return fmt.Errorf("failed to provision tenant database %s: %w", provCfg.TenantName, err)
+				}
 			}
-			_ = provision.Provision(provCfg)
-		}
 		}
 	}
+	return nil
 }
 
 // tenantBinding pairs a human-readable tenant DB name with the TenantConfig
@@ -307,7 +367,7 @@ type tenantBinding struct {
 // tenantBindingsForInstance returns one binding per logical database that
 // the given instance owns across all per_database shared services.
 func tenantBindingsForInstance(plan *platformPlan, inst *state.Instance) []tenantBinding {
-	repoSlug := dockgit.RepoName(inst.RepoRoot)
+	repoSlug := platformRepoSlugForInstance(inst.RepoRoot)
 	var bindings []tenantBinding
 	for svcName, svc := range plan.Shared.Services {
 		if svc.Tenancy != "per_database" {
@@ -317,7 +377,7 @@ func tenantBindingsForInstance(plan *platformPlan, inst *state.Instance) []tenan
 		if !ok {
 			continue
 		}
-		user, password := postgresCredentialsFromEnv(platformSvc)
+		user, password := databaseCredentialsFromEnv(svc.Kind, platformSvc)
 		container := plan.Project + "-" + svcName
 		for logicalName, dbTarget := range svc.DatabaseTargets() {
 			template := dbTarget.Template
@@ -376,7 +436,7 @@ func buildPlatformPlan() (*platformPlan, error) {
 		Network:         compose.PlatformNetworkName(repoSlug),
 		RepoSlug:        repoSlug,
 		ComposeFile:     filepath.Join(generatedDir, "platform-compose.yml"),
-		PlatformProject: (*compose.PlatformComposeProject)(platformProj),
+		PlatformProject: platformProj,
 		Shared:          cfg.Shared,
 	}, nil
 }
@@ -472,7 +532,9 @@ func ensurePlatformUp(ctx *Context, instanceName, repoSlug string) (string, stri
 			return plan.Project, plan.ComposeFile, err
 		}
 	}
-	provisionPlatformTenants(plan, plan.RepoSlug)
+	if err := provisionPlatformTenants(plan, plan.RepoSlug); err != nil {
+		return plan.Project, plan.ComposeFile, err
+	}
 	return plan.Project, plan.ComposeFile, nil
 }
 
@@ -498,7 +560,7 @@ func runPlatformTenants(ctx *Context) (any, int, error) {
 		if !platformRepoMatches(inst.RepoRoot, plan.RepoSlug) {
 			continue
 		}
-		repoSlug := dockgit.RepoName(inst.RepoRoot)
+		repoSlug := platformRepoSlugForInstance(inst.RepoRoot)
 		for svcName, svc := range plan.Shared.Services {
 			if svc.Tenancy != "per_database" {
 				continue
@@ -507,11 +569,18 @@ func runPlatformTenants(ctx *Context) (any, int, error) {
 			if !ok {
 				continue
 			}
-			user, password := postgresCredentialsFromEnv(platformSvc)
+			user, password := databaseCredentialsFromEnv(svc.Kind, platformSvc)
 			container := plan.Project + "-" + svcName
 			for logicalName := range svc.DatabaseTargets() {
 				tenantDB := provision.TenantNameForDatabase(repoSlug, inst.Name, logicalName)
-				exists, err := provision.DBExists(container, tenantDB, user, password)
+				exists, err := provision.DBExists(provision.TenantConfig{
+					Kind:       svc.Kind,
+					Tenancy:    svc.Tenancy,
+					TenantName: tenantDB,
+					Host:       container,
+					User:       user,
+					Password:   password,
+				})
 				if err != nil {
 					return nil, output.ExitDocker, fmt.Errorf("checking tenant %s for %s: %w", tenantDB, inst.Name, err)
 				}
@@ -606,7 +675,7 @@ func runPlatformClean(ctx *Context) (any, int, error) {
 		fmt.Fprintf(ctx.Stdout, "Would remove: %s\n", plan.Network)
 		instances, _ := state.LoadGlobalInstances("")
 		for _, inst := range instances {
-			repoSlug := dockgit.RepoName(inst.RepoRoot)
+			repoSlug := platformRepoSlugForInstance(inst.RepoRoot)
 			for svcName, svc := range plan.Shared.Services {
 				if svc.Tenancy != "per_database" {
 					continue
@@ -624,7 +693,7 @@ func runPlatformClean(ctx *Context) (any, int, error) {
 	// 1. Drop all known tenant databases while platform containers are still up.
 	instances, _ := state.LoadGlobalInstances("")
 	for _, inst := range instances {
-		repoSlug := dockgit.RepoName(inst.RepoRoot)
+		repoSlug := platformRepoSlugForInstance(inst.RepoRoot)
 		for svcName, svc := range plan.Shared.Services {
 			if svc.Tenancy != "per_database" {
 				continue
@@ -634,12 +703,8 @@ func runPlatformClean(ctx *Context) (any, int, error) {
 			if !ok {
 				continue
 			}
-			user, password := postgresCredentialsFromEnv(platformSvc)
-			for logicalName, dbTarget := range svc.DatabaseTargets() {
-				template := dbTarget.Template
-				if template == "" {
-					template = svc.Template
-				}
+			user, password := databaseCredentialsFromEnv(svc.Kind, platformSvc)
+			for logicalName := range svc.DatabaseTargets() {
 				tenantDB := provision.TenantNameForDatabase(repoSlug, inst.Name, logicalName)
 				fmt.Fprintf(ctx.Stderr, "Dropping tenant database: %s\n", tenantDB)
 				deprovCfg := provision.TenantConfig{

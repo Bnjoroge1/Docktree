@@ -58,15 +58,15 @@ func TestGenerateOverride(t *testing.T) {
 		{
 			name: "build_image_tags",
 			project: &ComposeProject{Services: map[string]Service{
-				"untagged": {Image: "local/worker", Build: &BuildConfig{Context: "./worker"}},
-				"registry": {Image: "registry.local:5000/team/api:v2", Build: &BuildConfig{Context: "./api"}},
+				"untagged":  {Image: "local/worker", Build: &BuildConfig{Context: "./worker"}},
+				"registry":  {Image: "registry.local:5000/team/api:v2", Build: &BuildConfig{Context: "./api"}},
 				"buildonly": {Build: &BuildConfig{Context: "./app"}},
 			}},
 			instance: "repo-feature-abcdef",
 			check: func(t *testing.T, o *Override) {
 				for svc, want := range map[string]string{
-					"untagged": "docktree/repo-feature-abcdef/untagged:latest",
-					"registry": "docktree/repo-feature-abcdef/registry:v2",
+					"untagged":  "docktree/repo-feature-abcdef/untagged:latest",
+					"registry":  "docktree/repo-feature-abcdef/registry:v2",
 					"buildonly": "docktree/repo-feature-abcdef/buildonly:latest",
 				} {
 					if got := o.Services[svc].Image; got != want {
@@ -159,8 +159,8 @@ func TestGenerateOverride(t *testing.T) {
 					"cache-data": {External: true},
 				},
 			},
-			instance:    "repo-feature-abc",
-			assignments: nil,
+			instance:      "repo-feature-abc",
+			assignments:   nil,
 			sharedVolumes: []string{"cache-data"},
 			check: func(t *testing.T, o *Override) {
 				if len(o.Volumes) != 1 {

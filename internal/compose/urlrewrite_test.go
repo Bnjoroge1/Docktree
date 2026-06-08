@@ -58,6 +58,18 @@ func TestRewriteURL(t *testing.T) {
 			want:   "jdbc:postgresql://db:5432/tenant_db",
 		},
 		{
+			name:   "mongodb with auth source",
+			input:  "mongodb://root:secret@mongo:27017/myapp?authSource=admin",
+			tenant: "tenant_db",
+			want:   "mongodb://root:secret@mongo:27017/tenant_db?authSource=admin",
+		},
+		{
+			name:   "mongodb srv",
+			input:  "mongodb+srv://root:secret@cluster.example.com/myapp",
+			tenant: "tenant_db",
+			want:   "mongodb+srv://root:secret@cluster.example.com/tenant_db",
+		},
+		{
 			name:   "no port",
 			input:  "postgres://db/myapp",
 			tenant: "tenant_db",
@@ -224,7 +236,6 @@ services:
 	}
 }
 
-
 func TestSynthesizeWorktreeRewritesEnvFileBackedURLEnv(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, "infisical.env")
@@ -268,7 +279,6 @@ services:
 	}
 }
 
-
 func TestSynthesizeWorktreeRewritesMultipleLogicalDatabases(t *testing.T) {
 	path := loadRaw(t, `
 services:
@@ -291,8 +301,8 @@ services:
 			Kind:    "postgres",
 			Tenancy: "per_database",
 			Databases: map[string]config.SharedDatabase{
-				"app":        {URLEnvs: []string{"DATABASE_URL"}},
-				"infisical":  {URLEnvs: []string{"DB_CONNECTION_URI"}},
+				"app":       {URLEnvs: []string{"DATABASE_URL"}},
+				"infisical": {URLEnvs: []string{"DB_CONNECTION_URI"}},
 			},
 		},
 	}}

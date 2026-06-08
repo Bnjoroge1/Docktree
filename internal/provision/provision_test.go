@@ -60,6 +60,35 @@ func TestProvisionRedisNoOp(t *testing.T) {
 	}
 }
 
+func TestTenantDriversRegistered(t *testing.T) {
+	for _, kind := range []string{"postgres", "mysql", "mongodb"} {
+		if _, ok := tenantDrivers[kind]; !ok {
+			t.Fatalf("expected %s tenant driver to be registered", kind)
+		}
+	}
+}
+
+func TestMySQLIdentifierEscaping(t *testing.T) {
+	got := escapeMySQLIdentifier("tenant`db")
+	if got != "tenant``db" {
+		t.Fatalf("escapeMySQLIdentifier = %q, want %q", got, "tenant``db")
+	}
+}
+
+func TestSQLStringEscaping(t *testing.T) {
+	got := escapeSQLString("tenant'db")
+	if got != "tenant''db" {
+		t.Fatalf("escapeSQLString = %q, want %q", got, "tenant''db")
+	}
+}
+
+func TestQuoteJSString(t *testing.T) {
+	got := quoteJSString(`tenant"db\name`)
+	if got != `"tenant\"db\\name"` {
+		t.Fatalf("quoteJSString = %q", got)
+	}
+}
+
 func TestDeprovisionFullShareNoOp(t *testing.T) {
 	err := Deprovision(TenantConfig{Kind: "postgres", Tenancy: "full_share"})
 	if err != nil {
@@ -80,7 +109,6 @@ func TestDeprovisionUnknownKindErrors(t *testing.T) {
 		t.Fatalf("expected error mentioning kind, got: %v", err)
 	}
 }
-
 
 func TestTenantNameForDatabaseAddsLogicalSuffix(t *testing.T) {
 	got := TenantNameForDatabase("docktree", "feature-main-123abc", "infisical")

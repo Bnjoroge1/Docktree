@@ -52,7 +52,7 @@ func ParseFile(path string) (*ComposeProject, error) {
 	return LoadProject([]string{path})
 }
 
-//we convert specific things we care about from the compose-go fmt
+// we convert specific things we care about from the compose-go fmt
 func fromComposeGo(project *composetypes.Project) (*ComposeProject, error) {
 	if project == nil {
 		return nil, fmt.Errorf("compose project is nil")

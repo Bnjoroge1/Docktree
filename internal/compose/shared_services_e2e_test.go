@@ -32,7 +32,7 @@ func TestSharedServicesSynthesisE2E(t *testing.T) {
 			Tenancy: "per_database",
 			URLEnvs: []string{"DATABASE_URL"},
 		},
-		"redis": {Kind: "redis", Tenancy: "full_share"},
+		"redis":  {Kind: "redis", Tenancy: "full_share"},
 		"garage": {Kind: "s3", Tenancy: "full_share"},
 	}}
 
