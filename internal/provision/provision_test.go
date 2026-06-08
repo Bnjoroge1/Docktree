@@ -108,6 +108,27 @@ func TestEscapePostgresLiteral(t *testing.T) {
 	}
 }
 
+func TestPostgresDollarQuote(t *testing.T) {
+	got := postgresDollarQuote(`tenant\'db`)
+	if !strings.HasPrefix(got, "$tenant$") || !strings.HasSuffix(got, `$tenant$`) {
+		t.Fatalf("unexpected quote wrapper: %q", got)
+	}
+	if !strings.Contains(got, `tenant\'db`) {
+		t.Fatalf("quoted value missing original content: %q", got)
+	}
+}
+
+func TestPostgresDollarQuoteRetagsWhenNeeded(t *testing.T) {
+	value := `abc$tenant$xyz`
+	got := postgresDollarQuote(value)
+	if got == "$tenant$"+value+"$tenant$" {
+		t.Fatalf("expected alternate tag when value contains default tag: %q", got)
+	}
+	if !strings.Contains(got, value) {
+		t.Fatalf("quoted value missing original content: %q", got)
+	}
+}
+
 func TestQuoteJSString(t *testing.T) {
 	got := quoteJSString(`tenant"db\name`)
 	if got != `"tenant\"db\\name"` {
