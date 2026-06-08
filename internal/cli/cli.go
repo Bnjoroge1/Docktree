@@ -86,6 +86,7 @@ type DownResult struct {
 	Services       []string        `json:"services,omitempty"`
 	ComposeFiles   []string        `json:"compose_files,omitempty"`
 	DroppedTenants []string        `json:"dropped_tenants,omitempty"`
+	DroppedVolumes []string        `json:"dropped_volumes,omitempty"`
 }
 
 type StopResult struct {
@@ -632,6 +633,9 @@ func runDown(ctx *Context) (any, int, error) {
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
+	if options.all {
+		return runDownAll(ctx, options, &repo)
+	}
 	cfg, err := config.Load(repo.RepoRoot)
 	if err != nil {
 		return nil, output.ExitConfig, err
@@ -697,6 +701,9 @@ func runDown(ctx *Context) (any, int, error) {
 		}
 	}
 	downArgs := []string{"down"}
+	if options.volumes {
+		downArgs = append(downArgs, "-v")
+	}
 	if len(options.services) > 0 {
 		downArgs = append(downArgs, options.services...)
 	}
@@ -726,6 +733,109 @@ func runDown(ctx *Context) (any, int, error) {
 		services = []string{"all"}
 	}
 	return DownResult{Instance: inst, Services: services, DroppedTenants: droppedTenants}, output.ExitOK, nil
+}
+
+func runDownAll(ctx *Context, options downOptions, repo *dockgit.RepoInfo) (any, int, error) {
+	instances, _ := state.LoadGlobalInstances("")
+	var repoInstances []*state.Instance
+	for i := range instances {
+		inst := instances[i]
+		if inst.RepoRoot == repo.RepoRoot {
+			repoInstances = append(repoInstances, &inst)
+		}
+	}
+	if len(repoInstances) == 0 {
+		return DownResult{AlreadyStopped: true}, output.ExitNoop, nil
+	}
+	if options.dryRun {
+		var names []string
+		for _, inst := range repoInstances {
+			names = append(names, inst.ProjectName)
+		}
+		return DownResult{DryRun: true, Services: names}, output.ExitOK, nil
+	}
+	steps := ctx.Steps
+	dockerStdout := ctx.Stdout
+	if ctx.Renderer.JSON {
+		dockerStdout = io.Discard
+	}
+	var allDroppedTenants []string
+	var allDroppedVolumes []string
+	for _, inst := range repoInstances {
+		cfg, err := config.Load(inst.RepoRoot)
+		if err != nil {
+			fmt.Fprintf(ctx.Stderr, "warning: skipping %s: %v\n", inst.Name, err)
+			continue
+		}
+		composeFiles := activeComposeFiles(inst.WorktreeRoot, cfg, inst)
+		runningState, err := composeRunStateForInstance(inst, cfg)
+		if err != nil {
+			fmt.Fprintf(ctx.Stderr, "warning: skipping %s: %v\n", inst.Name, err)
+			continue
+		}
+		if runningState == composeRunStopped {
+			continue
+		}
+		if steps != nil {
+			steps.Header("Stopping services…", inst.ProjectName)
+		}
+		if options.volumes && len(cfg.Shared.Services) > 0 {
+			plan, planErr := buildPlatformPlan()
+			if planErr == nil {
+				for _, binding := range tenantBindingsForInstance(plan, inst) {
+					fmt.Fprintf(ctx.Stderr, "Dropping tenant database: %s\n", binding.TenantDB)
+					if err := provision.Deprovision(binding.Config); err != nil {
+						fmt.Fprintf(ctx.Stderr, "warning: failed to drop %s: %v\n", binding.TenantDB, err)
+					} else {
+						allDroppedTenants = append(allDroppedTenants, binding.TenantDB)
+					}
+				}
+			}
+		}
+		downArgs := []string{"down"}
+		if options.volumes {
+			downArgs = append(downArgs, "-v")
+		}
+		if len(options.services) > 0 {
+			downArgs = append(downArgs, options.services...)
+		}
+		cmd := docker.ComposeCommand{ProjectName: inst.ProjectName, Files: composeFiles, CommandArgs: downArgs}
+		var spin *tui.SpinStep
+		if steps != nil {
+			spin = steps.StartSpin("docker compose down")
+		}
+		if err := docker.Run(cmd, dockerStdout, ctx.Stderr); err != nil {
+			if spin != nil {
+				spin.Stop()
+			}
+			fmt.Fprintf(ctx.Stderr, "warning: failed to stop %s: %v\n", inst.Name, err)
+			continue
+		}
+		if spin != nil {
+			spin.Stop()
+		}
+		if options.volumes {
+			resources, err := docker.ListProjectResources(inst.ProjectName, true)
+			if err == nil {
+				for _, vol := range resources.Volumes {
+					allDroppedVolumes = append(allDroppedVolumes, vol.Name)
+				}
+			}
+		}
+		inst.LastActiveAt = time.Now().UTC()
+		stateDir := state.StatePath(inst.WorktreeRoot, cfg.State.Directory)
+		if err := state.SaveInstance(stateDir, inst); err != nil {
+			fmt.Fprintf(ctx.Stderr, "warning: failed to save state for %s: %v\n", inst.Name, err)
+		}
+		if err := state.UpsertGlobalInstance("", inst); err != nil {
+			fmt.Fprintf(ctx.Stderr, "warning: failed to update global state for %s: %v\n", inst.Name, err)
+		}
+	}
+	services := options.services
+	if len(services) == 0 {
+		services = []string{"all"}
+	}
+	return DownResult{Services: services, DroppedTenants: allDroppedTenants, DroppedVolumes: allDroppedVolumes}, output.ExitOK, nil
 }
 
 func runStop(ctx *Context) (any, int, error) {
@@ -2219,6 +2329,7 @@ type downOptions struct {
 	help     bool
 	dryRun   bool
 	volumes  bool
+	all      bool
 	services []string
 }
 
@@ -2234,6 +2345,8 @@ func parseDownOptions(args []string) (downOptions, error) {
 			options.dryRun = true
 		case arg == "-v" || arg == "--volumes":
 			options.volumes = true
+		case arg == "-a" || arg == "--all":
+			options.all = true
 		default:
 			if strings.HasPrefix(arg, "-") {
 				return downOptions{}, fmt.Errorf("unknown down flag %q", arg)
@@ -2251,8 +2364,10 @@ func printDownHelp(w io.Writer) {
 Stop the current worktree's Compose project, or specific services.
 
 Options:
-  -v, --volumes  Also drop per-worktree tenant databases (postgres per_database).
-                 Data is permanently deleted. Platform volumes are kept.
+  -v, --volumes  Drop per-worktree tenant databases and Docker volumes.
+                 Data is permanently deleted.
+  -a, --all      Apply to all worktree instances in this repository.
+                 Combine with -v to drop volumes across all worktrees at once.
   --dry-run      Show what would be stopped without making changes
   -h, --help     Show this help text
 
