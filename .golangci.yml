@@ -1,0 +1,26 @@
+version: "2"
+
+linters:
+  enable:
+    - errcheck
+    - ineffassign
+    - staticcheck
+    - unused
+    - govet
+  settings:
+    errcheck:
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintln
+        - fmt.Fprintf
+        - (io.Closer).Close
+        - (*os.File).Close
+        - (*net.TCPListener).Close
+  exclusions:
+    rules:
+      # defer Close/Unlock in tests: errors not actionable
+      - path: _test\.go
+        linters: [errcheck]
+      # QF1002: tagged switch style suggestion, not a bug
+      - linters: [staticcheck]
+        text: "QF1002"

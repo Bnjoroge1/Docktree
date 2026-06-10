@@ -166,30 +166,6 @@ func serviceNames(project *compose.ComposeProject) []string {
 	return names
 }
 
-func containerNames(project *compose.ComposeProject) map[string]string {
-	names := map[string]string{}
-	for name, svc := range project.Services {
-		if svc.ContainerName != "" {
-			names[name] = svc.ContainerName
-		}
-	}
-	return names
-}
-
-func builtImages(project *compose.ComposeProject) []string {
-	var images []string
-	for name, svc := range project.Services {
-		if svc.Build != nil {
-			if svc.Image != "" {
-				images = append(images, name+"="+svc.Image)
-			} else {
-				images = append(images, name)
-			}
-		}
-	}
-	return images
-}
-
 func isolatedVolumes(project *compose.ComposeProject, shareList []string) []string {
 	shared := map[string]bool{}
 	for _, v := range shareList {

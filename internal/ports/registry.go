@@ -251,7 +251,7 @@ func portAvailable(hostIP string, port int) bool {
 	if err != nil {
 		return false
 	}
-	listener.Close()
+	_ = listener.Close()
 	return true
 }
 
