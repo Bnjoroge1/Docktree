@@ -13,12 +13,12 @@ BINARY="docktree"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 VERSION="${VERSION:-latest}"
 
-# --- colors ---
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-BOLD='\033[1m'
-RESET='\033[0m'
+# --- colors (use $'...' so \033 is interpreted) ---
+RED=$'\033[0;31m'
+GREEN=$'\033[0;32m'
+YELLOW=$'\033[0;33m'
+BOLD=$'\033[1m'
+RESET=$'\033[0m'
 
 info()  { printf "${GREEN}✓${RESET} %s\n" "$1"; }
 warn()  { printf "${YELLOW}!${RESET} %s\n" "$1"; }
@@ -36,8 +36,8 @@ detect_platform() {
   esac
 
   case "$(uname -m)" in
-    x86_64|amd64)   arch="amd64" ;;
-    arm64|aarch64)   arch="arm64" ;;
+    x86_64|amd64)  arch="amd64" ;;
+    arm64|aarch64) arch="arm64" ;;
     *) error "Unsupported architecture: $(uname -m)" ;;
   esac
 
@@ -53,16 +53,29 @@ detect_format() {
   esac
 }
 
-# --- github api ---
-github_api() {
-  local url="$1"
+# --- fetch latest tag from GitHub API ---
+fetch_latest_version() {
+  local tag
+
+  # prefer gh CLI if available
   if command -v gh &>/dev/null; then
-    gh api "$url" --jq '.tag_name' 2>/dev/null || true
-  elif command -v curl &>/dev/null; then
-    curl -fsSL -H "Accept: application/vnd.github+json" \
-      "https://api.github.com/repos/${REPO}/releases/${VERSION}" 2>/dev/null \
-      | grep '"tag_name"' | head -1 | cut -d '"' -f 4
+    tag="$(gh api "repos/${REPO}/releases/latest" --jq '.tag_name' 2>/dev/null)" || true
   fi
+
+  # fall back to unauthenticated curl
+  if [ -z "${tag:-}" ] && command -v curl &>/dev/null; then
+    local json
+    json="$(curl -fsSL -H "Accept: application/vnd.github+json" \
+      "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null)" || true
+    tag="$(printf '%s' "$json" | grep '"tag_name"' | head -1 | cut -d '"' -f 4)"
+  fi
+
+  # validate: must look like a version tag
+  if [ -z "${tag:-}" ] || [[ "$tag" != v* ]]; then
+    error "Could not determine latest version (no releases published yet?). Set VERSION=vX.Y.Z manually."
+  fi
+
+  echo "$tag"
 }
 
 # --- download ---
@@ -93,23 +106,16 @@ main() {
   # resolve version
   if [ "$VERSION" = "latest" ]; then
     info "Fetching latest release..."
-    VERSION="$(github_api "repos/${REPO}/releases/latest")"
-    if [ -z "$VERSION" ]; then
-      # fallback: try tags
-      if command -v gh &>/dev/null; then
-        VERSION="$(gh api "repos/${REPO}/tags" --jq '.[0].name' 2>/dev/null)"
-      fi
-    fi
-    [ -z "$VERSION" ] && error "Could not determine latest version. Set VERSION manually."
+    VERSION="$(fetch_latest_version)"
   fi
 
-  # strip leading v for archive naming if present
+  # strip leading v for archive naming
   local tag="$VERSION"
   local version="${tag#v}"
 
   info "Version: ${BOLD}${tag}${RESET}"
 
-  # construct archive name
+  # construct archive name matching GoReleaser template
   local archive_name="${BINARY}_${version}_${os}_${arch}.${format}"
   local download_url="https://github.com/${REPO}/releases/download/${tag}/${archive_name}"
 
@@ -124,27 +130,20 @@ main() {
   # extract
   info "Extracting..."
   case "$format" in
-    tar.gz)
-      tar -xzf "${tmpdir}/${archive_name}" -C "$tmpdir"
-      ;;
-    zip)
-      unzip -qo "${tmpdir}/${archive_name}" -d "$tmpdir"
-      ;;
+    tar.gz) tar -xzf "${tmpdir}/${archive_name}" -C "$tmpdir" ;;
+    zip)    unzip -qo "${tmpdir}/${archive_name}" -d "$tmpdir" ;;
   esac
 
   # find binary
   local bin_path
   bin_path="$(find "$tmpdir" -name "$BINARY" -type f | head -1)"
-  if [ -z "$bin_path" ]; then
-    error "Binary '${BINARY}' not found in archive"
-  fi
+  [ -n "$bin_path" ] || error "Binary '${BINARY}' not found in archive"
   chmod +x "$bin_path"
 
   # install
   info "Installing to ${INSTALL_DIR}/${BINARY}..."
   mkdir -p "$INSTALL_DIR"
 
-  # try direct copy, fall back to sudo
   if cp "$bin_path" "${INSTALL_DIR}/${BINARY}" 2>/dev/null; then
     :
   elif command -v sudo &>/dev/null; then
