@@ -127,6 +127,20 @@ main() {
 
   download "$download_url" "${tmpdir}/${archive_name}"
 
+  # verify checksum
+  info "Verifying checksum..."
+  local checksums_url="https://github.com/${REPO}/releases/download/${tag}/checksums.txt"
+  download "$checksums_url" "${tmpdir}/checksums.txt"
+  if command -v sha256sum &>/dev/null; then
+    (cd "$tmpdir" && grep "${archive_name}" checksums.txt | sha256sum -c --status) \
+      || error "Checksum verification failed — archive may be corrupted or tampered"
+  elif command -v shasum &>/dev/null; then
+    (cd "$tmpdir" && grep "${archive_name}" checksums.txt | shasum -a 256 -c --status) \
+      || error "Checksum verification failed — archive may be corrupted or tampered"
+  else
+    warn "No sha256sum or shasum found — skipping checksum verification"
+  fi
+
   # extract
   info "Extracting..."
   case "$format" in
