@@ -213,7 +213,7 @@ func (t *Table) RenderStyled(styleFn func(row, col int, val string) string) stri
 			b.WriteString(pad)
 		}
 		cell := truncateStyled(styledHeaders[i], widths[i])
-		b.WriteString(fmt.Sprintf("%-*s", widths[i], cell))
+		fmt.Fprintf(&b, "%-*s", widths[i], cell)
 	}
 	b.WriteByte('\n')
 	for _, row := range styledRows {
@@ -222,7 +222,7 @@ func (t *Table) RenderStyled(styleFn func(row, col int, val string) string) stri
 				b.WriteString(pad)
 			}
 			cell := truncateStyled(row[i], widths[i])
-			b.WriteString(fmt.Sprintf("%-*s", widths[i], cell))
+			fmt.Fprintf(&b, "%-*s", widths[i], cell)
 		}
 		b.WriteByte('\n')
 	}
