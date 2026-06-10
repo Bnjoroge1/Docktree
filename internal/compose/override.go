@@ -21,35 +21,25 @@ func GenerateOverride(project *ComposeProject, instanceName string, assignments 
 	override := &Override{Services: map[string]ServiceOverride{}, Volumes: map[string]VolumeOverride{}}
 	for name, svc := range project.Services {
 		serviceOverride := ServiceOverride{}
-		changed := false
-
-		//we override container name for the sevice if we defined it yo this current instance
 		if svc.ContainerName != "" {
 			containerName := instanceName + "-" + name
 			serviceOverride.ContainerName = &containerName
-			changed = true
 		}
 		if svc.Build != nil && svc.Image != "" {
 			serviceOverride.Image = rewriteImage(instanceName, name, svc.Image)
-			changed = true
 		}
 		if svc.Build != nil && svc.Image == "" {
 			serviceOverride.Image = "docktree/" + instanceName + "/" + name + ":latest"
-			changed = true
 		}
 		if mapped := rewritePorts(svc.Ports, byService[name]); len(mapped) > 0 {
 			serviceOverride.Ports = PortOverride(mapped)
-			changed = true
 		}
 		serviceOverride.Labels = map[string]string{
 			"docktree.managed":  "true",
 			"docktree.instance": instanceName,
 			"docktree.repo":     repoPart(instanceName),
 		}
-		changed = true
-		if changed {
-			override.Services[name] = serviceOverride
-		}
+		override.Services[name] = serviceOverride
 	}
 	sharedSet := map[string]bool{}
 	for _, v := range sharedVolumes {

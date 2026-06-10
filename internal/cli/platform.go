@@ -680,7 +680,9 @@ func runPlatformClean(ctx *Context) (any, int, error) {
 			tui.WarningS("!"))
 		fmt.Fprintf(ctx.Stdout, "Type %s to confirm: ", tui.AccentS("yes"))
 		var line string
-		fmt.Fscan(os.Stdin, &line)
+		if _, err := fmt.Fscan(os.Stdin, &line); err != nil {
+			return nil, output.ExitUsage, fmt.Errorf("reading confirmation: %w", err)
+		}
 		if strings.TrimSpace(line) != "yes" {
 			fmt.Fprintln(ctx.Stdout, "Aborted.")
 			return nil, output.ExitNoop, nil
