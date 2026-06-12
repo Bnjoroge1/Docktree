@@ -31,7 +31,9 @@ detect_platform() {
   case "$(uname -s)" in
     Linux*)   os="linux" ;;
     Darwin*)  os="darwin" ;;
-    MINGW*|MSYS*|CYGWIN*) os="windows" ;;
+    MINGW*|MSYS*|CYGWIN*) 
+      error "Windows native is not supported. Use WSL2 with Docker Desktop WSL integration enabled."
+      ;;
     *) error "Unsupported OS: $(uname -s)" ;;
   esac
 
@@ -49,7 +51,7 @@ detect_format() {
   local platform="$1"
   case "$platform" in
     darwin/*|linux/*) echo "tar.gz" ;;
-    windows/*)        echo "zip" ;;
+    *) error "Unsupported platform: ${platform}" ;;
   esac
 }
 
