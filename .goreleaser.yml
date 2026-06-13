@@ -56,7 +56,7 @@ release:
   draft: false
   prerelease: auto
 
-homebrew_casks:
+brews:
   - name: docktree
     repository:
       owner: Bnjoroge1
@@ -65,7 +65,7 @@ homebrew_casks:
     commit_author:
       name: goreleaser
       email: goreleaser@users.noreply.github.com
-    directory: Casks
+    directory: Formula
     homepage: "https://github.com/Bnjoroge1/Docktree"
     description: "Run Docker Compose services across multiple git worktrees without port conflicts"
     license: "MIT"
