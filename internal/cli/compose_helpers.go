@@ -1,10 +1,13 @@
 package cli
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -13,8 +16,10 @@ import (
 	"github.com/bnjoroge/docktree/internal/compose"
 	"github.com/bnjoroge/docktree/internal/config"
 	"github.com/bnjoroge/docktree/internal/docker"
+	"github.com/bnjoroge/docktree/internal/output"
 	"github.com/bnjoroge/docktree/internal/ports"
 	"github.com/bnjoroge/docktree/internal/state"
+	"github.com/bnjoroge/docktree/internal/tui"
 )
 
 func composeFiles(dir string, cfg *config.Config) ([]string, error) {
@@ -66,10 +71,148 @@ func composeFiles(dir string, cfg *config.Config) ([]string, error) {
 		}
 	}
 
+	// If nothing found in the root, walk the tree for compose files in
+	// subdirectories. Group by directory so we can confirm with the user
+	// when there are multiple candidate directories.
 	if len(found) == 0 {
-		return nil, fmt.Errorf("no compose file found in %s\n\nCreate docker-compose.yml or compose.yml, or set compose.files in docktree.yml", dir)
+		candidates := discoverComposeFiles(dir)
+		switch len(candidates) {
+		case 0:
+		case 1:
+			rel, _ := filepath.Rel(dir, candidates[0])
+			if rel == "" {
+				rel = candidates[0]
+			}
+			fmt.Fprintf(os.Stderr, "%s Found compose file in %s\n",
+				tui.DimS("▸"),
+				tui.AccentS(rel))
+			fmt.Fprintf(os.Stderr, "%s To make this explicit, add to docktree.yml:\n", tui.DimS("▸"))
+			fmt.Fprintf(os.Stderr, "  compose:\n    files:\n      - %s\n\n", rel)
+			found = []string{candidates[0]}
+		default:
+				var lines []string
+				for _, c := range candidates {
+					rel, _ := filepath.Rel(dir, c)
+					if rel == "" {
+						rel = c
+					}
+					lines = append(lines, "  - "+rel)
+				}
+				return nil, fmt.Errorf("no compose file in project root, and multiple candidates found:\n%s\n\nSet compose.files in docktree.yml to pick one",
+					strings.Join(lines, "\n"))
+			}
+			selected, err := promptComposeFile(dir, candidates)
+			if err != nil {
+				return nil, err
+			}
+			found = []string{selected}
+		}
+	}
+
+	// Last resort: use whatever compose-go found, including parent directories.
+	
+	if len(found) == 0 && len(opts.ConfigPaths) > 0 {
+		found = opts.ConfigPaths
+	}
+
+	if len(found) == 0 {
+		return nil, fmt.Errorf("no compose file found in %s or any parent directory\n\nCreate docker-compose.yml or compose.yml, or set compose.files in docktree.yml", dir)
 	}
 	return found, nil
+}
+
+// composeFileRe matches standard compose file basenames.
+// Catches: compose.yml, compose.yaml, docker-compose.yml, docker-compose.yaml,
+// docker-compose.dev.yml, compose.override.yaml, etc.
+// Rejects: platform-compose.yml, worktree-compose.yml (generated names).
+var composeFileRe = regexp.MustCompile(`^(docker-)?compose[^/]*\.ya?ml$`)
+
+// Directories to skip during the compose file walk.
+var skipDirs = map[string]bool{
+	".docktree":    true,
+	".git":         true,
+	"node_modules": true,
+	"vendor":       true,
+	"testdata":     true,
+	"test":         true,
+	"tests":        true,
+	"fixtures":     true,
+	".cache":       true,
+}
+
+// discoverComposeFiles walks the project tree for compose files, returning
+// absolute paths. Results are deduplicated by parent directory — if a directory
+// contains multiple compose files (e.g. compose.yml + compose.override.yml)
+// only the primary one is returned as the candidate.
+func discoverComposeFiles(root string) []string {
+	var candidates []string
+	seenDirs := map[string]bool{}
+
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // skip unreadable entries
+		}
+		if d.IsDir() {
+			name := d.Name()
+			if skipDirs[name] {
+				return filepath.SkipDir
+			}
+			// Don't descend deeper than 3 levels.
+			rel, _ := filepath.Rel(root, path)
+			if rel != "." && strings.Count(rel, string(filepath.Separator)) >= 3 {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !composeFileRe.MatchString(d.Name()) {
+			return nil
+		}
+		// Skip files in the root — those would have been found already.
+		if filepath.Dir(path) == filepath.Clean(root) {
+			return nil
+		}
+		dir := filepath.Dir(path)
+		if seenDirs[dir] {
+			return nil
+		}
+		seenDirs[dir] = true
+		candidates = append(candidates, path)
+		return nil
+	})
+
+	slices.Sort(candidates)
+	return candidates
+}
+
+// promptComposeFile presents discovered compose files to the user and asks
+// which one to use.
+func promptComposeFile(root string, candidates []string) (string, error) {
+	fmt.Fprintf(os.Stderr, "\n%s No compose file in project root. Found in subdirectories:\n\n",
+		tui.WarningS("!"))
+	for i, c := range candidates {
+		rel, _ := filepath.Rel(root, c)
+		if rel == "" {
+			rel = c
+		}
+		fmt.Fprintf(os.Stderr, "  %s %s\n",
+			tui.AccentS(fmt.Sprintf("[%d]", i+1)),
+			rel)
+	}
+	fmt.Fprintf(os.Stderr, "\nWhich one? [1]: ")
+
+	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	if err != nil {
+		return "", fmt.Errorf("reading selection: %w", err)
+	}
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return candidates[0], nil
+	}
+	var idx int
+	if _, err := fmt.Sscanf(line, "%d", &idx); err != nil || idx < 1 || idx > len(candidates) {
+		return "", fmt.Errorf("invalid selection %q — expected 1-%d", line, len(candidates))
+	}
+	return candidates[idx-1], nil
 }
 
 // absComposeFiles resolves compose file paths to absolute form so they remain
