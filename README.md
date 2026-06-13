@@ -21,7 +21,7 @@ Each worktree gets its own isolated project with unique ports, container names, 
 curl -fsSL https://raw.githubusercontent.com/Bnjoroge1/docktree/main/install.sh | sh
 
 # Or via Homebrew
-brew tap bnjoroge/tap
+brew tap Bnjoroge1/tap
 brew install docktree
 
 # Or from source
