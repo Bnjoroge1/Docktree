@@ -22,6 +22,7 @@ curl -fsSL https://raw.githubusercontent.com/Bnjoroge1/docktree/main/install.sh 
 
 # Or via Homebrew
 brew tap Bnjoroge1/tap
+brew trust Bnjoroge1/tap  # Homebrew 4.4+ requires trusting unsigned custom taps
 brew install docktree
 
 # Or from source
