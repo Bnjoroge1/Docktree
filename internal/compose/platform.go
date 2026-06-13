@@ -242,9 +242,6 @@ func SynthesizeWorktree(raw *composetypes.Project, shared config.SharedConfig, r
 				}
 			}
 			for svcName, svcDecl := range shared.Services {
-				if svcDecl.Tenancy != "per_database" {
-					continue
-				}
 				logicalDBs, ok := opt.TenantDBs[svcName]
 				if !ok {
 					continue

@@ -87,7 +87,7 @@ func TestValidateSharedRejects(t *testing.T) {
 			shared: SharedConfig{Services: map[string]SharedService{"db": {
 				Kind: "postgres", Tenancy: "full_share", Databases: map[string]SharedDatabase{"app": {URLEnvs: []string{"DATABASE_URL"}}},
 			}}},
-			wantSub: "requires tenancy per_database",
+			wantSub: "requires at least one per_database",
 		},
 		{
 			name: "database entry requires url envs",
@@ -215,5 +215,87 @@ func TestDefaultTenantEnv(t *testing.T) {
 		if got := DefaultTenantEnv(kind); got != want {
 			t.Fatalf("DefaultTenantEnv(%s) = %q, want %q", kind, got, want)
 		}
+	}
+}
+
+func TestValidateSharedAcceptsPerDBTenancyOverride(t *testing.T) {
+	shared := SharedConfig{Services: map[string]SharedService{
+		"db": {
+			Kind:    "postgres",
+			Tenancy: "per_database",
+			Databases: map[string]SharedDatabase{
+				"app":       {URLEnvs: []string{"DATABASE_URL"}},
+				"infisical": {URLEnvs: []string{"DB_CONNECTION_URI"}, Tenancy: "full_share"},
+			},
+		},
+	}}
+	if err := ValidateShared(shared, nil); err != nil {
+		t.Fatalf("expected valid, got: %v", err)
+	}
+}
+
+func TestValidateSharedRejectsInvalidPerDBTenancy(t *testing.T) {
+	shared := SharedConfig{Services: map[string]SharedService{
+		"db": {
+			Kind:    "postgres",
+			Tenancy: "per_database",
+			Databases: map[string]SharedDatabase{
+				"app": {URLEnvs: []string{"DATABASE_URL"}, Tenancy: "invalid_mode"},
+			},
+		},
+	}}
+	err := ValidateShared(shared, nil)
+	if err == nil {
+		t.Fatalf("expected error for invalid per-db tenancy")
+	}
+	if !strings.Contains(err.Error(), "invalid_mode") {
+		t.Fatalf("error %q does not mention invalid_mode", err.Error())
+	}
+}
+
+func TestDatabaseTargetsInheritsTenancy(t *testing.T) {
+	svc := SharedService{
+		Kind:    "postgres",
+		Tenancy: "per_database",
+		Databases: map[string]SharedDatabase{
+			"app": {URLEnvs: []string{"DATABASE_URL"}},
+		},
+	}
+	targets := svc.DatabaseTargets()
+	if targets["app"].Tenancy != "per_database" {
+		t.Fatalf("expected inherited per_database, got %q", targets["app"].Tenancy)
+	}
+}
+
+func TestDatabaseTargetsOverridesTenancy(t *testing.T) {
+	svc := SharedService{
+		Kind:    "postgres",
+		Tenancy: "per_database",
+		Databases: map[string]SharedDatabase{
+			"app":       {URLEnvs: []string{"DATABASE_URL"}},
+			"infisical": {URLEnvs: []string{"DB_CONNECTION_URI"}, Tenancy: "full_share"},
+		},
+	}
+	targets := svc.DatabaseTargets()
+	if targets["app"].Tenancy != "per_database" {
+		t.Fatalf("app tenancy = %q, want per_database", targets["app"].Tenancy)
+	}
+	if targets["infisical"].Tenancy != "full_share" {
+		t.Fatalf("infisical tenancy = %q, want full_share", targets["infisical"].Tenancy)
+	}
+}
+
+func TestDatabaseTargetsLegacySetsTenancy(t *testing.T) {
+	svc := SharedService{
+		Kind:    "postgres",
+		Tenancy: "per_database",
+		URLEnvs: []string{"DATABASE_URL"},
+	}
+	targets := svc.DatabaseTargets()
+	if len(targets) != 1 {
+		t.Fatalf("expected 1 target, got %d", len(targets))
+	}
+	if targets[""].Tenancy != "per_database" {
+		t.Fatalf("legacy tenancy = %q, want per_database", targets[""].Tenancy)
 	}
 }

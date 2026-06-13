@@ -134,12 +134,13 @@ func runUp(ctx *Context) (any, int, error) {
 		repoSlug := dockgit.RepoName(mainRoot)
 		tenantDBs := make(map[string]map[string]string, len(cfg.Shared.Services))
 		for svcName, svc := range cfg.Shared.Services {
-			if svc.Tenancy != "per_database" {
+			targets := svc.DatabaseTargets()
+			if len(targets) == 0 {
 				continue
 			}
-			logicalDBs := make(map[string]string, len(svc.DatabaseTargets()))
-			for logicalName := range svc.DatabaseTargets() {
-				logicalDBs[logicalName] = provision.TenantNameForDatabase(repoSlug, instanceName, logicalName)
+			logicalDBs := make(map[string]string, len(targets))
+			for logicalName, dbTarget := range targets {
+				logicalDBs[logicalName] = provision.ResolveTenantName(dbTarget.Tenancy, repoSlug, instanceName, logicalName)
 			}
 			tenantDBs[svcName] = logicalDBs
 		}
