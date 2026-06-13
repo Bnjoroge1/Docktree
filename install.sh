@@ -123,7 +123,6 @@ main() {
 
   info "Downloading ${archive_name}..."
 
-  local tmpdir
   tmpdir="$(mktemp -d)"
   trap 'rm -rf "$tmpdir"' EXIT
 
