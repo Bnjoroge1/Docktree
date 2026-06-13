@@ -359,9 +359,9 @@ func provisionPlatformTenants(plan *platformPlan, repoSlug string) error {
 				}
 				provCfg := provision.TenantConfig{
 					Kind:       svc.kind,
-					Tenancy:    svc.svcDecl.Tenancy,
+					Tenancy:    dbTarget.Tenancy,
 					Template:   template,
-					TenantName: provision.TenantNameForDatabase(repoSlug, inst.Name, logicalName),
+					TenantName: provision.ResolveTenantName(dbTarget.Tenancy, repoSlug, inst.Name, logicalName),
 					Host:       svc.container,
 					User:       svc.user,
 					Password:   svc.password,
@@ -375,22 +375,18 @@ func provisionPlatformTenants(plan *platformPlan, repoSlug string) error {
 	return nil
 }
 
-// tenantBinding pairs a human-readable tenant DB name with the TenantConfig
-// needed to deprovision it.
 type tenantBinding struct {
 	TenantDB string
 	Config   provision.TenantConfig
 }
 
-// tenantBindingsForInstance returns one binding per logical database that
-// the given instance owns across all per_database shared services.
+// tenantBindingsForInstance returns bindings for per_database logical databases.
+// full_share databases are intentionally excluded because they must survive
+// individual worktree teardowns.
 func tenantBindingsForInstance(plan *platformPlan, inst *state.Instance) []tenantBinding {
 	repoSlug := platformRepoSlugForInstance(inst.RepoRoot)
 	var bindings []tenantBinding
 	for svcName, svc := range plan.Shared.Services {
-		if svc.Tenancy != "per_database" {
-			continue
-		}
 		platformSvc, ok := plan.PlatformProject.Services[svcName]
 		if !ok {
 			continue
@@ -398,16 +394,19 @@ func tenantBindingsForInstance(plan *platformPlan, inst *state.Instance) []tenan
 		user, password := databaseCredentialsFromEnv(svc.Kind, platformSvc)
 		container := plan.Project + "-" + svcName
 		for logicalName, dbTarget := range svc.DatabaseTargets() {
+			if dbTarget.Tenancy != "per_database" {
+				continue
+			}
 			template := dbTarget.Template
 			if template == "" {
 				template = svc.Template
 			}
-			tenantDB := provision.TenantNameForDatabase(repoSlug, inst.Name, logicalName)
+			tenantDB := provision.ResolveTenantName(dbTarget.Tenancy, repoSlug, inst.Name, logicalName)
 			bindings = append(bindings, tenantBinding{
 				TenantDB: tenantDB,
 				Config: provision.TenantConfig{
 					Kind:       svc.Kind,
-					Tenancy:    svc.Tenancy,
+					Tenancy:    dbTarget.Tenancy,
 					Template:   template,
 					TenantName: tenantDB,
 					Host:       container,
@@ -587,20 +586,17 @@ func runPlatformTenants(ctx *Context) (any, int, error) {
 		}
 		repoSlug := platformRepoSlugForInstance(inst.RepoRoot)
 		for svcName, svc := range plan.Shared.Services {
-			if svc.Tenancy != "per_database" {
-				continue
-			}
 			platformSvc, ok := plan.PlatformProject.Services[svcName]
 			if !ok {
 				continue
 			}
 			user, password := databaseCredentialsFromEnv(svc.Kind, platformSvc)
 			container := plan.Project + "-" + svcName
-			for logicalName := range svc.DatabaseTargets() {
-				tenantDB := provision.TenantNameForDatabase(repoSlug, inst.Name, logicalName)
+			for logicalName, dbTarget := range svc.DatabaseTargets() {
+				tenantDB := provision.ResolveTenantName(dbTarget.Tenancy, repoSlug, inst.Name, logicalName)
 				exists, err := provision.DBExists(provision.TenantConfig{
 					Kind:       svc.Kind,
-					Tenancy:    svc.Tenancy,
+					Tenancy:    dbTarget.Tenancy,
 					TenantName: tenantDB,
 					Host:       container,
 					User:       user,
@@ -717,11 +713,11 @@ func runPlatformClean(ctx *Context) (any, int, error) {
 		for _, inst := range instances {
 			repoSlug := platformRepoSlugForInstance(inst.RepoRoot)
 			for _, svc := range plan.Shared.Services {
-				if svc.Tenancy != "per_database" {
-					continue
-				}
-				for logicalName := range svc.DatabaseTargets() {
-					tenantDB := provision.TenantNameForDatabase(repoSlug, inst.Name, logicalName)
+				for logicalName, dbTarget := range svc.DatabaseTargets() {
+					if dbTarget.Tenancy != "per_database" {
+						continue
+					}
+					tenantDB := provision.ResolveTenantName(dbTarget.Tenancy, repoSlug, inst.Name, logicalName)
 					wouldDrop = append(wouldDrop, tenantDB)
 				}
 			}
@@ -743,24 +739,24 @@ func runPlatformClean(ctx *Context) (any, int, error) {
 	for _, inst := range instances {
 		repoSlug := platformRepoSlugForInstance(inst.RepoRoot)
 		for svcName, svc := range plan.Shared.Services {
-			if svc.Tenancy != "per_database" {
-				continue
-			}
 			container := plan.Project + "-" + svcName
 			platformSvc, ok := plan.PlatformProject.Services[svcName]
 			if !ok {
 				continue
 			}
 			user, password := databaseCredentialsFromEnv(svc.Kind, platformSvc)
-			for logicalName := range svc.DatabaseTargets() {
-				tenantDB := provision.TenantNameForDatabase(repoSlug, inst.Name, logicalName)
+			for logicalName, dbTarget := range svc.DatabaseTargets() {
+				if dbTarget.Tenancy != "per_database" {
+					continue
+				}
+				tenantDB := provision.ResolveTenantName(dbTarget.Tenancy, repoSlug, inst.Name, logicalName)
 				var spin *tui.SpinStep
 				if steps != nil {
 					spin = steps.StartSpin(fmt.Sprintf("Dropping %s", tenantDB))
 				}
 				deprovCfg := provision.TenantConfig{
 					Kind:       svc.Kind,
-					Tenancy:    svc.Tenancy,
+					Tenancy:    dbTarget.Tenancy,
 					TenantName: tenantDB,
 					Host:       container,
 					User:       user,

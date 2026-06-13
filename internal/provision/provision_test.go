@@ -181,3 +181,42 @@ func TestTenantNameForDatabaseLegacyParityWithTenantName(t *testing.T) {
 		t.Fatalf("legacy parity broken: %q vs %q", got, want)
 	}
 }
+
+func TestSharedTenantNameStripsInstance(t *testing.T) {
+	// Two different instances should resolve to the same name for a shared database.
+	a := SharedTenantName("myrepo", "infisical")
+	b := SharedTenantName("myrepo", "infisical")
+	if a != b {
+		t.Fatalf("SharedTenantName not stable: %q vs %q", a, b)
+	}
+	if a != "infisical_myrepo" {
+		t.Fatalf("SharedTenantName = %q, want %q", a, "infisical_myrepo")
+	}
+}
+
+func TestSharedTenantNameNoLogicalDB(t *testing.T) {
+	got := SharedTenantName("myrepo", "")
+	if got != "myrepo" {
+		t.Fatalf("SharedTenantName = %q, want %q", got, "myrepo")
+	}
+}
+
+func TestResolveTenantNamePerDatabase(t *testing.T) {
+	got := ResolveTenantName("per_database", "repo", "feat-abc123", "app")
+	want := TenantNameForDatabase("repo", "feat-abc123", "app")
+	if got != want {
+		t.Fatalf("ResolveTenantName per_database = %q, want %q", got, want)
+	}
+}
+
+func TestResolveTenantNameFullShare(t *testing.T) {
+	a := ResolveTenantName("full_share", "repo", "feat-abc123", "infisical")
+	b := ResolveTenantName("full_share", "repo", "other-branch-xyz", "infisical")
+	if a != b {
+		t.Fatalf("full_share should be instance-independent: %q vs %q", a, b)
+	}
+	want := SharedTenantName("repo", "infisical")
+	if a != want {
+		t.Fatalf("ResolveTenantName full_share = %q, want %q", a, want)
+	}
+}

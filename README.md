@@ -1,11 +1,15 @@
-# Docktree
+# Docktree - drop-in docker compose for managing your worktrees
 
-This project exists to solve a very straightforward problem. If you are working with Docker Compose services across multiple git worktrees and you want them to run simultaneously, you will inevitably run into 3 different types of conflicts: the docker compose project name, port conflicts with the different instances of the same service(e.g two postgres db containers both wanting to use port 5432), and service name conflicts. 
+If you work with Docker Compose and want to launch multiple instances(whether these are in the form of clones/worktrees/jj workspaces), you will inevitably run into 3 different types of conflicts: the docker compose project name, port conflicts and service name conflicts. 
 
-Why would I want to run multiple instances at once? To be honest, there wasnt much of a reason before agents became mainstream. Before building it, i was basically either a) just running one instance at a time, but this limited the agents ability to really work autonomously, b) setting the compose project name and ports or letting docker assign a random port for each worktree. Works mostly well until you are running more than even 2 worktrees, now you gotta remember the ports for each worktree, c) have each worktree run its in own docker daemon inside another container. Could tottally work but that ends up being a DinD setup which requires your containers to run as privileged containers which in my opinion is unnecessary overhead. Not to mention the other resource overheads involved with could also try running  Git worktrees (unfortunately) seems like what the industry has settled on as a way to paralellize agent output. This is basically a layer over that, but specifically to address docker compose uniqueness requirements. 
-The main use case I've been using for is to have the agent work autonomously on specific tasks, and more crucially enable them to fully test the end to end flow. Each worktree gets its own services, and its own database. You can isolate the database containers per worktree, or give each worktree its own database in a shared container. Currently supported for postgresql, mysql, and mongodb with no application-config changes. You can then hook up each agent with something like playwright or (Bombadil)[https://github.com/antithesishq/bombadil] or agent-browser and have the agents prepare screenshots or a report of their work. 
+Why would you want to run multiple instances at once? Maybe you want to hot-fix something that happened in prod without stashing your ongoing changes or it cant quite fit in a branch. To be honest, there wasn't much of a reason before agents became mainstream. Before building this project, i was basically either just running one instance at a time, but this limited the agents ability to really work autonomously,  or setting the compose project name and ports or letting docker assign a random port for each worktree. Works mostly well until you are running more than even 2 worktrees, now you gotta remember the ports for each worktree, or you could have each worktree run its in own docker daemon inside another container. Could totally work but that ends up being a DinD setup which requires your containers to run as privileged containers, among a host(pun most intended) of other performance issues, which in my opinion is unnecessary overhead. 
 
-Docktree was designed to be agent-native from the start so agents could spin up their own docktrees, or drive multiple instances(this becomes very useful if they want to actually close the loop with end to end testing. )
+This project is basically a layer over git worktrees(for now, adding support JJ workspaces is in the roadmap), but specifically to address docker compose uniqueness constraints mentioned above. This means it could easily work or complement your existing way of managing worktrees, whether using worktrunk, something homegrown, desktop orchestrators or terminal orchestrators. It's a drop-in replacement for docker compose that works out of the box with zero config(you can further customize it if you want), by overriding your docker compose files. 
+
+The main use case I've been using for is to have the agent work autonomously on specific tasks, and more crucially enable them to fully test the end to end flow. Each worktree gets its own isolated services(the default), or for either of {mysql, postgres, mongodb} you can give each worktree its own database in a shared container with no application changes. You can then hook up each agent with Playwright or Agent-browser or (Bombadil)[[https://github.com/antithesishq/bombadil]]([https://github.com/antithesishq/bombadil]](https://github.com/antithesishq/bombadil])) and have the agents prepare screenshots or a report of their work. 
+
+Docktree was designed to be agent-native from the start so agents could manage the lifecycles of the docktree instances themselves so they can bring up their own docktrees, or drive multiple instances(this becomes very useful if they want to actually close the loop with end to end testing.). 
+
 2. 
 
 Each worktree gets its own isolated project with unique ports, container names, and volumes. They're all managed through generated Compose overrides.
@@ -14,7 +18,7 @@ Each worktree gets its own isolated project with unique ports, container names, 
 
 ```bash
 # One-line install (macOS / Linux)
-curl -fsSL https://raw.githubusercontent.com/Bnjoroge/docktree/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Bnjoroge1/docktree/main/install.sh | sh
 
 # Or via Homebrew
 brew tap bnjoroge/tap

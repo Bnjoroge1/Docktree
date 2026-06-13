@@ -50,57 +50,37 @@ type SharedConfig struct {
 	Services map[string]SharedService `yaml:"services,omitempty"`
 }
 
-// escribes one logical database hosted inside a shared SQL
-// service. The map key in SharedService.Databases is the logical database name
-// Docktree appends to the per-worktree tenant identifier.
 type SharedDatabase struct {
-	// URLEnvs is the list of environment variable names whose values contain a
-	// connection URL that should be rewritten to this logical database.
-	URLEnvs []string `yaml:"url_envs,omitempty"`
-
-	// Template is the optional source database for `CREATE DATABASE ... TEMPLATE`.
-	Template string `yaml:"template,omitempty"`
+	URLEnvs  []string `yaml:"url_envs,omitempty"`
+	Template string   `yaml:"template,omitempty"`
+	Tenancy  string   `yaml:"tenancy,omitempty"`
 }
 
-// describes one platform-tier service. The docker compose service name is what
-// docker compose will resolve via DNS
 type SharedService struct {
-	// Kind selects the provisioning + tenancy semantics. Required.
-	// Valid: postgres, mysql, mongodb, redis, s3, generic.
-	Kind string `yaml:"kind"`
-
-	// thIS is how a worktree gets logical isolation inside the shared
-	// service. Required. Valid values depend on Kind (see ValidateShared).
-	Tenancy string `yaml:"tenancy"`
-
-	// env var Docktree writes into each worktree service
-	// carrying the per-tenant identifier (database name, key prefix, etc.).
-	// Optional; defaulted per Kind.
-	TenantEnv string `yaml:"tenant_env,omitempty"`
-
-	Template string `yaml:"template,omitempty"`
-
-	// Aliases adds extra DNS names this service answers to on the platform
-	// network, beyond the service name itself. This is for apps that
-	// connect to a hostname different from the compose service name.
-	Aliases []string `yaml:"aliases,omitempty"`
-
-	//This should only be used if databases below is not declare
-	URLEnvs []string `yaml:"url_envs,omitempty"`
-
+	Kind      string                    `yaml:"kind"`
+	Tenancy   string                    `yaml:"tenancy"`
+	TenantEnv string                    `yaml:"tenant_env,omitempty"`
+	Template  string                    `yaml:"template,omitempty"`
+	Aliases   []string                  `yaml:"aliases,omitempty"`
+	URLEnvs   []string                  `yaml:"url_envs,omitempty"`
 	Databases map[string]SharedDatabase `yaml:"databases,omitempty"`
 }
 
-// DatabaseTargets returns the logical databases Docktree should provision for
-// this shared service. Legacy single-database services return a single target
-// with the empty key so tenant names remain backward-compatible.
+// DatabaseTargets returns the logical databases Docktree should provision.
+// Legacy single-database services return a single target with the empty key
+// to maintain backward-compatibility with existing tenant names.
 func (svc SharedService) DatabaseTargets() map[string]SharedDatabase {
 	if len(svc.Databases) > 0 {
 		out := make(map[string]SharedDatabase, len(svc.Databases))
 		for name, db := range svc.Databases {
+			tenancy := db.Tenancy
+			if tenancy == "" {
+				tenancy = svc.Tenancy
+			}
 			out[name] = SharedDatabase{
 				URLEnvs:  append([]string(nil), db.URLEnvs...),
 				Template: db.Template,
+				Tenancy:  tenancy,
 			}
 		}
 		return out
@@ -111,6 +91,7 @@ func (svc SharedService) DatabaseTargets() map[string]SharedDatabase {
 	return map[string]SharedDatabase{"": {
 		URLEnvs:  append([]string(nil), svc.URLEnvs...),
 		Template: svc.Template,
+		Tenancy:  svc.Tenancy,
 	}}
 }
 
@@ -321,8 +302,21 @@ func ValidateShared(shared SharedConfig, sharedVolumes []string) error {
 			if svc.Kind != "postgres" && svc.Kind != "mysql" && svc.Kind != "mongodb" {
 				return fmt.Errorf("shared.services.%s.databases only applies to postgres/mysql/mongodb, not %s", name, svc.Kind)
 			}
-			if svc.Tenancy != "per_database" {
-				return fmt.Errorf("shared.services.%s.databases requires tenancy per_database", name)
+			// Service-level tenancy must allow per_database when databases map
+			// is present; individual entries can override to full_share.
+			hasPerDB := false
+			for _, db := range svc.Databases {
+				t := db.Tenancy
+				if t == "" {
+					t = svc.Tenancy
+				}
+				if t == "per_database" {
+					hasPerDB = true
+					break
+				}
+			}
+			if !hasPerDB && svc.Tenancy != "per_database" {
+				return fmt.Errorf("shared.services.%s.databases requires at least one per_database entry or service-level tenancy per_database", name)
 			}
 			dbNames := make([]string, 0, len(svc.Databases))
 			for dbName := range svc.Databases {
@@ -333,6 +327,10 @@ func ValidateShared(shared SharedConfig, sharedVolumes []string) error {
 				db := svc.Databases[dbName]
 				if dbName == "" {
 					return fmt.Errorf("shared.services.%s.databases: database key cannot be empty", name)
+				}
+				if db.Tenancy != "" && !allowed[db.Tenancy] {
+					allowedList := sortedKeys(allowed)
+					return fmt.Errorf("shared.services.%s.databases.%s.tenancy %q is not valid for kind %q (use %s)", name, dbName, db.Tenancy, svc.Kind, strings.Join(allowedList, ", "))
 				}
 				if db.Template != "" && svc.Kind != "postgres" {
 					return fmt.Errorf("shared.services.%s.databases.%s.template only applies to postgres, not %s (mysql templates are not supported)", name, dbName, svc.Kind)

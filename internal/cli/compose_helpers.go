@@ -71,9 +71,6 @@ func composeFiles(dir string, cfg *config.Config) ([]string, error) {
 		}
 	}
 
-	// If nothing found in the root, walk the tree for compose files in
-	// subdirectories. Group by directory so we can confirm with the user
-	// when there are multiple candidate directories.
 	if len(found) == 0 {
 		candidates := discoverComposeFiles(dir)
 		switch len(candidates) {
@@ -90,6 +87,7 @@ func composeFiles(dir string, cfg *config.Config) ([]string, error) {
 			fmt.Fprintf(os.Stderr, "  compose:\n    files:\n      - %s\n\n", rel)
 			found = []string{candidates[0]}
 		default:
+			if !output.IsTerminal(os.Stdin) {
 				var lines []string
 				for _, c := range candidates {
 					rel, _ := filepath.Rel(dir, c)
@@ -107,10 +105,10 @@ func composeFiles(dir string, cfg *config.Config) ([]string, error) {
 			}
 			found = []string{selected}
 		}
-	}
+		}
 
-	// Last resort: use whatever compose-go found, including parent directories.
-	
+	// compose-go default behavior (including parent directories) is used
+	// as a last resort to match standard docker compose upward-walk behavior.
 	if len(found) == 0 && len(opts.ConfigPaths) > 0 {
 		found = opts.ConfigPaths
 	}
@@ -122,12 +120,8 @@ func composeFiles(dir string, cfg *config.Config) ([]string, error) {
 }
 
 // composeFileRe matches standard compose file basenames.
-// Catches: compose.yml, compose.yaml, docker-compose.yml, docker-compose.yaml,
-// docker-compose.dev.yml, compose.override.yaml, etc.
-// Rejects: platform-compose.yml, worktree-compose.yml (generated names).
 var composeFileRe = regexp.MustCompile(`^(docker-)?compose[^/]*\.ya?ml$`)
 
-// Directories to skip during the compose file walk.
 var skipDirs = map[string]bool{
 	".docktree":    true,
 	".git":         true,
@@ -140,17 +134,13 @@ var skipDirs = map[string]bool{
 	".cache":       true,
 }
 
-// discoverComposeFiles walks the project tree for compose files, returning
-// absolute paths. Results are deduplicated by parent directory — if a directory
-// contains multiple compose files (e.g. compose.yml + compose.override.yml)
-// only the primary one is returned as the candidate.
 func discoverComposeFiles(root string) []string {
 	var candidates []string
 	seenDirs := map[string]bool{}
 
 	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return nil // skip unreadable entries
+			return nil
 		}
 		if d.IsDir() {
 			name := d.Name()

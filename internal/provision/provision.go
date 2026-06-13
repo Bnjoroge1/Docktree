@@ -12,23 +12,13 @@ import (
 	"time"
 )
 
-// TenantConfig carries everything a provisioner needs to create or verify
-// one worktree's logical namespace inside a shared service.
 type TenantConfig struct {
-	// Kind matches config.SharedService.Kind (postgres, mysql, mongodb, redis, s3, generic).
-	Kind string
-	// Tenancy matches config.SharedService.Tenancy (per_database, full_share)
-	Tenancy string
-	// TenantName is the computed per-worktree identifier: the database name
-	// for postgres/mysql/mongodb, the bucket name for s3, etc.
+	Kind       string
+	Tenancy    string
 	TenantName string
-	// Template is the optional source database for CREATE DATABASE ... TEMPLATE.
-	// Postgres only; empty means no template.
-	Template string
-	// Host is the hostname of the platform service container.
-	Host string
-	// Port is the port the service listens on inside the platform network.
-	Port     int
+	Template   string // Postgres only; empty means no template.
+	Host       string
+	Port       int
 	User     string
 	Password string
 }
@@ -46,8 +36,8 @@ var tenantDrivers = map[string]tenantDriver{
 	"mongodb":  mongoDriver{},
 }
 
-// Provision creates the per-worktree tenant inside the shared service, or verifies it already exists. It is safe to call multiple times.
-// It shells out to the appropriate CLI tool rather than pulling in a database SDK, keeping the binary dependency surface small.
+// Provision creates the per-worktree tenant inside the shared service, or verifies it already exists.
+// It shells out to CLI tools rather than pulling in database SDKs to keep the binary dependency surface small.
 func Provision(cfg TenantConfig) error {
 	if cfg.Tenancy != "per_database" {
 		return nil
@@ -420,10 +410,49 @@ func quoteJSString(value string) string {
 	return strconv.Quote(value)
 }
 
-// TenantName returns the deterministic tenant identifier for the legacy
-// single-database/shared-resource case.
+// TenantName returns the tenant identifier for the legacy single-database case.
 func TenantName(repoSlug, instanceName string) string {
 	return TenantNameForDatabase(repoSlug, instanceName, "")
+}
+
+// SharedTenantName returns a full_share identifier scoped to the repo.
+// It strips the instance name so every worktree resolves to the exact same database.
+func SharedTenantName(repoSlug, logicalDB string) string {
+	var parts []string
+	if logicalDB != "" {
+		parts = append(parts, logicalDB)
+	}
+	parts = append(parts, repoSlug)
+	slug := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			return r
+		case r >= 'A' && r <= 'Z':
+			return r + 32
+		default:
+			return '_'
+		}
+	}, strings.Join(parts, "_"))
+	for strings.Contains(slug, "__") {
+		slug = strings.ReplaceAll(slug, "__", "_")
+	}
+	slug = strings.Trim(slug, "_")
+	if len(slug) > 63 {
+		slug = strings.TrimRight(slug[:63], "_")
+	}
+	if slug == "" {
+		slug = "docktree"
+	}
+	return slug
+}
+
+// ResolveTenantName picks the right tenant naming strategy based on
+// the resolved tenancy of a logical database.
+func ResolveTenantName(tenancy, repoSlug, instanceName, logicalDB string) string {
+	if tenancy == "full_share" {
+		return SharedTenantName(repoSlug, logicalDB)
+	}
+	return TenantNameForDatabase(repoSlug, instanceName, logicalDB)
 }
 
 // TenantNameForDatabase returns the deterministic database/bucket/key-prefix
