@@ -351,3 +351,39 @@ services:
 		t.Errorf("command[1] = %q, want %q", gotCmd[1], wantCmd2)
 	}
 }
+
+func TestSynthesizeWorktreeStripsPorts(t *testing.T) {
+	path := loadRaw(t, `
+services:
+  api:
+    image: api:1
+    ports:
+      - "127.0.0.1:8080:3000"
+      - "9090:9090"
+  db:
+    image: postgres:15
+    ports:
+      - "5432:5432"
+`)
+	raw, _, err := LoadFull([]string{path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shared := config.SharedConfig{Services: map[string]config.SharedService{
+		"db": {Kind: "postgres", Tenancy: "per_database"},
+	}}
+	wt, err := SynthesizeWorktree(raw, shared, "myrepo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	api, ok := wt.Services["api"]
+	if !ok {
+		t.Fatal("api missing")
+	}
+	if len(api.Ports) != 0 {
+		t.Fatalf("api ports should be stripped, got %v", api.Ports)
+	}
+	if _, ok := wt.Services["db"]; ok {
+		t.Fatal("db should be removed (it's a platform service)")
+	}
+}
