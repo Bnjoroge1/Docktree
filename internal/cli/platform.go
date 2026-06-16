@@ -346,6 +346,31 @@ func provisionPlatformTenants(plan *platformPlan, repoSlug string) error {
 		services = append(services, serviceReady{name: svcName, kind: svc.Kind, container: container, user: user, password: password, svcDecl: svc})
 	}
 
+	// Provision full_share databases once (repo-scoped, not per-instance).
+	for _, svc := range services {
+		for logicalName, dbTarget := range svc.svcDecl.DatabaseTargets() {
+			if dbTarget.Tenancy != "full_share" {
+				continue
+			}
+			template := dbTarget.Template
+			if template == "" {
+				template = svc.svcDecl.Template
+			}
+			provCfg := provision.TenantConfig{
+				Kind:       svc.kind,
+				Tenancy:    dbTarget.Tenancy,
+				Template:   template,
+				TenantName: provision.ResolveTenantName(dbTarget.Tenancy, repoSlug, "", logicalName),
+				Host:       svc.container,
+				User:       svc.user,
+				Password:   svc.password,
+			}
+			if err := provision.Provision(provCfg); err != nil {
+				return fmt.Errorf("failed to provision full_share database %s: %w", provCfg.TenantName, err)
+			}
+		}
+	}
+
 	// Provision all tenants across all instances.
 	for _, inst := range instances {
 		if !platformRepoMatches(inst.RepoRoot, repoSlug) {
@@ -353,6 +378,9 @@ func provisionPlatformTenants(plan *platformPlan, repoSlug string) error {
 		}
 		for _, svc := range services {
 			for logicalName, dbTarget := range svc.svcDecl.DatabaseTargets() {
+				if dbTarget.Tenancy == "full_share" {
+					continue
+				}
 				template := dbTarget.Template
 				if template == "" {
 					template = svc.svcDecl.Template
