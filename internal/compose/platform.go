@@ -212,6 +212,20 @@ func SynthesizeWorktree(raw *composetypes.Project, shared config.SharedConfig, r
 			continue
 		}
 		clone := svc
+		// Escape $ → $$ so Docker Compose v2 treats them as literals
+		// instead of expanding them from the host environment at parse time.
+		for k, v := range clone.Environment {
+			if v != nil {
+				escaped := escapeDollar(*v)
+				clone.Environment[k] = &escaped
+			}
+		}
+		if len(clone.Command) > 0 {
+			clone.Command = escapeCommand(clone.Command)
+		}
+		if len(clone.Entrypoint) > 0 {
+			clone.Entrypoint = escapeCommand(clone.Entrypoint)
+		}
 		// Strip depends_on edges to platform services. Compose would
 		// fail-fast otherwise because the target service doesn't exist
 		// in this project.
@@ -320,4 +334,22 @@ func SortedServiceNames(p *composetypes.Project) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+func escapeDollar(s string) string {
+	if !strings.Contains(s, "$") {
+		return s
+	}
+	s = strings.ReplaceAll(s, "$$", "\x00")
+	s = strings.ReplaceAll(s, "$", "$$")
+	s = strings.ReplaceAll(s, "\x00", "$$")
+	return s
+}
+
+func escapeCommand(cmd composetypes.ShellCommand) composetypes.ShellCommand {
+	out := make(composetypes.ShellCommand, len(cmd))
+	for i, v := range cmd {
+		out[i] = escapeDollar(v)
+	}
+	return out
 }
