@@ -464,6 +464,18 @@ func buildPlatformPlan(rootOverride string) (*platformPlan, error) {
 	if err != nil {
 		return nil, err
 	}
+	// When the override root has no shared.services, fall back to the
+	// main repo so a single docktree.yml covers all linked worktrees.
+	if len(cfg.Shared.Services) == 0 && rootOverride != "" {
+		mainRoot, mErr := dockgit.MainRepoRoot()
+		if mErr == nil && mainRoot != root {
+			mainCfg, mErr := config.Load(mainRoot)
+			if mErr == nil && len(mainCfg.Shared.Services) > 0 {
+				cfg = mainCfg
+				root = mainRoot
+			}
+		}
+	}
 	if len(cfg.Shared.Services) == 0 {
 		return &platformPlan{Skipped: true, SkipReason: "no shared.services declared in docktree.yml"}, nil
 	}
