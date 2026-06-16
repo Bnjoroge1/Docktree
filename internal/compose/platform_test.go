@@ -277,12 +277,12 @@ func TestEscapeDollar(t *testing.T) {
 		{"no dollars", "no dollars"},
 		{"$VAR", "$$VAR"},
 		{"hello $WORLD", "hello $$WORLD"},
-		{"$$already", "$$already"},
+		{"$$literal", "$$$$literal"},
 		{"$FOO $BAR", "$$FOO $$BAR"},
-		{"mixed $X and $$Y", "mixed $$X and $$Y"},
-		{"$X$$Y", "$$X$$Y"},
-		{"$$", "$$"},
-		{"$$$", "$$$$"},
+		{"mixed $X and $$Y", "mixed $$X and $$$$Y"},
+		{"$X$$Y", "$$X$$$$Y"},
+		{"$$", "$$$$"},
+		{"$$$", "$$$$$$"},
 		{"postgres://$USER:$PASS@host/db", "postgres://$$USER:$$PASS@host/db"},
 		{"MYSQL_ROOT_PASSWORD", "MYSQL_ROOT_PASSWORD"},
 	}
@@ -307,6 +307,10 @@ services:
     command:
       - echo
       - sh -c 'echo $$HOME'
+    entrypoint:
+      - /bin/sh
+      - -c
+      - exec $$MY_APP $$PORT
 `)
 	raw, _, err := LoadFull([]string{path})
 	if err != nil {
@@ -350,9 +354,21 @@ services:
 	if gotCmd[1] != wantCmd2 {
 		t.Errorf("command[1] = %q, want %q", gotCmd[1], wantCmd2)
 	}
+	gotEP := api.Entrypoint
+	if len(gotEP) != 3 {
+		t.Fatalf("entrypoint should have 3 parts, got %v", gotEP)
+	}
+	wantEP2 := escapeDollar("-c")
+	wantEP3 := escapeDollar("exec $MY_APP $PORT")
+	if gotEP[1] != wantEP2 {
+		t.Errorf("entrypoint[1] = %q, want %q", gotEP[1], wantEP2)
+	}
+	if gotEP[2] != wantEP3 {
+		t.Errorf("entrypoint[2] = %q, want %q", gotEP[2], wantEP3)
+	}
 }
 
-func TestSynthesizeWorktreeStripsPorts(t *testing.T) {
+func TestSynthesizeWorktreePreservesPorts(t *testing.T) {
 	path := loadRaw(t, `
 services:
   api:
@@ -380,8 +396,8 @@ services:
 	if !ok {
 		t.Fatal("api missing")
 	}
-	if len(api.Ports) != 0 {
-		t.Fatalf("api ports should be stripped, got %v", api.Ports)
+	if len(api.Ports) == 0 {
+		t.Fatal("api ports should be preserved for dynamic allocation")
 	}
 	if _, ok := wt.Services["db"]; ok {
 		t.Fatal("db should be removed (it's a platform service)")

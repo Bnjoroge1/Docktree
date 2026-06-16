@@ -479,6 +479,12 @@ func buildPlatformPlan(rootOverride string) (*platformPlan, error) {
 	if len(cfg.Shared.Services) == 0 {
 		return &platformPlan{Skipped: true, SkipReason: "no shared.services declared in docktree.yml"}, nil
 	}
+	// Platform project/network identity is always scoped to the main
+	// repo so that platform commands and worktree up agree on names.
+	identityRoot, err := dockgit.MainRepoRoot()
+	if err != nil {
+		return nil, err
+	}
 	files, err := composeFiles(root, cfg)
 	if err != nil {
 		return nil, err
@@ -487,12 +493,12 @@ func buildPlatformPlan(rootOverride string) (*platformPlan, error) {
 	if err != nil {
 		return nil, err
 	}
-	repoSlug := dockgit.RepoName(root)
+	repoSlug := dockgit.RepoName(identityRoot)
 	platformProj, err := compose.SynthesizePlatform(raw, cfg.Shared, repoSlug)
 	if err != nil {
 		return nil, err
 	}
-	generatedDir := filepath.Join(root, cfg.State.Directory, "generated")
+	generatedDir := filepath.Join(identityRoot, cfg.State.Directory, "generated")
 	return &platformPlan{
 		Project:         compose.PlatformProjectName(repoSlug),
 		Network:         compose.PlatformNetworkName(repoSlug),
@@ -568,7 +574,7 @@ func dockerSilent(args ...string) error {
 // network if needed, and starts the platform stack. Idempotent.
 // repoRoot is the root directory to load docktree.yml from (defaults to
 // main repo root when empty).
-func ensurePlatformUp(ctx *Context, instanceName, repoSlug, repoRoot string) (string, string, error) {
+func ensurePlatformUp(ctx *Context, repoRoot string) (string, string, error) {
 	plan, err := buildPlatformPlan(repoRoot)
 	if err != nil {
 		return "", "", err

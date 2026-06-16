@@ -212,13 +212,17 @@ func SynthesizeWorktree(raw *composetypes.Project, shared config.SharedConfig, r
 			continue
 		}
 		clone := svc
-		clone.Ports = nil
-		// Escape $ → $$ so Docker Compose v2 treats them as literals
-		// instead of expanding them from the host environment at parse time.
-		for k, v := range clone.Environment {
-			if v != nil {
-				escaped := escapeDollar(*v)
-				clone.Environment[k] = &escaped
+		// Deep-copy Environment so escaping does not mutate the original
+		// project's map (clone := svc is a shallow copy; Go maps are refs).
+		if len(svc.Environment) > 0 {
+			clone.Environment = make(map[string]*string, len(svc.Environment))
+			for k, v := range svc.Environment {
+				if v != nil {
+					escaped := escapeDollar(*v)
+					clone.Environment[k] = &escaped
+				} else {
+					clone.Environment[k] = nil
+				}
 			}
 		}
 		if len(clone.Command) > 0 {
@@ -341,10 +345,7 @@ func escapeDollar(s string) string {
 	if !strings.Contains(s, "$") {
 		return s
 	}
-	s = strings.ReplaceAll(s, "$$", "\x00")
-	s = strings.ReplaceAll(s, "$", "$$")
-	s = strings.ReplaceAll(s, "\x00", "$$")
-	return s
+	return strings.ReplaceAll(s, "$", "$$")
 }
 
 func escapeCommand(cmd composetypes.ShellCommand) composetypes.ShellCommand {
