@@ -216,11 +216,7 @@ func runUp(ctx *Context) (any, int, error) {
 		}
 	}
 	if len(cfg.Shared.Services) > 0 {
-		mainRoot, err := dockgit.MainRepoRoot()
-		if err != nil {
-			return nil, output.ExitConfig, err
-		}
-		if _, _, platErr := ensurePlatformUp(ctx, instanceName, dockgit.RepoName(mainRoot), repo.RepoRoot); platErr != nil {
+		if _, _, platErr := ensurePlatformUp(ctx, repo.RepoRoot); platErr != nil {
 			return nil, output.ExitDocker, platErr
 		}
 		if steps != nil {
