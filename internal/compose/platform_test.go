@@ -268,3 +268,86 @@ services:
 		t.Fatalf("re-loading generated platform compose failed: %v\n%s", err, text)
 	}
 }
+
+func TestEscapeDollar(t *testing.T) {
+	tests := []struct {
+		input, want string
+	}{
+		{"", ""},
+		{"no dollars", "no dollars"},
+		{"$VAR", "$$VAR"},
+		{"hello $WORLD", "hello $$WORLD"},
+		{"$$already", "$$already"},
+		{"$FOO $BAR", "$$FOO $$BAR"},
+		{"mixed $X and $$Y", "mixed $$X and $$Y"},
+		{"$X$$Y", "$$X$$Y"},
+		{"$$", "$$"},
+		{"$$$", "$$$$"},
+		{"postgres://$USER:$PASS@host/db", "postgres://$$USER:$$PASS@host/db"},
+		{"MYSQL_ROOT_PASSWORD", "MYSQL_ROOT_PASSWORD"},
+	}
+	for _, tt := range tests {
+		got := escapeDollar(tt.input)
+		if got != tt.want {
+			t.Errorf("escapeDollar(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestSynthesizeWorktreeEscapesDollars(t *testing.T) {
+	password := "shh"
+	cmd1 := "echo"
+	path := loadRaw(t, `
+services:
+  api:
+    image: api:1
+    environment:
+      SECRET: shh
+      DATABASE_URL: postgres://$$DB_USER:$$DB_PASS@db:5432/mydb
+    command:
+      - echo
+      - sh -c 'echo $$HOME'
+`)
+	raw, _, err := LoadFull([]string{path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shared := config.SharedConfig{Services: map[string]config.SharedService{
+		"redis": {Kind: "redis", Tenancy: "full_share"},
+	}}
+	wt, err := SynthesizeWorktree(raw, shared, "myrepo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	api, ok := wt.Services["api"]
+	if !ok {
+		t.Fatal("api missing")
+	}
+	if api.Environment == nil {
+		t.Fatal("environment missing")
+	}
+	if api.Environment["SECRET"] == nil {
+		t.Fatal("SECRET env missing")
+	}
+	if *api.Environment["SECRET"] != password {
+		t.Errorf("SECRET = %q, want %q", *api.Environment["SECRET"], password)
+	}
+	if api.Environment["DATABASE_URL"] == nil {
+		t.Fatal("DATABASE_URL env missing")
+	}
+	gotURL := *api.Environment["DATABASE_URL"]
+	if gotURL != escapeDollar("postgres://$DB_USER:$DB_PASS@db:5432/mydb") {
+		t.Errorf("DATABASE_URL = %q, want %q", gotURL, escapeDollar("postgres://$DB_USER:$DB_PASS@db:5432/mydb"))
+	}
+	gotCmd := api.Command
+	if len(gotCmd) != 2 {
+		t.Fatalf("command should have 2 parts, got %v", gotCmd)
+	}
+	if gotCmd[0] != cmd1 {
+		t.Errorf("command[0] = %q, want %q", gotCmd[0], cmd1)
+	}
+	wantCmd2 := escapeDollar("sh -c 'echo $HOME'")
+	if gotCmd[1] != wantCmd2 {
+		t.Errorf("command[1] = %q, want %q", gotCmd[1], wantCmd2)
+	}
+}
