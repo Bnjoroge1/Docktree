@@ -212,6 +212,7 @@ func SynthesizeWorktree(raw *composetypes.Project, shared config.SharedConfig, r
 			continue
 		}
 		clone := svc
+		clone.Ports = nil
 		// Escape $ → $$ so Docker Compose v2 treats them as literals
 		// instead of expanding them from the host environment at parse time.
 		for k, v := range clone.Environment {
