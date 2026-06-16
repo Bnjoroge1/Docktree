@@ -212,6 +212,25 @@ func SynthesizeWorktree(raw *composetypes.Project, shared config.SharedConfig, r
 			continue
 		}
 		clone := svc
+		// Deep-copy Environment so escaping does not mutate the original
+		// project's map (clone := svc is a shallow copy; Go maps are refs).
+		if len(svc.Environment) > 0 {
+			clone.Environment = make(map[string]*string, len(svc.Environment))
+			for k, v := range svc.Environment {
+				if v != nil {
+					escaped := escapeDollar(*v)
+					clone.Environment[k] = &escaped
+				} else {
+					clone.Environment[k] = nil
+				}
+			}
+		}
+		if len(clone.Command) > 0 {
+			clone.Command = escapeCommand(clone.Command)
+		}
+		if len(clone.Entrypoint) > 0 {
+			clone.Entrypoint = escapeCommand(clone.Entrypoint)
+		}
 		// Strip depends_on edges to platform services. Compose would
 		// fail-fast otherwise because the target service doesn't exist
 		// in this project.
@@ -320,4 +339,19 @@ func SortedServiceNames(p *composetypes.Project) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+func escapeDollar(s string) string {
+	if !strings.Contains(s, "$") {
+		return s
+	}
+	return strings.ReplaceAll(s, "$", "$$")
+}
+
+func escapeCommand(cmd composetypes.ShellCommand) composetypes.ShellCommand {
+	out := make(composetypes.ShellCommand, len(cmd))
+	for i, v := range cmd {
+		out[i] = escapeDollar(v)
+	}
+	return out
 }

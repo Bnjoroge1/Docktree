@@ -38,6 +38,18 @@ func runUp(ctx *Context) (any, int, error) {
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
+	// When the worktree has no shared.services of its own, inherit them
+	// from the main repo's docktree.yml so a single config covers every
+	// linked worktree.
+	if len(cfg.Shared.Services) == 0 {
+		mainRoot, mErr := dockgit.MainRepoRoot()
+		if mErr == nil && mainRoot != repo.RepoRoot {
+			mainCfg, mErr := config.Load(mainRoot)
+			if mErr == nil && len(mainCfg.Shared.Services) > 0 {
+				cfg.Shared.Services = mainCfg.Shared.Services
+			}
+		}
+	}
 	steps := ctx.Steps
 	if steps != nil {
 		steps.Header("Starting services…", instanceName)
@@ -204,11 +216,7 @@ func runUp(ctx *Context) (any, int, error) {
 		}
 	}
 	if len(cfg.Shared.Services) > 0 {
-		mainRoot, err := dockgit.MainRepoRoot()
-		if err != nil {
-			return nil, output.ExitConfig, err
-		}
-		if _, _, platErr := ensurePlatformUp(ctx, instanceName, dockgit.RepoName(mainRoot)); platErr != nil {
+		if _, _, platErr := ensurePlatformUp(ctx, repo.RepoRoot); platErr != nil {
 			return nil, output.ExitDocker, platErr
 		}
 		if steps != nil {
