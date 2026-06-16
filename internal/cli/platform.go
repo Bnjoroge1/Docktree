@@ -107,7 +107,7 @@ func runPlatformUp(ctx *Context) (any, int, error) {
 	if current.WorktreeRoot != mainRoot {
 		return nil, output.ExitConfig, fmt.Errorf("docktree platform up must be run from the main repo root; use docktree up in linked worktrees")
 	}
-	plan, err := buildPlatformPlan()
+	plan, err := buildPlatformPlan("")
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
@@ -168,7 +168,7 @@ func runPlatformUp(ctx *Context) (any, int, error) {
 // runPlatformDown stops the platform stack but keeps named volumes and the
 // external network owns data deletion.
 func runPlatformDown(ctx *Context) (any, int, error) {
-	plan, err := buildPlatformPlan()
+	plan, err := buildPlatformPlan("")
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
@@ -204,7 +204,7 @@ func runPlatformDown(ctx *Context) (any, int, error) {
 }
 
 func runPlatformStatus(ctx *Context) (any, int, error) {
-	plan, err := buildPlatformPlan()
+	plan, err := buildPlatformPlan("")
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
@@ -447,22 +447,27 @@ func tenantBindingsForInstance(plan *platformPlan, inst *state.Instance) []tenan
 	return bindings
 }
 
-// buildPlatformPlan locates the main repo root, loads its docktree.yml,
-// reads the source compose files, and synthesizes the platform project.
-// All platform CLI commands route through here so they agree on identity.
-func buildPlatformPlan() (*platformPlan, error) {
-	mainRoot, err := dockgit.MainRepoRoot()
-	if err != nil {
-		return nil, err
+// buildPlatformPlan locates the main repo root (or rootOverride if non‑empty),
+// loads its docktree.yml, reads the source compose files, and synthesizes
+// the platform project. All platform CLI commands route through here so they
+// agree on identity.
+func buildPlatformPlan(rootOverride string) (*platformPlan, error) {
+	root := rootOverride
+	if root == "" {
+		var err error
+		root, err = dockgit.MainRepoRoot()
+		if err != nil {
+			return nil, err
+		}
 	}
-	cfg, err := config.Load(mainRoot)
+	cfg, err := config.Load(root)
 	if err != nil {
 		return nil, err
 	}
 	if len(cfg.Shared.Services) == 0 {
 		return &platformPlan{Skipped: true, SkipReason: "no shared.services declared in docktree.yml"}, nil
 	}
-	files, err := composeFiles(mainRoot, cfg)
+	files, err := composeFiles(root, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -470,12 +475,12 @@ func buildPlatformPlan() (*platformPlan, error) {
 	if err != nil {
 		return nil, err
 	}
-	repoSlug := dockgit.RepoName(mainRoot)
+	repoSlug := dockgit.RepoName(root)
 	platformProj, err := compose.SynthesizePlatform(raw, cfg.Shared, repoSlug)
 	if err != nil {
 		return nil, err
 	}
-	generatedDir := filepath.Join(mainRoot, cfg.State.Directory, "generated")
+	generatedDir := filepath.Join(root, cfg.State.Directory, "generated")
 	return &platformPlan{
 		Project:         compose.PlatformProjectName(repoSlug),
 		Network:         compose.PlatformNetworkName(repoSlug),
@@ -549,8 +554,10 @@ func dockerSilent(args ...string) error {
 // ensurePlatformUp is called by runUp when shared services are configured.
 // It synthesizes and writes the platform compose file, creates the external
 // network if needed, and starts the platform stack. Idempotent.
-func ensurePlatformUp(ctx *Context, instanceName, repoSlug string) (string, string, error) {
-	plan, err := buildPlatformPlan()
+// repoRoot is the root directory to load docktree.yml from (defaults to
+// main repo root when empty).
+func ensurePlatformUp(ctx *Context, instanceName, repoSlug, repoRoot string) (string, string, error) {
+	plan, err := buildPlatformPlan(repoRoot)
 	if err != nil {
 		return "", "", err
 	}
@@ -587,7 +594,7 @@ func ensurePlatformUp(ctx *Context, instanceName, repoSlug string) (string, stri
 // all global instances, querying the platform Postgres to report whether each
 // tenant database actually exists.
 func runPlatformTenants(ctx *Context) (any, int, error) {
-	plan, err := buildPlatformPlan()
+	plan, err := buildPlatformPlan("")
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
@@ -658,7 +665,7 @@ func runPlatformTenants(ctx *Context) (any, int, error) {
 // runPlatformLogs streams logs from the platform compose project.
 // Passes remaining args directly to docker compose logs so standard flags
 func runPlatformLogs(ctx *Context) (any, int, error) {
-	plan, err := buildPlatformPlan()
+	plan, err := buildPlatformPlan("")
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
@@ -712,7 +719,7 @@ func runPlatformClean(ctx *Context) (any, int, error) {
 			return nil, output.ExitNoop, nil
 		}
 	}
-	plan, err := buildPlatformPlan()
+	plan, err := buildPlatformPlan("")
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
