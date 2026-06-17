@@ -25,6 +25,9 @@ func printHelp(w io.Writer) {
 	printHelpCmd(w, maxCmd, "ports", "Show allocated host ports (use --all for all worktrees)")
 	printHelpCmd(w, maxCmd, "prepare", "Prepare the current worktree's local Docker setup")
 	printHelpCmd(w, maxCmd, "platform", "Manage the repo-scoped shared services platform")
+	printHelpCmd(w, maxCmd, "cp", "Pass through to docker compose cp")
+	printHelpCmd(w, maxCmd, "wait", "Pass through to docker compose wait")
+	printHelpCmd(w, maxCmd, "watch", "Pass through to docker compose watch")
 	printHelpCmd(w, maxCmd, "clean", "Remove stale Docktree-managed resources")
 	printHelpCmd(w, maxCmd, "help", "Show this help text")
 	printHelpCmd(w, maxCmd, "version", "Print the docktree version")
@@ -119,6 +122,44 @@ Examples:
   docktree run api -- rake db:migrate
   docktree run db -- psql -U postgres
   docktree run --no-deps api -- rspec`)
+}
+
+func printCpHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree cp <service>:<src> <dest>
+  docktree cp <src> <service>:<dest>
+
+Pass through to docker compose cp with the current worktree's project context.
+Options and arguments are passed through directly to docker compose cp.
+
+Examples:
+  docktree cp web:/app/logs ./logs
+  docktree cp ./config.yml web:/app/config.yml`)
+}
+
+func printWaitHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree wait [options] [service...]
+
+Pass through to docker compose wait with the current worktree's project context.
+Options and arguments are passed through directly to docker compose wait.
+
+Examples:
+  docktree wait              # wait for all services
+  docktree wait web          # wait for the web service
+  docktree wait --timeout 30 web db`)
+}
+
+func printWatchHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree watch [options] [service...]
+
+Pass through to docker compose watch with the current worktree's project context.
+Options and arguments are passed through directly to docker compose watch.
+
+Examples:
+  docktree watch             # watch all services
+  docktree watch web         # watch the web service`)
 }
 
 func printUpHelp(w io.Writer) {

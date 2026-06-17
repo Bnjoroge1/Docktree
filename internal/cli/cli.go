@@ -43,10 +43,13 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			"run":      runComposeRun,
 			"status":   runStatus,
 			"ports":    runPorts,
-			"clean":    runClean,
-			"create":   runCreate,
-			"prepare":  runPrepare,
-			"platform": runPlatform,
+		"clean":    runClean,
+		"create":   runCreate,
+		"prepare":  runPrepare,
+		"platform": runPlatform,
+		"cp":       runCp,
+		"wait":     runWait,
+		"watch":    runWatch,
 		}
 		fn, ok := commands[rest[0]]
 		if !ok {
