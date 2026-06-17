@@ -47,6 +47,11 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			"create":   runCreate,
 			"prepare":  runPrepare,
 			"platform": runPlatform,
+			"config":   runConfig,
+			"images":   runImages,
+			"top":      runTop,
+			"ls":       runLs,
+			"port":     runPort,
 		}
 		fn, ok := commands[rest[0]]
 		if !ok {
