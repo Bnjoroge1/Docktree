@@ -37,16 +37,19 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		result, code, err = runWithProgress(ctx, runDown)
 	default:
 		commands := map[string]commandFunc{
-			"stop":     runStop,
-			"logs":     runLogs,
-			"exec":     runExec,
-			"run":      runComposeRun,
-			"status":   runStatus,
-			"ports":    runPorts,
-			"clean":    runClean,
-			"create":   runCreate,
-			"prepare":  runPrepare,
-			"platform": runPlatform,
+		"stop":     runStop,
+		"logs":     runLogs,
+		"exec":     runExec,
+		"run":      runComposeRun,
+		"build":    runBuild,
+		"pull":     runPull,
+		"push":     runPush,
+		"status":   runStatus,
+		"ports":    runPorts,
+		"clean":    runClean,
+		"create":   runCreate,
+		"prepare":  runPrepare,
+		"platform": runPlatform,
 		}
 		fn, ok := commands[rest[0]]
 		if !ok {
