@@ -236,6 +236,34 @@ func TestGenerateOverride(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "isolated_network_per_worktree",
+			project: &ComposeProject{Services: map[string]Service{
+				"api": {Image: "myapp/api:1"},
+				"worker": {Image: "myapp/worker:1"},
+			}},
+			instance: "repo-feature-abc123",
+			check: func(t *testing.T, o *Override) {
+				isoNet := "repo-feature-abc123-isolated"
+				// Top-level network declaration
+				if o.Networks == nil {
+					t.Fatal("override.Networks is nil; expected isolated network")
+				}
+				net, ok := o.Networks[isoNet]
+				if !ok {
+					t.Fatalf("isolated network %q not declared in override", isoNet)
+				}
+				if net.Driver != "bridge" {
+					t.Fatalf("isolated network driver = %q, want bridge", net.Driver)
+				}
+				// Every service must reference the isolated network
+				for svcName, svc := range o.Services {
+					if _, ok := svc.Networks[isoNet]; !ok {
+						t.Fatalf("service %q missing isolated network %q", svcName, isoNet)
+					}
+				}
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
