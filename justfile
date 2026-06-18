@@ -1,11 +1,12 @@
 set dotenv-load
 
 binary := "docktree"
+version := `git describe --tags --always --dirty 2>/dev/null || echo "dev"`
 
 default: build
 
 build:
-    go build -o {{ binary }} ./cmd/docktree
+    go build -ldflags "-X github.com/bnjoroge/docktree/internal/cli.version={{ version }}" -o {{ binary }} ./cmd/docktree
 
 run *args:
     go run ./cmd/docktree {{ args }}
@@ -26,4 +27,4 @@ clean:
     rm -f {{ binary }}
 
 install: build
-    go install ./cmd/docktree
+    go install -ldflags "-X github.com/bnjoroge/docktree/internal/cli.version={{ version }}" ./cmd/docktree
