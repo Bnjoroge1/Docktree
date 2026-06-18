@@ -284,6 +284,38 @@ func SynthesizeWorktree(raw *composetypes.Project, shared config.SharedConfig, r
 				}
 			}
 		}
+
+		// Inject raw tenant database names for services that construct their
+		// connection URL at runtime inside a shell command (e.g. wrapped by a
+		// secrets manager like infisical). url_envs cannot reach those because
+		// the URL is assembled after the container starts. db_name_envs targets
+		// just the database-name variable (e.g. POSTGRES_DB), which the shell
+		// command already references via $$POSTGRES_DB. Credentials continue to
+		// come from the secrets manager; docktree only overrides the DB name.
+		if opt.TenantDBs != nil {
+			for svcName, svcDecl := range shared.Services {
+				logicalDBs, ok := opt.TenantDBs[svcName]
+				if !ok {
+					continue
+				}
+				for logicalName, dbDecl := range svcDecl.DatabaseTargets() {
+					if len(dbDecl.DBNameEnvs) == 0 {
+						continue
+					}
+					tenantDB := logicalDBs[logicalName]
+					if tenantDB == "" {
+						continue
+					}
+					if clone.Environment == nil {
+						clone.Environment = composetypes.MappingWithEquals{}
+					}
+					for _, envName := range dbDecl.DBNameEnvs {
+						db := tenantDB
+						clone.Environment[envName] = &db
+					}
+				}
+			}
+		}
 		out.Services[name] = clone
 	}
 
