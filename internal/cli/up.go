@@ -275,7 +275,11 @@ func runUp(ctx *Context) (any, int, error) {
 		composeFiles = append(composeFiles, clearFile)
 	}
 	composeFiles = append(composeFiles, overrideFile)
-	cmd := docker.ComposeCommand{ProjectName: instanceName, Files: composeFiles, CommandArgs: []string{"up", "-d"}}
+	upArgs := []string{"up", "-d"}
+	if options.build {
+		upArgs = append(upArgs, "--build")
+	}
+	cmd := docker.ComposeCommand{ProjectName: instanceName, Files: composeFiles, CommandArgs: upArgs}
 	for attempt := 0; attempt < 10; attempt++ {
 		assignments, err = registry.Allocate(instanceName, portRequests(project, cfg.Ports.BindHost), portRange)
 		if err != nil {
