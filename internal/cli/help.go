@@ -18,6 +18,7 @@ func printHelp(w io.Writer) {
 	printHelpCmd(w, maxCmd, "up", "Start the current worktree's Compose project (or --create <branch>)")
 	printHelpCmd(w, maxCmd, "down", "Stop the current worktree's Compose project (or specific services)")
 	printHelpCmd(w, maxCmd, "stop", "Stop running containers without removing them")
+	printHelpCmd(w, maxCmd, "docker", "Run any docker compose subcommand with worktree context pre-filled")
 	printHelpCmd(w, maxCmd, "logs", "Pass through to docker compose logs")
 	printHelpCmd(w, maxCmd, "exec", "Pass through to docker compose exec")
 	printHelpCmd(w, maxCmd, "run", "Pass through to docker compose run --rm")
