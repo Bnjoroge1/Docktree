@@ -1,7 +1,7 @@
 set dotenv-load
 
 binary := "docktree"
-version := `git describe --tags --always --dirty 2>/dev/null || echo "dev"`
+version := `cat VERSION 2>/dev/null || echo "dev"`
 
 default: build
 
