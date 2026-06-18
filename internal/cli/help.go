@@ -130,6 +130,7 @@ Start the current worktree's Compose project.
 
 Options:
   -f, --file <path>     Use a specific Compose file
+  --build               Force rebuild of images with a build: directive
   --create <branch>     Create and prepare a new worktree before starting
   --sync                Run setup copy/symlink/run steps before starting
   --validate            Check config, ports, and compose validity without starting
