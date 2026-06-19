@@ -18,6 +18,13 @@ func printHelp(w io.Writer) {
 	printHelpCmd(w, maxCmd, "up", "Start the current worktree's Compose project (or --create <branch>)")
 	printHelpCmd(w, maxCmd, "down", "Stop the current worktree's Compose project (or specific services)")
 	printHelpCmd(w, maxCmd, "stop", "Stop running containers without removing them")
+	printHelpCmd(w, maxCmd, "restart", "Pass through to docker compose restart")
+	printHelpCmd(w, maxCmd, "start", "Pass through to docker compose start")
+	printHelpCmd(w, maxCmd, "rm", "Pass through to docker compose rm")
+	printHelpCmd(w, maxCmd, "pause", "Pass through to docker compose pause")
+	printHelpCmd(w, maxCmd, "unpause", "Pass through to docker compose unpause")
+	printHelpCmd(w, maxCmd, "kill", "Pass through to docker compose kill")
+	printHelpCmd(w, maxCmd, "docker", "Run any docker compose subcommand with worktree context pre-filled")
 	printHelpCmd(w, maxCmd, "logs", "Pass through to docker compose logs")
 	printHelpCmd(w, maxCmd, "exec", "Pass through to docker compose exec")
 	printHelpCmd(w, maxCmd, "run", "Pass through to docker compose run --rm")
@@ -132,6 +139,7 @@ Start the current worktree's Compose project.
 
 Options:
   -f, --file <path>     Use a specific Compose file
+  --build               Force rebuild of images with a build: directive
   --create <branch>     Create and prepare a new worktree before starting
   --sync                Run setup copy/symlink/run steps before starting
   --validate            Check config, ports, and compose validity without starting
