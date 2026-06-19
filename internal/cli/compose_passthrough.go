@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"io"
 
 	"github.com/bnjoroge/docktree/internal/config"
@@ -10,8 +11,12 @@ import (
 	"github.com/bnjoroge/docktree/internal/state"
 )
 
-func runComposePassthrough(ctx *Context, subcommand string, args []string, helpFn func(io.Writer), allowEmpty bool) (any, int, error) {
-	if (!allowEmpty && len(args) == 0) || (len(args) == 1 && (args[0] == "-h" || args[0] == "--help")) {
+func runComposePassthrough(ctx *Context, subcommand string, args []string, allowEmptyArgs bool, helpFn func(io.Writer)) (any, int, error) {
+	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
+		helpFn(ctx.Stdout)
+		return nil, output.ExitOK, nil
+	}
+	if len(args) == 0 && !allowEmptyArgs {
 		helpFn(ctx.Stdout)
 		return nil, output.ExitOK, nil
 	}
@@ -52,11 +57,11 @@ func runComposePassthrough(ctx *Context, subcommand string, args []string, helpF
 }
 
 func runLogs(ctx *Context) (any, int, error) {
-	return runComposePassthrough(ctx, "logs", ctx.Args[1:], printLogsHelp, false)
+	return runComposePassthrough(ctx, "logs", ctx.Args[1:], true, printLogsHelp)
 }
 
 func runExec(ctx *Context) (any, int, error) {
-	return runComposePassthrough(ctx, "exec", ctx.Args[1:], printExecHelp, false)
+	return runComposePassthrough(ctx, "exec", ctx.Args[1:], false, printExecHelp)
 }
 
 func runComposeRun(ctx *Context) (any, int, error) {
@@ -98,5 +103,58 @@ func runComposeRun(ctx *Context) (any, int, error) {
 		ComposeFiles: composeFiles,
 		Subcommand:   "run",
 		Args:         args,
+	}, output.ExitOK, nil
+}
+
+func printDockerHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree docker <subcommand> [args...]
+
+Run any docker compose subcommand with the current worktree's project name
+and compose files pre-filled. Useful for flags and subcommands that docktree
+does not wrap directly.
+
+Examples:
+  docktree docker up -h
+  docktree docker up --no-deps api
+  docktree docker ps
+  docktree docker scale api=3
+
+  -h, --help   Show this help text`)
+}
+
+func runDocker(ctx *Context) (any, int, error) {
+	args := ctx.Args[1:]
+	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
+		printDockerHelp(ctx.Stdout)
+		return nil, output.ExitOK, nil
+	}
+	repo, err := dockgit.DetectRepo()
+	if err != nil {
+		return nil, output.ExitConfig, err
+	}
+	cfg, err := config.Load(repo.RepoRoot)
+	if err != nil {
+		return nil, output.ExitConfig, err
+	}
+	stateDir := state.StatePath(repo.WorktreeRoot, cfg.State.Directory)
+	inst, err := state.LoadInstance(stateDir)
+	if err != nil {
+		return nil, output.ExitConfig, err
+	}
+	composeFiles := activeComposeFiles(repo.WorktreeRoot, cfg, inst)
+	cmd := docker.ComposeCommand{
+		ProjectName: inst.ProjectName,
+		Files:       composeFiles,
+		CommandArgs: args,
+	}
+	if err := docker.Run(cmd, ctx.Stdout, ctx.Stderr); err != nil {
+		return nil, output.ExitDocker, err
+	}
+	return ComposePassthroughResult{
+		Project:      inst.ProjectName,
+		ComposeFiles: composeFiles,
+		Subcommand:   args[0],
+		Args:         args[1:],
 	}, output.ExitOK, nil
 }

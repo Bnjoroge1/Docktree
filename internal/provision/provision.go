@@ -39,7 +39,7 @@ var tenantDrivers = map[string]tenantDriver{
 // Provision creates the per-worktree tenant inside the shared service, or verifies it already exists.
 // It shells out to CLI tools rather than pulling in database SDKs to keep the binary dependency surface small.
 func Provision(cfg TenantConfig) error {
-	if cfg.Tenancy != "per_database" {
+	if cfg.Tenancy != "per_database" && cfg.Tenancy != "full_share" {
 		return nil
 	}
 	driver, ok := tenantDrivers[cfg.Kind]

@@ -212,6 +212,25 @@ func SynthesizeWorktree(raw *composetypes.Project, shared config.SharedConfig, r
 			continue
 		}
 		clone := svc
+		// Deep-copy Environment so escaping does not mutate the original
+		// project's map (clone := svc is a shallow copy; Go maps are refs).
+		if len(svc.Environment) > 0 {
+			clone.Environment = make(map[string]*string, len(svc.Environment))
+			for k, v := range svc.Environment {
+				if v != nil {
+					escaped := escapeDollar(*v)
+					clone.Environment[k] = &escaped
+				} else {
+					clone.Environment[k] = nil
+				}
+			}
+		}
+		if len(clone.Command) > 0 {
+			clone.Command = escapeCommand(clone.Command)
+		}
+		if len(clone.Entrypoint) > 0 {
+			clone.Entrypoint = escapeCommand(clone.Entrypoint)
+		}
 		// Strip depends_on edges to platform services. Compose would
 		// fail-fast otherwise because the target service doesn't exist
 		// in this project.
@@ -262,6 +281,38 @@ func SynthesizeWorktree(raw *composetypes.Project, shared config.SharedConfig, r
 				if _, exists := clone.Environment[k]; exists {
 					value := v
 					clone.Environment[k] = &value
+				}
+			}
+		}
+
+		// Inject raw tenant database names for services that construct their
+		// connection URL at runtime inside a shell command (e.g. wrapped by a
+		// secrets manager like infisical). url_envs cannot reach those because
+		// the URL is assembled after the container starts. db_name_envs targets
+		// just the database-name variable (e.g. POSTGRES_DB), which the shell
+		// command already references via $$POSTGRES_DB. Credentials continue to
+		// come from the secrets manager; docktree only overrides the DB name.
+		if opt.TenantDBs != nil {
+			for svcName, svcDecl := range shared.Services {
+				logicalDBs, ok := opt.TenantDBs[svcName]
+				if !ok {
+					continue
+				}
+				for logicalName, dbDecl := range svcDecl.DatabaseTargets() {
+					if len(dbDecl.DBNameEnvs) == 0 {
+						continue
+					}
+					tenantDB := logicalDBs[logicalName]
+					if tenantDB == "" {
+						continue
+					}
+					if clone.Environment == nil {
+						clone.Environment = composetypes.MappingWithEquals{}
+					}
+					for _, envName := range dbDecl.DBNameEnvs {
+						db := tenantDB
+						clone.Environment[envName] = &db
+					}
 				}
 			}
 		}
@@ -320,4 +371,19 @@ func SortedServiceNames(p *composetypes.Project) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+func escapeDollar(s string) string {
+	if !strings.Contains(s, "$") {
+		return s
+	}
+	return strings.ReplaceAll(s, "$", "$$")
+}
+
+func escapeCommand(cmd composetypes.ShellCommand) composetypes.ShellCommand {
+	out := make(composetypes.ShellCommand, len(cmd))
+	for i, v := range cmd {
+		out[i] = escapeDollar(v)
+	}
+	return out
 }
