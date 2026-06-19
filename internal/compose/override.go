@@ -18,7 +18,18 @@ func GenerateOverride(project *ComposeProject, instanceName string, assignments 
 	for _, assignment := range assignments {
 		byService[assignment.Service] = append(byService[assignment.Service], assignment)
 	}
-	override := &Override{Services: map[string]ServiceOverride{}, Volumes: map[string]VolumeOverride{}}
+	// Per-worktree isolated bridge network. Attaching every service to this
+	// network scopes Docker's internal DNS to the worktree project so that
+	// service names (e.g. "db", "api") resolve only within this stack, not
+	// across multiple worktrees or the main checkout running in parallel.
+	isoNet := instanceName + "-isolated"
+	override := &Override{
+		Services: map[string]ServiceOverride{},
+		Networks: map[string]NetworkOverride{
+			isoNet: {Driver: "bridge"},
+		},
+		Volumes: map[string]VolumeOverride{},
+	}
 	for name, svc := range project.Services {
 		serviceOverride := ServiceOverride{}
 		if svc.ContainerName != "" {
@@ -39,6 +50,9 @@ func GenerateOverride(project *ComposeProject, instanceName string, assignments 
 			"docktree.instance": instanceName,
 			"docktree.repo":     repoPart(instanceName),
 		}
+		// Add the isolated network to every service so their DNS names only
+		// resolve within this worktree project.
+		serviceOverride.Networks = map[string]any{isoNet: nil}
 		override.Services[name] = serviceOverride
 	}
 	sharedSet := map[string]bool{}
