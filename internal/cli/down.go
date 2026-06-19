@@ -76,7 +76,7 @@ func runDown(ctx *Context) (any, int, error) {
 	}
 	var droppedTenants []string
 	if options.volumes && len(cfg.Shared.Services) > 0 {
-		plan, planErr := buildPlatformPlan()
+		plan, planErr := buildPlatformPlan("")
 		if planErr != nil {
 			return nil, output.ExitConfig, planErr
 		}
@@ -169,7 +169,7 @@ func runDownAll(ctx *Context, options downOptions, repo *dockgit.RepoInfo) (any,
 			steps.Header("Stopping services…", inst.ProjectName)
 		}
 		if options.volumes && len(cfg.Shared.Services) > 0 {
-			plan, planErr := buildPlatformPlan()
+			plan, planErr := buildPlatformPlan("")
 			if planErr == nil {
 				for _, binding := range tenantBindingsForInstance(plan, inst) {
 					fmt.Fprintf(ctx.Stderr, "Dropping tenant database: %s\n", binding.TenantDB)

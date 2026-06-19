@@ -51,19 +51,21 @@ type SharedConfig struct {
 }
 
 type SharedDatabase struct {
-	URLEnvs  []string `yaml:"url_envs,omitempty"`
-	Template string   `yaml:"template,omitempty"`
-	Tenancy  string   `yaml:"tenancy,omitempty"`
+	URLEnvs    []string `yaml:"url_envs,omitempty"`
+	DBNameEnvs []string `yaml:"db_name_envs,omitempty"`
+	Template   string   `yaml:"template,omitempty"`
+	Tenancy    string   `yaml:"tenancy,omitempty"`
 }
 
 type SharedService struct {
-	Kind      string                    `yaml:"kind"`
-	Tenancy   string                    `yaml:"tenancy"`
-	TenantEnv string                    `yaml:"tenant_env,omitempty"`
-	Template  string                    `yaml:"template,omitempty"`
-	Aliases   []string                  `yaml:"aliases,omitempty"`
-	URLEnvs   []string                  `yaml:"url_envs,omitempty"`
-	Databases map[string]SharedDatabase `yaml:"databases,omitempty"`
+	Kind       string                    `yaml:"kind"`
+	Tenancy    string                    `yaml:"tenancy"`
+	TenantEnv  string                    `yaml:"tenant_env,omitempty"`
+	Template   string                    `yaml:"template,omitempty"`
+	Aliases    []string                  `yaml:"aliases,omitempty"`
+	URLEnvs    []string                  `yaml:"url_envs,omitempty"`
+	DBNameEnvs []string                  `yaml:"db_name_envs,omitempty"`
+	Databases  map[string]SharedDatabase `yaml:"databases,omitempty"`
 }
 
 // DatabaseTargets returns the logical databases Docktree should provision.
@@ -78,9 +80,10 @@ func (svc SharedService) DatabaseTargets() map[string]SharedDatabase {
 				tenancy = svc.Tenancy
 			}
 			out[name] = SharedDatabase{
-				URLEnvs:  append([]string(nil), db.URLEnvs...),
-				Template: db.Template,
-				Tenancy:  tenancy,
+				URLEnvs:    append([]string(nil), db.URLEnvs...),
+				DBNameEnvs: append([]string(nil), db.DBNameEnvs...),
+				Template:   db.Template,
+				Tenancy:    tenancy,
 			}
 		}
 		return out
@@ -89,9 +92,10 @@ func (svc SharedService) DatabaseTargets() map[string]SharedDatabase {
 		return nil
 	}
 	return map[string]SharedDatabase{"": {
-		URLEnvs:  append([]string(nil), svc.URLEnvs...),
-		Template: svc.Template,
-		Tenancy:  svc.Tenancy,
+		URLEnvs:    append([]string(nil), svc.URLEnvs...),
+		DBNameEnvs: append([]string(nil), svc.DBNameEnvs...),
+		Template:   svc.Template,
+		Tenancy:    svc.Tenancy,
 	}}
 }
 

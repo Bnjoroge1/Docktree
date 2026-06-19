@@ -323,3 +323,121 @@ services:
 		t.Fatalf("DB_CONNECTION_URI = %v", got)
 	}
 }
+
+// TestSynthesizeWorktreeInjectsDBNameEnv covers the infisical/shell-command
+// pattern: DATABASE_URL is assembled at runtime inside a shell string so it
+// is never a plain compose environment variable. db_name_envs injects just
+// the database name variable that the shell command references via $$VAR;
+// credentials continue to come from the secrets manager untouched.
+func TestSynthesizeWorktreeInjectsDBNameEnv(t *testing.T) {
+	path := loadRaw(t, `
+services:
+  api:
+    image: api:1
+    depends_on:
+      - db
+  db:
+    image: postgres:15
+`)
+	raw, _, err := LoadFull([]string{path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shared := config.SharedConfig{Services: map[string]config.SharedService{
+		"db": {Kind: "postgres", Tenancy: "per_database", DBNameEnvs: []string{"POSTGRES_DB"}},
+	}}
+	wt, err := SynthesizeWorktree(raw, shared, "myrepo", SynthesizeWorktreeOptions{
+		TenantDBs: map[string]map[string]string{"db": {"": "myrepo_feature_abc123"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	api := wt.Services["api"]
+	got := api.Environment["POSTGRES_DB"]
+	if got == nil {
+		t.Fatal("POSTGRES_DB not injected into api environment")
+	}
+	if *got != "myrepo_feature_abc123" {
+		t.Fatalf("POSTGRES_DB = %q, want myrepo_feature_abc123", *got)
+	}
+	// DATABASE_URL must not be fabricated — credentials are owned by the secrets manager.
+	if _, exists := api.Environment["DATABASE_URL"]; exists {
+		t.Fatal("DATABASE_URL should not be present; docktree must not fabricate credentials")
+	}
+}
+
+// TestSynthesizeWorktreeDBNameEnvOverridesExisting confirms that an existing
+// value for the db name env var (e.g. pointing at a default DB) is replaced
+// with the per-worktree tenant name.
+func TestSynthesizeWorktreeDBNameEnvOverridesExisting(t *testing.T) {
+	path := loadRaw(t, `
+services:
+  api:
+    image: api:1
+    environment:
+      POSTGRES_DB: maindb
+    depends_on:
+      - db
+  db:
+    image: postgres:15
+`)
+	raw, _, err := LoadFull([]string{path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shared := config.SharedConfig{Services: map[string]config.SharedService{
+		"db": {Kind: "postgres", Tenancy: "per_database", DBNameEnvs: []string{"POSTGRES_DB"}},
+	}}
+	wt, err := SynthesizeWorktree(raw, shared, "myrepo", SynthesizeWorktreeOptions{
+		TenantDBs: map[string]map[string]string{"db": {"": "myrepo_feature_abc123"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := wt.Services["api"].Environment["POSTGRES_DB"]
+	if got == nil || *got != "myrepo_feature_abc123" {
+		t.Fatalf("POSTGRES_DB = %v, want myrepo_feature_abc123", got)
+	}
+}
+
+// TestSynthesizeWorktreeDBNameEnvAndURLEnvTogether verifies that url_envs and
+// db_name_envs are independent and can be used simultaneously on the same
+// service declaration.
+func TestSynthesizeWorktreeDBNameEnvAndURLEnvTogether(t *testing.T) {
+	path := loadRaw(t, `
+services:
+  api:
+    image: api:1
+    environment:
+      DATABASE_URL: postgres://db:5432/maindb
+    depends_on:
+      - db
+  db:
+    image: postgres:15
+`)
+	raw, _, err := LoadFull([]string{path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shared := config.SharedConfig{Services: map[string]config.SharedService{
+		"db": {
+			Kind:       "postgres",
+			Tenancy:    "per_database",
+			URLEnvs:    []string{"DATABASE_URL"},
+			DBNameEnvs: []string{"POSTGRES_DB"},
+		},
+	}}
+	wt, err := SynthesizeWorktree(raw, shared, "myrepo", SynthesizeWorktreeOptions{
+		TenantDBs: map[string]map[string]string{"db": {"": "myrepo_feature_abc123"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	api := wt.Services["api"]
+	if got := api.Environment["DATABASE_URL"]; got == nil || *got != "postgres://db:5432/myrepo_feature_abc123" {
+		t.Fatalf("DATABASE_URL = %v, want rewritten URL", got)
+	}
+	if got := api.Environment["POSTGRES_DB"]; got == nil || *got != "myrepo_feature_abc123" {
+		t.Fatalf("POSTGRES_DB = %v, want myrepo_feature_abc123", got)
+	}
+}
