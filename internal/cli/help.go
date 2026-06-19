@@ -28,6 +28,9 @@ func printHelp(w io.Writer) {
 	printHelpCmd(w, maxCmd, "logs", "Pass through to docker compose logs")
 	printHelpCmd(w, maxCmd, "exec", "Pass through to docker compose exec")
 	printHelpCmd(w, maxCmd, "run", "Pass through to docker compose run --rm")
+	printHelpCmd(w, maxCmd, "build", "Pass through to docker compose build")
+	printHelpCmd(w, maxCmd, "pull", "Pass through to docker compose pull")
+	printHelpCmd(w, maxCmd, "push", "Pass through to docker compose push")
 	printHelpCmd(w, maxCmd, "status", "Show managed worktree services")
 	printHelpCmd(w, maxCmd, "ports", "Show allocated host ports (use --all for all worktrees)")
 	printHelpCmd(w, maxCmd, "prepare", "Prepare the current worktree's local Docker setup")
@@ -36,6 +39,11 @@ func printHelp(w io.Writer) {
 	printHelpCmd(w, maxCmd, "wait", "Pass through to docker compose wait")
 	printHelpCmd(w, maxCmd, "watch", "Pass through to docker compose watch")
 	printHelpCmd(w, maxCmd, "clean", "Remove stale Docktree-managed resources")
+	printHelpCmd(w, maxCmd, "config", "Pass through to docker compose config")
+	printHelpCmd(w, maxCmd, "images", "Pass through to docker compose images")
+	printHelpCmd(w, maxCmd, "top", "Pass through to docker compose top")
+	printHelpCmd(w, maxCmd, "ls", "Pass through to docker compose ls (all projects)")
+	printHelpCmd(w, maxCmd, "port", "Pass through to docker compose port")
 	printHelpCmd(w, maxCmd, "help", "Show this help text")
 	printHelpCmd(w, maxCmd, "version", "Print the docktree version")
 }
@@ -169,6 +177,71 @@ Examples:
   docktree watch web         # watch the web service`)
 }
 
+func printConfigHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree config [options]
+
+Pass through to docker compose config with the current worktree's compose files.
+Options and arguments are passed through directly to docker compose config.
+
+Examples:
+  docktree config                    # dump resolved compose config
+  docktree config --format json      # output as JSON
+  docktree config --services         # list services`)
+}
+
+func printImagesHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree images [options]
+
+Pass through to docker compose images with the current worktree's project context.
+Options and arguments are passed through directly to docker compose images.
+
+Examples:
+  docktree images              # list images used by the project
+  docktree images api          # filter by service name
+  docktree images -q           # quiet mode, show image IDs only`)
+}
+
+func printTopHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree top [options] [service...]
+
+Pass through to docker compose top with the current worktree's project context.
+Options and arguments are passed through directly to docker compose top.
+
+Examples:
+  docktree top                # show running processes for all services
+  docktree top api            # show processes for the api service`)
+}
+
+func printLsHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree ls [options]
+
+Pass through to docker compose ls to list all Compose projects.
+This lists ALL compose projects on the system, not just the current worktree's.
+
+Options and arguments are passed through directly to docker compose ls.
+
+Examples:
+  docktree ls                   # list all projects
+  docktree ls -a                # include stopped projects
+  docktree ls --format json     # output as JSON`)
+}
+
+func printPortHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree port [options] <service> <private_port>
+
+Pass through to docker compose port with the current worktree's project context.
+Options and arguments are passed through directly to docker compose port.
+
+Examples:
+  docktree port api 3000          # show host mapping for port 3000
+  docktree port --protocol tcp db 5432`)
+}
+
 func printUpHelp(w io.Writer) {
 	fmt.Fprintln(w, `Usage:
   docktree up [options]
@@ -183,4 +256,43 @@ Options:
   --validate            Check config, ports, and compose validity without starting
   --dry-run             Show what would happen without making changes
   -h, --help            Show this help text`)
+}
+
+func printBuildHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree build [options] [service...]
+
+Pass through to docker compose build with the current worktree's project context.
+Options and arguments are passed through directly to docker compose build.
+
+Examples:
+  docktree build                # build all services
+  docktree build api            # build the api service
+  docktree build --no-cache api # rebuild without cache`)
+}
+
+func printPullHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree pull [options] [service...]
+
+Pass through to docker compose pull with the current worktree's project context.
+Options and arguments are passed through directly to docker compose pull.
+
+Examples:
+  docktree pull              # pull all services
+  docktree pull api          # pull the api service
+  docktree pull --ignore-pull-failures`)
+}
+
+func printPushHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree push [options] [service...]
+
+Pass through to docker compose push with the current worktree's project context.
+Options and arguments are passed through directly to docker compose push.
+
+Examples:
+  docktree push              # push all services
+  docktree push api          # push the api service
+  docktree push --ignore-push-failures`)
 }
