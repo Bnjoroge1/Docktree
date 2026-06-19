@@ -42,6 +42,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			"exec":     runExec,
 			"run":      runComposeRun,
 			"docker":   runDocker,
+			"build":    runBuild,
+			"pull":     runPull,
+			"push":     runPush,
 			"status":   runStatus,
 			"ports":    runPorts,
 			"clean":    runClean,
@@ -57,6 +60,11 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			"pause":    runPause,
 			"unpause":  runUnpause,
 			"kill":     runKill,
+			"config":   runConfig,
+			"images":   runImages,
+			"top":      runTop,
+			"ls":       runLs,
+			"port":     runPort,
 		}
 		fn, ok := commands[rest[0]]
 		if !ok {
