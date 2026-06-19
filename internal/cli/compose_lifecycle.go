@@ -6,27 +6,27 @@ import (
 )
 
 func runRestart(ctx *Context) (any, int, error) {
-	return runComposePassthrough(ctx, "restart", ctx.Args[1:], printRestartHelp)
+	return runComposePassthrough(ctx, "restart", ctx.Args[1:], true, printRestartHelp)
 }
 
 func runStart(ctx *Context) (any, int, error) {
-	return runComposePassthrough(ctx, "start", ctx.Args[1:], printStartHelp)
+	return runComposePassthrough(ctx, "start", ctx.Args[1:], true, printStartHelp)
 }
 
 func runRm(ctx *Context) (any, int, error) {
-	return runComposePassthrough(ctx, "rm", ctx.Args[1:], printRmHelp)
+	return runComposePassthrough(ctx, "rm", ctx.Args[1:], true, printRmHelp)
 }
 
 func runPause(ctx *Context) (any, int, error) {
-	return runComposePassthrough(ctx, "pause", ctx.Args[1:], printPauseHelp)
+	return runComposePassthrough(ctx, "pause", ctx.Args[1:], true, printPauseHelp)
 }
 
 func runUnpause(ctx *Context) (any, int, error) {
-	return runComposePassthrough(ctx, "unpause", ctx.Args[1:], printUnpauseHelp)
+	return runComposePassthrough(ctx, "unpause", ctx.Args[1:], true, printUnpauseHelp)
 }
 
 func runKill(ctx *Context) (any, int, error) {
-	return runComposePassthrough(ctx, "kill", ctx.Args[1:], printKillHelp)
+	return runComposePassthrough(ctx, "kill", ctx.Args[1:], true, printKillHelp)
 }
 
 func printRestartHelp(w io.Writer) {
