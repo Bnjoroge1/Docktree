@@ -32,14 +32,16 @@ func TestTenantNameNeverEmpty(t *testing.T) {
 	}
 }
 
-func TestProvisionFullShareNoOp(t *testing.T) {
-	// full_share tenancy must be a no-op; no docker calls happen.
+func TestProvisionFullSharePassesThroughToDriver(t *testing.T) {
 	err := Provision(TenantConfig{
 		Kind:    "postgres",
 		Tenancy: "full_share",
 	})
-	if err != nil {
-		t.Fatalf("full_share should be a no-op: %v", err)
+	if err == nil {
+		t.Fatal("full_share without a tenant name should return an error from the driver")
+	}
+	if !strings.Contains(err.Error(), "empty tenant name") {
+		t.Fatalf("expected 'empty tenant name' error, got: %v", err)
 	}
 }
 
