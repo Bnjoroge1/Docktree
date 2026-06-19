@@ -18,9 +18,19 @@ func printHelp(w io.Writer) {
 	printHelpCmd(w, maxCmd, "up", "Start the current worktree's Compose project (or --create <branch>)")
 	printHelpCmd(w, maxCmd, "down", "Stop the current worktree's Compose project (or specific services)")
 	printHelpCmd(w, maxCmd, "stop", "Stop running containers without removing them")
+	printHelpCmd(w, maxCmd, "restart", "Pass through to docker compose restart")
+	printHelpCmd(w, maxCmd, "start", "Pass through to docker compose start")
+	printHelpCmd(w, maxCmd, "rm", "Pass through to docker compose rm")
+	printHelpCmd(w, maxCmd, "pause", "Pass through to docker compose pause")
+	printHelpCmd(w, maxCmd, "unpause", "Pass through to docker compose unpause")
+	printHelpCmd(w, maxCmd, "kill", "Pass through to docker compose kill")
+	printHelpCmd(w, maxCmd, "docker", "Run any docker compose subcommand with worktree context pre-filled")
 	printHelpCmd(w, maxCmd, "logs", "Pass through to docker compose logs")
 	printHelpCmd(w, maxCmd, "exec", "Pass through to docker compose exec")
 	printHelpCmd(w, maxCmd, "run", "Pass through to docker compose run --rm")
+	printHelpCmd(w, maxCmd, "build", "Pass through to docker compose build")
+	printHelpCmd(w, maxCmd, "pull", "Pass through to docker compose pull")
+	printHelpCmd(w, maxCmd, "push", "Pass through to docker compose push")
 	printHelpCmd(w, maxCmd, "status", "Show managed worktree services")
 	printHelpCmd(w, maxCmd, "ports", "Show allocated host ports (use --all for all worktrees)")
 	printHelpCmd(w, maxCmd, "prepare", "Prepare the current worktree's local Docker setup")
@@ -199,9 +209,49 @@ Start the current worktree's Compose project.
 
 Options:
   -f, --file <path>     Use a specific Compose file
+  --build               Force rebuild of images with a build: directive
   --create <branch>     Create and prepare a new worktree before starting
   --sync                Run setup copy/symlink/run steps before starting
   --validate            Check config, ports, and compose validity without starting
   --dry-run             Show what would happen without making changes
   -h, --help            Show this help text`)
+}
+
+func printBuildHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree build [options] [service...]
+
+Pass through to docker compose build with the current worktree's project context.
+Options and arguments are passed through directly to docker compose build.
+
+Examples:
+  docktree build                # build all services
+  docktree build api            # build the api service
+  docktree build --no-cache api # rebuild without cache`)
+}
+
+func printPullHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree pull [options] [service...]
+
+Pass through to docker compose pull with the current worktree's project context.
+Options and arguments are passed through directly to docker compose pull.
+
+Examples:
+  docktree pull              # pull all services
+  docktree pull api          # pull the api service
+  docktree pull --ignore-pull-failures`)
+}
+
+func printPushHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree push [options] [service...]
+
+Pass through to docker compose push with the current worktree's project context.
+Options and arguments are passed through directly to docker compose push.
+
+Examples:
+  docktree push              # push all services
+  docktree push api          # push the api service
+  docktree push --ignore-push-failures`)
 }

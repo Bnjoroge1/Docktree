@@ -38,6 +38,18 @@ func runUp(ctx *Context) (any, int, error) {
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
+	// When the worktree has no shared.services of its own, inherit them
+	// from the main repo's docktree.yml so a single config covers every
+	// linked worktree.
+	if len(cfg.Shared.Services) == 0 {
+		mainRoot, mErr := dockgit.MainRepoRoot()
+		if mErr == nil && mainRoot != repo.RepoRoot {
+			mainCfg, mErr := config.Load(mainRoot)
+			if mErr == nil && len(mainCfg.Shared.Services) > 0 {
+				cfg.Shared.Services = mainCfg.Shared.Services
+			}
+		}
+	}
 	steps := ctx.Steps
 	if steps != nil {
 		steps.Header("Starting services…", instanceName)
@@ -204,11 +216,7 @@ func runUp(ctx *Context) (any, int, error) {
 		}
 	}
 	if len(cfg.Shared.Services) > 0 {
-		mainRoot, err := dockgit.MainRepoRoot()
-		if err != nil {
-			return nil, output.ExitConfig, err
-		}
-		if _, _, platErr := ensurePlatformUp(ctx, instanceName, dockgit.RepoName(mainRoot)); platErr != nil {
+		if _, _, platErr := ensurePlatformUp(ctx, repo.RepoRoot); platErr != nil {
 			return nil, output.ExitDocker, platErr
 		}
 		if steps != nil {
@@ -267,7 +275,11 @@ func runUp(ctx *Context) (any, int, error) {
 		composeFiles = append(composeFiles, clearFile)
 	}
 	composeFiles = append(composeFiles, overrideFile)
-	cmd := docker.ComposeCommand{ProjectName: instanceName, Files: composeFiles, CommandArgs: []string{"up", "-d"}}
+	upArgs := []string{"up", "-d"}
+	if options.build {
+		upArgs = append(upArgs, "--build")
+	}
+	cmd := docker.ComposeCommand{ProjectName: instanceName, Files: composeFiles, CommandArgs: upArgs}
 	for attempt := 0; attempt < 10; attempt++ {
 		assignments, err = registry.Allocate(instanceName, portRequests(project, cfg.Ports.BindHost), portRange)
 		if err != nil {

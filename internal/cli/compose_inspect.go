@@ -36,11 +36,11 @@ func runConfig(ctx *Context) (any, int, error) {
 }
 
 func runImages(ctx *Context) (any, int, error) {
-	return runComposePassthrough(ctx, "images", ctx.Args[1:], printImagesHelp)
+	return runComposePassthrough(ctx, "images", ctx.Args[1:], true, printImagesHelp)
 }
 
 func runTop(ctx *Context) (any, int, error) {
-	return runComposePassthrough(ctx, "top", ctx.Args[1:], printTopHelp)
+	return runComposePassthrough(ctx, "top", ctx.Args[1:], true, printTopHelp)
 }
 
 func runLs(ctx *Context) (any, int, error) {
@@ -60,5 +60,5 @@ func runLs(ctx *Context) (any, int, error) {
 }
 
 func runPort(ctx *Context) (any, int, error) {
-	return runComposePassthrough(ctx, "port", ctx.Args[1:], printPortHelp)
+	return runComposePassthrough(ctx, "port", ctx.Args[1:], false, printPortHelp)
 }

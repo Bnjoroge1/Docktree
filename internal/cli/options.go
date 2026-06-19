@@ -110,6 +110,7 @@ type upOptions struct {
 	sync     bool
 	validate bool
 	dryRun   bool
+	build    bool
 }
 
 type createOptions struct {
@@ -146,6 +147,8 @@ func parseUpOptions(args []string) (upOptions, error) {
 			options.validate = true
 		case arg == "--dry-run":
 			options.dryRun = true
+		case arg == "--build":
+			options.build = true
 		default:
 			return upOptions{}, fmt.Errorf("unknown up flag %q", arg)
 		}
