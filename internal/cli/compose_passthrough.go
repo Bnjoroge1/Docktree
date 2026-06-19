@@ -11,8 +11,12 @@ import (
 	"github.com/bnjoroge/docktree/internal/state"
 )
 
-func runComposePassthrough(ctx *Context, subcommand string, args []string, helpFn func(io.Writer)) (any, int, error) {
-	if len(args) == 0 || (len(args) == 1 && (args[0] == "-h" || args[0] == "--help")) {
+func runComposePassthrough(ctx *Context, subcommand string, args []string, allowEmptyArgs bool, helpFn func(io.Writer)) (any, int, error) {
+	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
+		helpFn(ctx.Stdout)
+		return nil, output.ExitOK, nil
+	}
+	if len(args) == 0 && !allowEmptyArgs {
 		helpFn(ctx.Stdout)
 		return nil, output.ExitOK, nil
 	}
@@ -53,11 +57,11 @@ func runComposePassthrough(ctx *Context, subcommand string, args []string, helpF
 }
 
 func runLogs(ctx *Context) (any, int, error) {
-	return runComposePassthrough(ctx, "logs", ctx.Args[1:], printLogsHelp)
+	return runComposePassthrough(ctx, "logs", ctx.Args[1:], true, printLogsHelp)
 }
 
 func runExec(ctx *Context) (any, int, error) {
-	return runComposePassthrough(ctx, "exec", ctx.Args[1:], printExecHelp)
+	return runComposePassthrough(ctx, "exec", ctx.Args[1:], false, printExecHelp)
 }
 
 func runComposeRun(ctx *Context) (any, int, error) {

@@ -48,6 +48,12 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			"create":   runCreate,
 			"prepare":  runPrepare,
 			"platform": runPlatform,
+			"restart":  runRestart,
+			"start":    runStart,
+			"rm":       runRm,
+			"pause":    runPause,
+			"unpause":  runUnpause,
+			"kill":     runKill,
 		}
 		fn, ok := commands[rest[0]]
 		if !ok {
