@@ -107,7 +107,7 @@ func runPlatformUp(ctx *Context) (any, int, error) {
 	if current.WorktreeRoot != mainRoot {
 		return nil, output.ExitConfig, fmt.Errorf("docktree platform up must be run from the main repo root; use docktree up in linked worktrees")
 	}
-	plan, err := buildPlatformPlan()
+	plan, err := buildPlatformPlan("")
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
@@ -168,7 +168,7 @@ func runPlatformUp(ctx *Context) (any, int, error) {
 // runPlatformDown stops the platform stack but keeps named volumes and the
 // external network owns data deletion.
 func runPlatformDown(ctx *Context) (any, int, error) {
-	plan, err := buildPlatformPlan()
+	plan, err := buildPlatformPlan("")
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
@@ -204,7 +204,7 @@ func runPlatformDown(ctx *Context) (any, int, error) {
 }
 
 func runPlatformStatus(ctx *Context) (any, int, error) {
-	plan, err := buildPlatformPlan()
+	plan, err := buildPlatformPlan("")
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
@@ -346,6 +346,31 @@ func provisionPlatformTenants(plan *platformPlan, repoSlug string) error {
 		services = append(services, serviceReady{name: svcName, kind: svc.Kind, container: container, user: user, password: password, svcDecl: svc})
 	}
 
+	// Provision full_share databases once (repo-scoped, not per-instance).
+	for _, svc := range services {
+		for logicalName, dbTarget := range svc.svcDecl.DatabaseTargets() {
+			if dbTarget.Tenancy != "full_share" {
+				continue
+			}
+			template := dbTarget.Template
+			if template == "" {
+				template = svc.svcDecl.Template
+			}
+			provCfg := provision.TenantConfig{
+				Kind:       svc.kind,
+				Tenancy:    dbTarget.Tenancy,
+				Template:   template,
+				TenantName: provision.ResolveTenantName(dbTarget.Tenancy, repoSlug, "", logicalName),
+				Host:       svc.container,
+				User:       svc.user,
+				Password:   svc.password,
+			}
+			if err := provision.Provision(provCfg); err != nil {
+				return fmt.Errorf("failed to provision full_share database %s: %w", provCfg.TenantName, err)
+			}
+		}
+	}
+
 	// Provision all tenants across all instances.
 	for _, inst := range instances {
 		if !platformRepoMatches(inst.RepoRoot, repoSlug) {
@@ -353,6 +378,9 @@ func provisionPlatformTenants(plan *platformPlan, repoSlug string) error {
 		}
 		for _, svc := range services {
 			for logicalName, dbTarget := range svc.svcDecl.DatabaseTargets() {
+				if dbTarget.Tenancy == "full_share" {
+					continue
+				}
 				template := dbTarget.Template
 				if template == "" {
 					template = svc.svcDecl.Template
@@ -419,22 +447,45 @@ func tenantBindingsForInstance(plan *platformPlan, inst *state.Instance) []tenan
 	return bindings
 }
 
-// buildPlatformPlan locates the main repo root, loads its docktree.yml,
-// reads the source compose files, and synthesizes the platform project.
-// All platform CLI commands route through here so they agree on identity.
-func buildPlatformPlan() (*platformPlan, error) {
-	mainRoot, err := dockgit.MainRepoRoot()
+// buildPlatformPlan locates the main repo root (or rootOverride if non‑empty),
+// loads its docktree.yml, reads the source compose files, and synthesizes
+// the platform project. All platform CLI commands route through here so they
+// agree on identity.
+func buildPlatformPlan(rootOverride string) (*platformPlan, error) {
+	root := rootOverride
+	if root == "" {
+		var err error
+		root, err = dockgit.MainRepoRoot()
+		if err != nil {
+			return nil, err
+		}
+	}
+	cfg, err := config.Load(root)
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := config.Load(mainRoot)
-	if err != nil {
-		return nil, err
+	// When the override root has no shared.services, fall back to the
+	// main repo so a single docktree.yml covers all linked worktrees.
+	if len(cfg.Shared.Services) == 0 && rootOverride != "" {
+		mainRoot, mErr := dockgit.MainRepoRoot()
+		if mErr == nil && mainRoot != root {
+			mainCfg, mErr := config.Load(mainRoot)
+			if mErr == nil && len(mainCfg.Shared.Services) > 0 {
+				cfg = mainCfg
+				root = mainRoot
+			}
+		}
 	}
 	if len(cfg.Shared.Services) == 0 {
 		return &platformPlan{Skipped: true, SkipReason: "no shared.services declared in docktree.yml"}, nil
 	}
-	files, err := composeFiles(mainRoot, cfg)
+	// Platform project/network identity is always scoped to the main
+	// repo so that platform commands and worktree up agree on names.
+	identityRoot, err := dockgit.MainRepoRoot()
+	if err != nil {
+		return nil, err
+	}
+	files, err := composeFiles(root, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -442,12 +493,12 @@ func buildPlatformPlan() (*platformPlan, error) {
 	if err != nil {
 		return nil, err
 	}
-	repoSlug := dockgit.RepoName(mainRoot)
+	repoSlug := dockgit.RepoName(identityRoot)
 	platformProj, err := compose.SynthesizePlatform(raw, cfg.Shared, repoSlug)
 	if err != nil {
 		return nil, err
 	}
-	generatedDir := filepath.Join(mainRoot, cfg.State.Directory, "generated")
+	generatedDir := filepath.Join(identityRoot, cfg.State.Directory, "generated")
 	return &platformPlan{
 		Project:         compose.PlatformProjectName(repoSlug),
 		Network:         compose.PlatformNetworkName(repoSlug),
@@ -521,8 +572,10 @@ func dockerSilent(args ...string) error {
 // ensurePlatformUp is called by runUp when shared services are configured.
 // It synthesizes and writes the platform compose file, creates the external
 // network if needed, and starts the platform stack. Idempotent.
-func ensurePlatformUp(ctx *Context, instanceName, repoSlug string) (string, string, error) {
-	plan, err := buildPlatformPlan()
+// repoRoot is the root directory to load docktree.yml from (defaults to
+// main repo root when empty).
+func ensurePlatformUp(ctx *Context, repoRoot string) (string, string, error) {
+	plan, err := buildPlatformPlan(repoRoot)
 	if err != nil {
 		return "", "", err
 	}
@@ -559,7 +612,7 @@ func ensurePlatformUp(ctx *Context, instanceName, repoSlug string) (string, stri
 // all global instances, querying the platform Postgres to report whether each
 // tenant database actually exists.
 func runPlatformTenants(ctx *Context) (any, int, error) {
-	plan, err := buildPlatformPlan()
+	plan, err := buildPlatformPlan("")
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
@@ -630,7 +683,7 @@ func runPlatformTenants(ctx *Context) (any, int, error) {
 // runPlatformLogs streams logs from the platform compose project.
 // Passes remaining args directly to docker compose logs so standard flags
 func runPlatformLogs(ctx *Context) (any, int, error) {
-	plan, err := buildPlatformPlan()
+	plan, err := buildPlatformPlan("")
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
@@ -684,7 +737,7 @@ func runPlatformClean(ctx *Context) (any, int, error) {
 			return nil, output.ExitNoop, nil
 		}
 	}
-	plan, err := buildPlatformPlan()
+	plan, err := buildPlatformPlan("")
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}

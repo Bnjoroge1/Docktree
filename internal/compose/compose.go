@@ -43,10 +43,11 @@ type ServiceOverride struct {
 	Image         string            `yaml:"image,omitempty"`
 	Labels        map[string]string `yaml:"labels,omitempty"`
 	Ports         PortOverride      `yaml:"ports,omitempty"`
-	Networks      []string          `yaml:"networks,omitempty"`
+	Networks      map[string]any    `yaml:"networks,omitempty"`
 }
 
 type NetworkOverride struct {
+	Driver   string `yaml:"driver,omitempty"`
 	External bool   `yaml:"external,omitempty"`
 	Name     string `yaml:"name,omitempty"`
 }

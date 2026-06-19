@@ -41,6 +41,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 			"logs":     runLogs,
 			"exec":     runExec,
 			"run":      runComposeRun,
+			"docker":   runDocker,
 			"status":   runStatus,
 			"ports":    runPorts,
 			"clean":    runClean,
