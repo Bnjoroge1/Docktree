@@ -204,7 +204,7 @@ func runUp(ctx *Context) (any, int, error) {
 		if err != nil {
 			return nil, output.ExitDocker, err
 		}
-		if runningState == composeRunRunning {
+		if runningState == composeRunRunning && !projectHasBuild(project) {
 			currentHash, err := state.HashFiles(files)
 			if err != nil {
 				return nil, output.ExitConfig, err
@@ -276,7 +276,7 @@ func runUp(ctx *Context) (any, int, error) {
 	}
 	composeFiles = append(composeFiles, overrideFile)
 	upArgs := []string{"up", "-d"}
-	if options.build {
+	if options.build || projectHasBuild(project) {
 		upArgs = append(upArgs, "--build")
 	}
 	cmd := docker.ComposeCommand{ProjectName: instanceName, Files: composeFiles, CommandArgs: upArgs}
@@ -405,6 +405,15 @@ func runValidate(project *compose.ComposeProject, files []string, cfg *config.Co
 		errs = append(errs, "port clear generation returned nil despite having published ports")
 	}
 	return ValidateResult{Valid: len(errs) == 0, Services: serviceNames(project), Ports: assignments, IsolatedVolumes: isolated, EnvWarnings: envWarnings, Errors: errs}, output.ExitOK, nil
+}
+
+func projectHasBuild(project *compose.ComposeProject) bool {
+	for _, svc := range project.Services {
+		if svc.Build != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func runDryRun(project *compose.ComposeProject, files []string, cfg *config.Config, repo dockgit.RepoInfo, instanceName string, envWarnings []compose.Warning) (any, int, error) {
