@@ -12,6 +12,44 @@ import (
 
 var version = "0.1.0-dev"
 
+type commandSpec struct {
+	run      commandFunc
+	progress bool
+}
+
+var rootCommands = map[string]commandSpec{
+	"up":       {run: runUp, progress: true},
+	"down":     {run: runDown, progress: true},
+	"stop":     {run: runStop},
+	"logs":     {run: runLogs},
+	"exec":     {run: runExec},
+	"run":      {run: runComposeRun},
+	"docker":   {run: runDocker},
+	"build":    {run: runBuild},
+	"pull":     {run: runPull},
+	"push":     {run: runPush},
+	"status":   {run: runStatus},
+	"ports":    {run: runPorts},
+	"clean":    {run: runClean},
+	"create":   {run: runCreate},
+	"prepare":  {run: runPrepare},
+	"platform": {run: runPlatform},
+	"cp":       {run: runCp},
+	"wait":     {run: runWait},
+	"watch":    {run: runWatch},
+	"restart":  {run: runRestart},
+	"start":    {run: runStart},
+	"rm":       {run: runRm},
+	"pause":    {run: runPause},
+	"unpause":  {run: runUnpause},
+	"kill":     {run: runKill},
+	"config":   {run: runConfig},
+	"images":   {run: runImages},
+	"top":      {run: runTop},
+	"ls":       {run: runLs},
+	"port":     {run: runPort},
+}
+
 func Run(args []string, stdout, stderr io.Writer) int {
 	jsonMode, rest := parseGlobalFlags(args)
 	renderer := output.New(stdout, jsonMode)
@@ -20,70 +58,45 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		printHelp(stdout)
 		return output.ExitOK
 	}
-	var result any
-	var code int
-	var err error
 
-	switch rest[0] {
-	case "help", "-h", "--help":
-		printHelp(stdout)
-		return output.ExitOK
-	case "version", "-v", "--version":
-		fmt.Fprintf(stdout, "%s\n", tui.MutedS("docktree "+version))
-		return output.ExitOK
-	case "up":
-		result, code, err = runWithProgress(ctx, runUp)
-	case "down":
-		result, code, err = runWithProgress(ctx, runDown)
-	default:
-		commands := map[string]commandFunc{
-			"stop":     runStop,
-			"logs":     runLogs,
-			"exec":     runExec,
-			"run":      runComposeRun,
-			"docker":   runDocker,
-			"build":    runBuild,
-			"pull":     runPull,
-			"push":     runPush,
-			"status":   runStatus,
-			"ports":    runPorts,
-			"clean":    runClean,
-			"create":   runCreate,
-			"prepare":  runPrepare,
-			"platform": runPlatform,
-			"cp":       runCp,
-			"wait":     runWait,
-			"watch":    runWatch,
-			"restart":  runRestart,
-			"start":    runStart,
-			"rm":       runRm,
-			"pause":    runPause,
-			"unpause":  runUnpause,
-			"kill":     runKill,
-			"config":   runConfig,
-			"images":   runImages,
-			"top":      runTop,
-			"ls":       runLs,
-			"port":     runPort,
-		}
-		fn, ok := commands[rest[0]]
-		if !ok {
-			fmt.Fprintf(stderr, "unknown command %q\n\n", rest[0])
-			printHelp(stderr)
-			return output.ExitUsage
-		}
-		result, code, err = fn(ctx)
-	}
+	result, code, err := runRootCommand(ctx)
 	if err != nil {
-		target := renderer
-		target.Writer = stderr
-		target.Error(errorCode(code), err.Error(), nil)
+		renderError(renderer, stderr, code, err)
 		return code
 	}
 	if result != nil {
 		renderer.Render(result, humanRenderer())
 	}
 	return code
+}
+
+func runRootCommand(ctx *Context) (any, int, error) {
+	cmd := ctx.Args[0]
+	switch cmd {
+	case "help", "-h", "--help":
+		printHelp(ctx.Stdout)
+		return nil, output.ExitOK, nil
+	case "version", "-v", "--version":
+		fmt.Fprintf(ctx.Stdout, "%s\n", tui.MutedS("docktree "+version))
+		return nil, output.ExitOK, nil
+	}
+
+	spec, ok := rootCommands[cmd]
+	if !ok {
+		fmt.Fprintf(ctx.Stderr, "unknown command %q\n\n", cmd)
+		printHelp(ctx.Stderr)
+		return nil, output.ExitUsage, nil
+	}
+	if spec.progress {
+		return runWithProgress(ctx, spec.run)
+	}
+	return spec.run(ctx)
+}
+
+func renderError(renderer *output.Renderer, stderr io.Writer, code int, err error) {
+	target := renderer
+	target.Writer = stderr
+	target.Error(errorCode(code), err.Error(), nil)
 }
 
 // runWithProgress runs fn with step-by-step progress on stderr.
