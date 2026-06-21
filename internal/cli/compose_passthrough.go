@@ -149,7 +149,12 @@ func runDocker(ctx *Context) (any, int, error) {
 		CommandArgs: args,
 	}
 	if err := docker.Run(cmd, ctx.Stdout, ctx.Stderr); err != nil {
-		return nil, output.ExitDocker, err
+		return ComposePassthroughResult{
+			Project:      inst.ProjectName,
+			ComposeFiles: composeFiles,
+			Subcommand:   args[0],
+			Args:         args[1:],
+		}, output.ExitDocker, err
 	}
 	return ComposePassthroughResult{
 		Project:      inst.ProjectName,

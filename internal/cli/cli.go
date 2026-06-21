@@ -87,10 +87,19 @@ func runRootCommand(ctx *Context) (any, int, error) {
 		printHelp(ctx.Stderr)
 		return nil, output.ExitUsage, nil
 	}
-	if spec.progress {
+	if spec.progress && !hasHelpFlag(ctx.Args[1:]) {
 		return runWithProgress(ctx, spec.run)
 	}
 	return spec.run(ctx)
+}
+
+func hasHelpFlag(args []string) bool {
+	for _, arg := range args {
+		if arg == "-h" || arg == "--help" {
+			return true
+		}
+	}
+	return false
 }
 
 func renderError(renderer *output.Renderer, stderr io.Writer, code int, err error) {
