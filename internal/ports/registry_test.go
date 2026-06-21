@@ -91,3 +91,28 @@ func TestAllocateReplacesTakenExistingPort(t *testing.T) {
 		t.Fatalf("reused taken port %d", first[0].HostPort)
 	}
 }
+
+func TestExistingAssignmentsKeepsCurrentlyBoundOwnPort(t *testing.T) {
+	reg := &Registry{Dir: t.TempDir()}
+	requests := []PortRequest{{Service: "web", ContainerPort: 80, HostIP: "127.0.0.1"}}
+	first, err := reg.Allocate("one", requests, Range{Min: 41000, Max: 41010})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(first[0].HostPort)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+
+	kept, ok, err := reg.ExistingAssignments("one", requests)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected existing assignments to cover requested ports")
+	}
+	if kept[0].HostPort != first[0].HostPort {
+		t.Fatalf("expected to keep existing port %d, got %d", first[0].HostPort, kept[0].HostPort)
+	}
+}

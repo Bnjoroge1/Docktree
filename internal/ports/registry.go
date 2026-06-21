@@ -82,6 +82,18 @@ func (r *Registry) Save(registry map[string][]Assignment) error {
 	return os.WriteFile(filepath.Join(r.dir(), "ports.json"), append(data, '\n'), 0o644)
 }
 
+func (r *Registry) ExistingAssignments(instanceName string, needed []PortRequest) ([]Assignment, bool, error) {
+	registry, err := r.Load()
+	if err != nil {
+		return nil, false, err
+	}
+	existing := registry[instanceName]
+	if !covers(existing, needed) {
+		return nil, false, nil
+	}
+	return filterExisting(existing, needed), true, nil
+}
+
 func (r *Registry) Allocate(instanceName string, needed []PortRequest, portRange Range) ([]Assignment, error) {
 	registry, err := r.Load()
 	if err != nil {
