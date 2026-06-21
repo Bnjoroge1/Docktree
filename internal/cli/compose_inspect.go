@@ -9,7 +9,7 @@ import (
 
 func runConfig(ctx *Context) (any, int, error) {
 	args := ctx.Args[1:]
-	if len(args) == 0 || (len(args) == 1 && (args[0] == "-h" || args[0] == "--help")) {
+	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
 		printConfigHelp(ctx.Stdout)
 		return nil, output.ExitOK, nil
 	}
