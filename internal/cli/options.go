@@ -242,6 +242,31 @@ func parseGlobalFlags(args []string) (bool, []string) {
 	return jsonMode, rest
 }
 
+type syncOptions struct {
+	help    bool
+	dryRun  bool
+	force   bool
+}
+
+func parseSyncOptions(args []string) (syncOptions, error) {
+	var options syncOptions
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--help" || arg == "-h":
+			options.help = true
+		case arg == "--dry-run":
+			options.dryRun = true
+		case arg == "--force":
+			options.force = true
+		default:
+			return options, fmt.Errorf("unknown flag: %s", arg)
+		}
+	}
+	return options, nil
+}
+
+
 func sortedKeys(m map[string][]ports.Assignment) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {

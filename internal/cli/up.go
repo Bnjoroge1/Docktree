@@ -109,6 +109,10 @@ func runUp(ctx *Context) (any, int, error) {
 			return nil, output.ExitConfig, err
 		}
 	}
+	var staleCopies []string
+	if cfg != nil {
+		staleCopies = setup.StaleFiles(repo.RepoRoot, repo.WorktreeRoot, cfg)
+	}
 	if options.sync && options.create == "" {
 		if err := setup.Prepare(setup.Options{SourceDir: repo.RepoRoot, TargetDir: repo.WorktreeRoot, Config: cfg, Stdout: ctx.Stdout, Stderr: ctx.Stderr}); err != nil {
 			return nil, output.ExitConfig, err
@@ -372,7 +376,7 @@ func runUp(ctx *Context) (any, int, error) {
 		sharedSvcNames = append(sharedSvcNames, name)
 	}
 	sort.Strings(sharedSvcNames)
-	return UpResult{Instance: inst, CreatedWorktree: createdWorktree, ComposeFiles: files, OverrideFile: overrideFile, ClearFile: clearFile, Ports: assignments, Services: serviceNames(project), SharedServices: sharedSvcNames, IsolatedVolumes: isolatedVolumes(project, repoRootVolumesShare()), EnvWarnings: envWarnings, Scaffolded: scaffolded, Synced: synced}, output.ExitOK, nil
+	return UpResult{Instance: inst, CreatedWorktree: createdWorktree, ComposeFiles: files, OverrideFile: overrideFile, ClearFile: clearFile, Ports: assignments, Services: serviceNames(project), SharedServices: sharedSvcNames, IsolatedVolumes: isolatedVolumes(project, repoRootVolumesShare()), EnvWarnings: envWarnings, Scaffolded: scaffolded, Synced: synced, StaleCopies: staleCopies}, output.ExitOK, nil
 }
 
 func runValidate(project *compose.ComposeProject, files []string, cfg *config.Config, repo dockgit.RepoInfo, envWarnings []compose.Warning) (any, int, error) {

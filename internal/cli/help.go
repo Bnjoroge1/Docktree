@@ -39,6 +39,7 @@ func printHelp(w io.Writer) {
 	printHelpCmd(w, maxCmd, "start", "Pass through to docker compose start")
 	printHelpCmd(w, maxCmd, "status", "Show managed worktree services")
 	printHelpCmd(w, maxCmd, "stop", "Stop running containers without removing them")
+	printHelpCmd(w, maxCmd, "sync", "Sync setup.copy files to all worktrees")
 	printHelpCmd(w, maxCmd, "top", "Pass through to docker compose top")
 	printHelpCmd(w, maxCmd, "unpause", "Pass through to docker compose unpause")
 	printHelpCmd(w, maxCmd, "up", "Start the current worktree's Compose project (or --create <branch>)")
@@ -360,4 +361,17 @@ Examples:
   docktree push              # push all services
   docktree push api          # push the api service
   docktree push --ignore-push-failures`)
+}
+func printSyncHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree sync [options]
+
+Sync setup.copy files from the main repo to all worktrees.
+Reports which files are stale (different or missing) and copies them.
+Skips worktrees that are currently running.
+
+Options:
+  --dry-run    Show what would be synced without copying
+  --force      Sync without confirmation prompt
+  -h, --help   Show this help text`)
 }
