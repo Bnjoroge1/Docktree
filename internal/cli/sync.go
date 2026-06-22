@@ -102,6 +102,7 @@ func runSync(ctx *Context) (any, int, error) {
 		}
 	}
 
+	syncedCount := 0
 	for i := range items {
 		item := &items[i]
 		if item.Skipped != "" {
@@ -124,9 +125,11 @@ func runSync(ctx *Context) (any, int, error) {
 				break
 			}
 		}
+		if item.Skipped == "" {
+			syncedCount += len(item.Files)
+		}
 	}
-
-	result.Synced = true
+	result.Synced = syncedCount > 0
 	return result, output.ExitOK, nil
 }
 

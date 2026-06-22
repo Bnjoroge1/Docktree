@@ -232,14 +232,21 @@ func humanRenderer() func(io.Writer, any) {
 				}
 				if true {
 					running := 0
+					paused := 0
 					for _, s := range services {
-						if strings.EqualFold(s.State, "running") {
+						switch {
+						case strings.EqualFold(s.State, "running"):
 							running++
+						case strings.EqualFold(s.State, "paused"):
+							paused++
 						}
 					}
 					statusLabel := tui.OKS("running")
 					statusBadge := tui.Badge("ok", "RUNNING")
-					if running < len(services) && running > 0 {
+					if running == 0 && paused == len(services) && len(services) > 0 {
+						statusLabel = tui.WarningS("paused")
+						statusBadge = tui.Badge("warning", "PAUSED")
+					} else if running < len(services) && running > 0 {
 						statusLabel = tui.WarningS("partial")
 						statusBadge = tui.Badge("warning", "PARTIAL")
 					} else if running == 0 {
@@ -280,6 +287,8 @@ func humanRenderer() func(io.Writer, any) {
 							switch {
 							case strings.EqualFold(val, "running"):
 								return tui.OKS(val)
+							case strings.EqualFold(val, "paused"):
+								return tui.WarningS(val)
 							case strings.EqualFold(val, "exited"), strings.EqualFold(val, "restarting"):
 								return tui.ErrorS(val)
 							default:
@@ -360,6 +369,8 @@ func humanRenderer() func(io.Writer, any) {
 				statusIcon := tui.ErrorS("○")
 				if e.Running {
 					statusIcon = tui.OKS("●")
+				} else if e.Paused {
+					statusIcon = tui.WarningS("◌")
 				}
 				services := fmt.Sprintf("%d/%d", e.RunningCount, e.TotalServices)
 				if e.TotalServices == 0 {
