@@ -33,6 +33,7 @@ func LoadFull(files []string) (*composetypes.Project, *ComposeProject, error) {
 	}
 	project, err := composeloader.LoadWithContext(context.Background(), *details, func(options *composeloader.Options) {
 		options.SetProjectName(projectName, false)
+		options.SkipConsistencyCheck = true
 	})
 	if err != nil {
 		return nil, nil, err
@@ -79,6 +80,7 @@ func convertService(svc composetypes.ServiceConfig) Service {
 	converted := Service{
 		ContainerName: svc.ContainerName,
 		Image:         svc.Image,
+		NetworkMode:   svc.NetworkMode,
 		Environment:   map[string]string{},
 	}
 	if svc.Build != nil {

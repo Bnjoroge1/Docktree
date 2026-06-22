@@ -113,6 +113,18 @@ func TestGenerateOverride(t *testing.T) {
 			},
 		},
 		{
+			name: "network_mode_services_skip_network_override",
+			project: &ComposeProject{Services: map[string]Service{
+				"vpn": {Image: "alpine", NetworkMode: "host"},
+			}},
+			instance: "repo-main-abc",
+			check: func(t *testing.T, o *Override) {
+				if networks := o.Services["vpn"].Networks; len(networks) != 0 {
+					t.Fatalf("network_mode service should not get networks override, got %#v", networks)
+				}
+			},
+		},
+		{
 			name:     "nil_project",
 			project:  nil,
 			instance: "repo-main-abc",
@@ -239,7 +251,7 @@ func TestGenerateOverride(t *testing.T) {
 		{
 			name: "isolated_network_per_worktree",
 			project: &ComposeProject{Services: map[string]Service{
-				"api": {Image: "myapp/api:1"},
+				"api":    {Image: "myapp/api:1"},
 				"worker": {Image: "myapp/worker:1"},
 			}},
 			instance: "repo-feature-abc123",

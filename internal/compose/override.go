@@ -68,9 +68,12 @@ func GenerateOverride(project *ComposeProject, instanceName string, assignments 
 			"docktree.instance": instanceName,
 			"docktree.repo":     repoPart(instanceName),
 		}
-		// Add the isolated network to every service so their DNS names only
-		// resolve within this worktree project.
-		serviceOverride.Networks = map[string]any{isoNet: nil}
+		// Add the isolated network when Compose can accept a networks override.
+		// Services using network_mode cannot also declare networks, and Docker
+		// Compose preserves that shape in generated overrides.
+		if svc.NetworkMode == "" {
+			serviceOverride.Networks = map[string]any{isoNet: nil}
+		}
 		override.Services[name] = serviceOverride
 	}
 	sharedSet := map[string]bool{}

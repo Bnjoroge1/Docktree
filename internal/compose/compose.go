@@ -16,6 +16,7 @@ type ComposeProject struct {
 type Service struct {
 	ContainerName string            `yaml:"container_name,omitempty"`
 	Image         string            `yaml:"image,omitempty"`
+	NetworkMode   string            `yaml:"network_mode,omitempty"`
 	Build         *BuildConfig      `yaml:"build,omitempty"`
 	Ports         []PortMapping     `yaml:"ports,omitempty"`
 	Environment   map[string]string `yaml:"environment,omitempty"`

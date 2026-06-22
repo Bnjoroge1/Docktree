@@ -107,6 +107,24 @@ services:
 	}
 }
 
+func TestLoadProjectAllowsComposeAcceptedNetworkModeWithNetworks(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "compose.yml")
+	data := []byte(`
+services:
+  app:
+    image: alpine
+    network_mode: host
+    networks:
+      default: {}
+`)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadProject([]string{path}); err != nil {
+		t.Fatal(err)
+	}
+}
 func TestLoadProjectSupportsContainerOnlyPortSyntax(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "compose.yml")
