@@ -35,6 +35,7 @@ type UpResult struct {
 	Scaffolded      bool               `json:"scaffolded,omitempty"`
 	Synced          bool               `json:"synced,omitempty"`
 	AlreadyRunning  bool               `json:"already_running,omitempty"`
+	StaleCopies     []string           `json:"stale_copies,omitempty"`
 }
 
 type ValidateResult struct {
@@ -88,6 +89,18 @@ type StatusResult struct {
 	Raw      json.RawMessage `json:"raw,omitempty"`
 	Text     string          `json:"text,omitempty"`
 	Stopped  bool            `json:"stopped,omitempty"`
+}
+type StatusAllEntry struct {
+	Instance      string `json:"instance"`
+	Branch        string `json:"branch"`
+	Running       bool   `json:"running"`
+	ServiceCount  int    `json:"service_count"`
+	RunningCount  int    `json:"running_count"`
+	TotalServices int    `json:"total_services"`
+}
+
+type StatusAllResult struct {
+	Entries []StatusAllEntry `json:"entries"`
 }
 
 type PortsResult struct {
@@ -172,4 +185,17 @@ type composePsPublisher struct {
 	TargetPort    int    `json:"TargetPort"`
 	PublishedPort int    `json:"PublishedPort"`
 	Protocol      string `json:"Protocol"`
+}
+type SyncItem struct {
+	Instance     string   `json:"instance"`
+	WorktreeRoot string   `json:"worktree_root"`
+	MainRoot     string   `json:"main_root"`
+	Branch       string   `json:"branch"`
+	Files        []string `json:"files"`
+	Skipped      string   `json:"skipped,omitempty"` // reason if skipped
+}
+
+type SyncResult struct {
+	Items  []SyncItem `json:"items"`
+	Synced bool       `json:"synced"` // true if files were actually copied
 }
