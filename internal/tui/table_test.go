@@ -66,3 +66,27 @@ func TestTableNoHeaders(t *testing.T) {
 		t.Errorf("expected empty render for table with no headers, got: %q", got)
 	}
 }
+
+func TestTableCapping(t *testing.T) {
+	// Width of headers/values:
+	// Col 0: "EXTREMELY_LONG_COLUMN_NAME_THAT_EXCEEDS_TERMINAL" (48 chars)
+	// Col 1: "SHORT" (5 chars)
+	// Col 2: "http://127.0.0.1:8080" (21 chars)
+	tbl := Table{
+		Headers: []string{"EXTREMELY_LONG_COLUMN_NAME_THAT_EXCEEDS_TERMINAL", "SHORT", "URL"},
+		Rows: [][]string{
+			{"val1", "val2", "http://127.0.0.1:8080"},
+		},
+		TermWidth: 50, // total terminal width is 50
+	}
+
+	// Let's render the bordered table. Our new prioritization logic should preserve the URL column
+	// fully (since 21 <= 25) and truncate the extremely long column to fit within the terminal width.
+	out := tbl.RenderBordered()
+	if !strings.Contains(out, "http://127.0.0.1:8080") {
+		t.Errorf("expected URL column to remain fully visible (untruncated), but it was truncated. Output:\n%s", out)
+	}
+	if !strings.Contains(out, "SHORT") {
+		t.Errorf("expected SHORT column to remain fully visible (untruncated), but it was truncated. Output:\n%s", out)
+	}
+}

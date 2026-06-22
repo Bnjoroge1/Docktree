@@ -381,7 +381,7 @@ func humanRenderer() func(io.Writer, any) {
 				if row == -1 {
 					return tui.DimS(val)
 				}
-				if v.All {
+				if len(tbl.Headers) == 6 {
 					switch col {
 					case 0:
 						return tui.MutedS(val)
