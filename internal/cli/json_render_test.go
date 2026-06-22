@@ -94,3 +94,23 @@ func TestPortsResultJSONRendering(t *testing.T) {
 		t.Fatalf("unexpected ports payload: %#v", portsPayload)
 	}
 }
+
+func TestVolumesResultJSONRendering(t *testing.T) {
+	got := renderJSONForTest(t, VolumesResult{
+		All: true,
+		Entries: []VolumesEntry{{
+			Instance: "docktree-main",
+			Volume:   "db_data",
+			Name:     "docktree-main-db_data",
+			Driver:   "local",
+		}},
+	})
+	if got["all"] != true {
+		t.Fatalf("all = %#v", got["all"])
+	}
+	entries := got["entries"].([]any)
+	entry := entries[0].(map[string]any)
+	if entry["instance"] != "docktree-main" || entry["volume"] != "db_data" || entry["driver"] != "local" {
+		t.Fatalf("unexpected volumes payload: %#v", entries)
+	}
+}
