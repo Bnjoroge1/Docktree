@@ -30,7 +30,7 @@ type WorktreeInfo struct {
 }
 
 func DetectRepo() (RepoInfo, error) {
-	repoRoot, err := gitOutput("rev-parse", "--show-toplevel")
+	worktreeRoot, err := gitOutput("rev-parse", "--show-toplevel")
 	if err != nil {
 		return RepoInfo{}, err
 	}
@@ -45,10 +45,16 @@ func DetectRepo() (RepoInfo, error) {
 	if branch == "" {
 		branch, _ = gitOutput("rev-parse", "--short", "HEAD")
 	}
-	root := filepath.Clean(repoRoot)
+	// RepoRoot is always the main checkout (where docktree.yml lives).
+	// WorktreeRoot is the current working directory's git root.
+	mainRoot, mErr := MainRepoRoot()
+	repoRoot := filepath.Clean(worktreeRoot)
+	if mErr == nil {
+		repoRoot = filepath.Clean(mainRoot)
+	}
 	return RepoInfo{
-		RepoRoot:     root,
-		WorktreeRoot: root,
+		RepoRoot:     repoRoot,
+		WorktreeRoot: filepath.Clean(worktreeRoot),
 		Branch:       branch,
 		Prefix:       prefix,
 	}, nil
