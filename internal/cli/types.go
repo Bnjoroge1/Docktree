@@ -94,8 +94,10 @@ type StatusAllEntry struct {
 	Instance      string `json:"instance"`
 	Branch        string `json:"branch"`
 	Running       bool   `json:"running"`
+	Paused        bool   `json:"paused"`
 	ServiceCount  int    `json:"service_count"`
 	RunningCount  int    `json:"running_count"`
+	PausedCount   int    `json:"paused_count"`
 	TotalServices int    `json:"total_services"`
 }
 

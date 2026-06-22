@@ -9,6 +9,8 @@ services:
     environment:
       API_URL_A: "http://api-zone-a:8080"
       API_URL_B: "http://api-zone-b:8080"
+    volumes:
+      - ./ui:/app
     depends_on:
       - api-zone-a
       - api-zone-b

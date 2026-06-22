@@ -103,11 +103,15 @@ func runStatusAll(ctx *Context) (any, int, error) {
 		services := parseComposePS(out)
 		entry.TotalServices = len(services)
 		for _, svc := range services {
-			if strings.EqualFold(svc.State, "running") {
+			switch {
+			case strings.EqualFold(svc.State, "running"):
 				entry.RunningCount++
+			case strings.EqualFold(svc.State, "paused"):
+				entry.PausedCount++
 			}
 		}
 		entry.Running = entry.RunningCount > 0
+		entry.Paused = entry.PausedCount > 0 && entry.RunningCount == 0
 		entry.ServiceCount = entry.TotalServices
 		entries = append(entries, entry)
 	}
@@ -135,6 +139,9 @@ func statusForInstance(ctx *Context, inst *state.Instance, cfg *config.Config) (
 	if len(arr) > 0 {
 		data, _ := json.Marshal(arr)
 		result.Raw = data
+	} else if inst.ComposeFileHash != "" {
+		// Compose project exists but no containers running — services are down.
+		result.Stopped = true
 	}
 	return result, output.ExitOK, nil
 }

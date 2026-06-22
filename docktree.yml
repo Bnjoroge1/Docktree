@@ -6,6 +6,7 @@ setup:
         - .env
     symlink:
         - node_modules
+        - testdata/ui/node_modules
 ports:
     mode: dynamic
     bind_host: 127.0.0.1

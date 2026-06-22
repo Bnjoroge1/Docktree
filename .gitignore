@@ -40,4 +40,5 @@ Thumbs.db
 .docktree/
 .cursor
 docktree
-node_modules
+
+docktreenode_modules/
