@@ -698,12 +698,27 @@ func humanRenderer() func(io.Writer, any) {
 				fmt.Fprintf(w, "%s Everything is in sync.\n", tui.BrandS("Docktree"))
 				return
 			}
-			if v.Synced {
+			syncedCount := 0
+			skippedCount := 0
+			for _, item := range v.Items {
+				if item.Skipped != "" {
+					skippedCount++
+				} else {
+					syncedCount++
+				}
+			}
+			if v.Synced && skippedCount > 0 {
+				fmt.Fprintf(w, "%s Synced %d file(s), skipped %d worktree(s)\n",
+					tui.OKS("✓"), countFilesFromItems(v.Items), skippedCount)
+			} else if v.Synced {
 				fmt.Fprintf(w, "%s Synced %d file(s) across %d worktree(s)\n",
 					tui.OKS("✓"), countFilesFromItems(v.Items), len(v.Items))
+			} else if skippedCount > 0 {
+				fmt.Fprintf(w, "%s Skipped %d worktree(s) (running)\n",
+					tui.WarningS("⚠"), skippedCount)
 			} else {
-				fmt.Fprintf(w, "%s Found %d stale worktree(s)\n",
-					tui.WarningS("⚠"), len(v.Items))
+				fmt.Fprintf(w, "%s Would sync %d file(s) across %d worktree(s)\n",
+					tui.MutedS("dry run"), countFilesFromItems(v.Items), len(v.Items))
 			}
 			fmt.Fprintln(w)
 			var tbl tui.Table
@@ -713,6 +728,8 @@ func humanRenderer() func(io.Writer, any) {
 				files := strings.Join(item.Files, ", ")
 				if item.Skipped != "" {
 					files = tui.WarningS(item.Skipped)
+				} else {
+					files = tui.OKS(files)
 				}
 				tbl.Rows = append(tbl.Rows, []string{
 					truncate(item.Instance, 35),
@@ -730,7 +747,7 @@ func humanRenderer() func(io.Writer, any) {
 				case 1:
 					return tui.AccentS(val)
 				case 2:
-					return tui.TextS(val)
+					return val // already styled
 				}
 				return val
 			}))
