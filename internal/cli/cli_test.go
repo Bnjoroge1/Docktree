@@ -227,6 +227,16 @@ func TestParsePortsOptionsUnknown(t *testing.T) {
 	}
 }
 
+func TestParseCleanOptionsHelp(t *testing.T) {
+	opts, err := parseCleanOptions([]string{"--help"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opts.help {
+		t.Fatal("expected help=true")
+	}
+}
+
 func TestParseDownOptionsHelp(t *testing.T) {
 	opts, err := parseDownOptions([]string{"-h"})
 	if err != nil {

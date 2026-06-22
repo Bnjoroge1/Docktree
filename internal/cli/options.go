@@ -51,6 +51,7 @@ func parseVolumesOptions(args []string) (volumesOptions, error) {
 }
 
 type cleanOptions struct {
+	help    bool
 	dryRun  bool
 	yes     bool
 	volumes bool
@@ -190,6 +191,9 @@ func parseCleanOptions(args []string) (cleanOptions, error) {
 	var options cleanOptions
 	for _, arg := range args {
 		switch arg {
+		case "-h", "--help":
+			options.help = true
+			return options, nil
 		case "--dry-run":
 			options.dryRun = true
 		case "--yes":

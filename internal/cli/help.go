@@ -76,6 +76,19 @@ Options:
   -h, --help   Show this help text`)
 }
 
+func printCleanHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree clean [options]
+
+Remove stale Docktree-managed resources for missing or idle worktrees.
+
+Options:
+  --dry-run    Show stale resources without removing them
+  --yes        Skip the interactive confirmation prompt
+  --volumes    Include Docker volumes when discovering and removing stale resources
+  -h, --help   Show this help text`)
+}
+
 func printDownHelp(w io.Writer) {
 	fmt.Fprintln(w, `Usage:
   docktree down [options] [service...]
