@@ -1,12 +1,15 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/bnjoroge/docktree/internal/config"
+	"github.com/bnjoroge/docktree/internal/docker"
 	dockgit "github.com/bnjoroge/docktree/internal/git"
 	"github.com/bnjoroge/docktree/internal/output"
 	"github.com/bnjoroge/docktree/internal/setup"
@@ -113,9 +116,12 @@ func runSync(ctx *Context) (any, int, error) {
 			continue
 		}
 		// avoid swapping files mid-restart.
-		if isWorktreeRunning(item.Instance) {
-			item.Skipped = "worktree is running"
-			continue
+		allInstances, _ := state.LoadGlobalInstances("")
+		if inst, ok := allInstances[item.Instance]; ok {
+			if isWorktreeRunning(&inst) {
+				item.Skipped = "worktree is running"
+				continue
+			}
 		}
 		for _, rel := range item.Files {
 			source := filepath.Join(item.MainRoot, rel)
@@ -151,21 +157,34 @@ func loadConfigForRepo(repoRoot string) (*config.Config, error) {
 	return cfg, nil
 }
 
-func isWorktreeRunning(instanceName string) bool {
-	instances, err := state.LoadGlobalInstances("")
+func isWorktreeRunning(inst *state.Instance) bool {
+	if inst == nil || inst.WorktreeRoot == "" {
+		return false
+	}
+	if _, err := os.Stat(inst.WorktreeRoot); err != nil {
+		return false
+	}
+	// Check if docker compose ps returns any running containers.
+	out, err := docker.RunCapture(docker.ComposeCommand{
+		ProjectName: inst.ProjectName,
+		CommandArgs: []string{"ps", "--format", "json"},
+	})
 	if err != nil {
 		return false
 	}
-	inst, ok := instances[instanceName]
-	if !ok {
-		return false
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || !json.Valid([]byte(line)) {
+			continue
+		}
+		var entry struct {
+			State string `json:"State"`
+		}
+		if err := json.Unmarshal([]byte(line), &entry); err == nil && strings.EqualFold(entry.State, "running") {
+			return true
+		}
 	}
-	if inst.LastActiveAt.IsZero() {
-		return false
-	}
-	// Check if there's a running compose project by looking for a non-empty
-	// compose file hash, which is set during `up`.
-	return inst.ComposeFileHash != ""
+	return false
 }
 
 func countFiles(items []SyncItem) int {
