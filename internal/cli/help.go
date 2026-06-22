@@ -42,6 +42,7 @@ func printHelp(w io.Writer) {
 	printHelpCmd(w, maxCmd, "top", "Pass through to docker compose top")
 	printHelpCmd(w, maxCmd, "unpause", "Pass through to docker compose unpause")
 	printHelpCmd(w, maxCmd, "up", "Start the current worktree's Compose project (or --create <branch>)")
+	printHelpCmd(w, maxCmd, "volumes", "Show Docktree-managed volumes (use --all for all worktrees)")
 	printHelpCmd(w, maxCmd, "wait", "Pass through to docker compose wait")
 	printHelpCmd(w, maxCmd, "watch", "Pass through to docker compose watch")
 	printHelpCmd(w, maxCmd, "help", "Show this help text")
@@ -61,6 +62,17 @@ Show allocated host ports.
 
 Options:
   -a, --all    Show ports for all worktree instances
+  -h, --help   Show this help text`)
+}
+
+func printVolumesHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree volumes [options]
+
+Show Docktree-managed volumes.
+
+Options:
+  -a, --all    Show volumes for all worktree instances
   -h, --help   Show this help text`)
 }
 

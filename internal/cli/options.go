@@ -30,6 +30,26 @@ func parsePortsOptions(args []string) (portsOptions, error) {
 	return options, nil
 }
 
+type volumesOptions struct {
+	all  bool
+	help bool
+}
+
+func parseVolumesOptions(args []string) (volumesOptions, error) {
+	var options volumesOptions
+	for _, arg := range args {
+		switch arg {
+		case "-a", "--all", "-all":
+			options.all = true
+		case "-h", "--help":
+			options.help = true
+		default:
+			return volumesOptions{}, fmt.Errorf("unknown volumes flag %q", arg)
+		}
+	}
+	return options, nil
+}
+
 type cleanOptions struct {
 	dryRun  bool
 	yes     bool

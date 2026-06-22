@@ -96,3 +96,31 @@ func containsLine(text, want string) bool {
 	}
 	return false
 }
+
+func TestListDocktreeVolumes(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "docker")
+	if err := os.WriteFile(script, []byte(`#!/bin/sh
+if [ "$1 $2" = "volume ls" ]; then
+  printf 'vol1\tlocal\tcom.docker.compose.project=alpha,com.docker.compose.volume=db_data\n'
+  printf 'vol2\tlocal\tcom.docker.compose.project=beta\n'
+  printf 'vol3\tlocal\tno-docktree-label=true\n'
+fi
+`), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	volumes, err := ListDocktreeVolumes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(volumes) != 2 {
+		t.Fatalf("expected 2 volumes, got %d: %#v", len(volumes), volumes)
+	}
+	if volumes[0].Name != "vol1" || volumes[0].ProjectName != "alpha" || volumes[0].VolumeName != "db_data" || volumes[0].Driver != "local" {
+		t.Errorf("unexpected volume 0: %#v", volumes[0])
+	}
+	if volumes[1].Name != "vol2" || volumes[1].ProjectName != "beta" || volumes[1].VolumeName != "vol2" || volumes[1].Driver != "local" {
+		t.Errorf("unexpected volume 1: %#v", volumes[1])
+	}
+}

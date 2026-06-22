@@ -144,6 +144,19 @@ type CleanResult struct {
 	Totals    CleanTotals `json:"totals"`
 }
 
+type VolumesEntry struct {
+	Instance string `json:"instance"`
+	Volume   string `json:"volume"`
+	Name     string `json:"name"`
+	Driver   string `json:"driver"`
+}
+
+type VolumesResult struct {
+	All      bool           `json:"all"`
+	Instance string         `json:"instance,omitempty"`
+	Entries  []VolumesEntry `json:"entries"`
+}
+
 type composePsEntry struct {
 	Service    string               `json:"Service"`
 	Name       string               `json:"Name"`

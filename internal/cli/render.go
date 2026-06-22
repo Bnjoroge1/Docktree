@@ -408,6 +408,60 @@ func humanRenderer() func(io.Writer, any) {
 				}
 				return val
 			}))
+		case VolumesResult:
+			if v.All {
+				fmt.Fprintf(w, "%s %s\n", tui.BrandS("Docktree"), tui.MutedS("volumes (all instances)"))
+			} else {
+				fmt.Fprintf(w, "%s %s\n", tui.BrandS("Docktree"), tui.AccentS(v.Instance))
+			}
+			if len(v.Entries) == 0 {
+				break
+			}
+			fmt.Fprintln(w)
+			var tbl tui.Table
+			tbl.TermWidth = tw
+			if v.All {
+				tbl.Headers = []string{"INSTANCE", "VOLUME", "DRIVER", "DOCKER NAME"}
+				for _, entry := range v.Entries {
+					tbl.Rows = append(tbl.Rows, []string{
+						entry.Instance, entry.Volume, entry.Driver, entry.Name,
+					})
+				}
+			} else {
+				tbl.Headers = []string{"VOLUME", "DRIVER", "DOCKER NAME"}
+				for _, entry := range v.Entries {
+					tbl.Rows = append(tbl.Rows, []string{
+						entry.Volume, entry.Driver, entry.Name,
+					})
+				}
+			}
+			fmt.Fprintln(w, tbl.RenderBorderedStyled(func(row, col int, val string) string {
+				if row == -1 {
+					return tui.DimS(val)
+				}
+				if len(tbl.Headers) == 4 {
+					switch col {
+					case 0:
+						return tui.MutedS(val)
+					case 1:
+						return tui.OKS(val)
+					case 2:
+						return tui.AccentS(val)
+					case 3:
+						return tui.DimS(val)
+					}
+				} else {
+					switch col {
+					case 0:
+						return tui.OKS(val)
+					case 1:
+						return tui.AccentS(val)
+					case 2:
+						return tui.DimS(val)
+					}
+				}
+				return val
+			}))
 		case PrepareResult:
 			fmt.Fprintf(w, "%s %s %s\n",
 				tui.BrandS("Docktree"), tui.MutedS("preparing"), tui.AccentS(v.WorktreeRoot))
