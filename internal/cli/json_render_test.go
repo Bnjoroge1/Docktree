@@ -142,3 +142,25 @@ func TestCleanResultJSONRendering(t *testing.T) {
 		t.Fatalf("unexpected clean totals: %#v", totals)
 	}
 }
+
+func TestCreateResultJSONRendering(t *testing.T) {
+	got := renderJSONForTest(t, CreateResult{
+		RepoRoot:     "/repo/docktree",
+		WorktreeRoot: "/repo/docktree.worktrees/feature-auth",
+		Branch:       "feature/auth",
+		Copied:       []string{".env.example"},
+		Symlinked:    []string{"uploads"},
+		Ran:          []string{"npm install"},
+	})
+	if got["repo_root"] != "/repo/docktree" || got["worktree_root"] != "/repo/docktree.worktrees/feature-auth" || got["branch"] != "feature/auth" {
+		t.Fatalf("unexpected create payload: %#v", got)
+	}
+	copied := got["copied"].([]any)
+	if copied[0] != ".env.example" {
+		t.Fatalf("unexpected copied payload: %#v", copied)
+	}
+	ran := got["ran"].([]any)
+	if ran[0] != "npm install" {
+		t.Fatalf("unexpected ran payload: %#v", ran)
+	}
+}
