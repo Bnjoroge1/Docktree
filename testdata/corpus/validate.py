@@ -56,7 +56,9 @@ def compose_cmd(project: Path, *args: str) -> list[str]:
 
 def sanitize(value: str) -> str:
     line = " ".join(value.split())
-    return line[:240]
+    if len(line) <= 360:
+        return line
+    return f"{line[:160]} … {line[-180:]}"
 
 def parse_json_object(output: str) -> dict[str, object]:
     for line in reversed(output.splitlines()):
@@ -89,6 +91,7 @@ def validate_project(project: Path, *, start: bool, docktree_bin: str) -> dict[s
 
     try:
         dry_run = parse_json_object(out)
+        clear = dry_run.get("clear_preview", "")
         override = dry_run.get("override_preview", "")
         result["services"] = len(dry_run.get("services", []))
         result["published_ports"] = len(dry_run.get("ports", []))
@@ -99,18 +102,30 @@ def validate_project(project: Path, *, start: bool, docktree_bin: str) -> dict[s
         result["start_probe"] = "skipped"
         return result
 
-    with tempfile.NamedTemporaryFile("w", suffix=".docktree.override.yml", delete=False) as handle:
-        handle.write(override)
-        override_path = Path(handle.name)
+    temp_paths: list[Path] = []
     try:
+        with tempfile.NamedTemporaryFile("w", suffix=".docktree.clear.yml", delete=False) as handle:
+            handle.write(clear)
+            clear_path = Path(handle.name)
+            temp_paths.append(clear_path)
+        with tempfile.NamedTemporaryFile("w", suffix=".docktree.override.yml", delete=False) as handle:
+            handle.write(override)
+            override_path = Path(handle.name)
+            temp_paths.append(override_path)
         cmd = compose_cmd(project)
-        cmd += ["-f", str(override_path), "config"]
+        cmd += ["-f", str(clear_path), "-f", str(override_path), "config"]
         ok, out = run(cmd, timeout=120)
     finally:
-        override_path.unlink(missing_ok=True)
+        if not start:
+            for path in temp_paths:
+                path.unlink(missing_ok=True)
     result["override_config"] = "ok" if ok else "fail"
     if not ok:
         result["override_error"] = sanitize(out)
+        result["start_probe"] = "skipped"
+        for path in temp_paths:
+            path.unlink(missing_ok=True)
+        return result
 
     if not start:
         result["start_probe"] = "not-run"
@@ -121,7 +136,7 @@ def validate_project(project: Path, *, start: bool, docktree_bin: str) -> dict[s
     env_file = project / ".env"
     if env_file.exists():
         up_cmd += ["--env-file", str(env_file)]
-    up_cmd += ["-f", str(project / "compose.yml"), "up", "-d", "--wait", "--wait-timeout", "30", "--no-build", "--pull", "never"]
+    up_cmd += ["-f", str(project / "compose.yml"), "-f", str(clear_path), "-f", str(override_path), "up", "-d", "--wait", "--wait-timeout", "30", "--no-build", "--pull", "never"]
     ok, out = run(up_cmd, timeout=180)
     result["start_probe"] = "started" if ok else "not-started"
     if not ok:
@@ -130,11 +145,13 @@ def validate_project(project: Path, *, start: bool, docktree_bin: str) -> dict[s
     down_cmd = ["docker", "compose", "--project-name", project_name, "--project-directory", str(project)]
     if env_file.exists():
         down_cmd += ["--env-file", str(env_file)]
-    down_cmd += ["-f", str(project / "compose.yml"), "down", "-v", "--remove-orphans"]
+    down_cmd += ["-f", str(project / "compose.yml"), "-f", str(clear_path), "-f", str(override_path), "down", "-v", "--remove-orphans"]
     down_ok, down_out = run(down_cmd, timeout=120)
     result["cleanup"] = "ok" if down_ok else "fail"
     if not down_ok:
         result["cleanup_error"] = sanitize(down_out)
+    for path in temp_paths:
+        path.unlink(missing_ok=True)
     return result
 
 

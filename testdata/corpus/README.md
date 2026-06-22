@@ -55,7 +55,13 @@ to flip).
 
 ## 2026-06-22 validation report
 
-Imported 20 upstream Compose files and ran `go test ./internal/compose -count=1`.
-All 20 corpus projects parse through Docktree.
+Imported 20 upstream Compose files and validated them with `go test ./internal/compose -count=1` plus `testdata/corpus/validate.py`.
+All 20 corpus projects pass Docker Compose config, Docktree dry-run, and Docker Compose config with Docktree's generated clear+override files layered back in.
 
-Issue found and fixed: Docktree loaded process environment variables but did not load `.env` from the Compose file directory before interpolation. Real-world Compose files such as authentik, immich, sentry, and supabase depend on `.env` for required variables and typed fields. `LoadFull` now merges the Compose directory `.env` before OS environment overrides, matching Docker Compose precedence for these files.
+Start probes were attempted for all 20 projects with Docktree clear+override files, `--wait`, and `--pull never`; none started because required images were not present locally. See `REPORT.md` for the per-project table and reasons.
+
+Issues found and fixed:
+
+- Docktree loaded process environment variables but did not load `.env` from the Compose file directory before interpolation. Real-world Compose files such as authentik, immich, sentry, and supabase depend on `.env` for required variables and typed fields. `LoadFull` now merges the Compose directory `.env` before OS environment overrides.
+- compose-go's consistency check rejected real Compose files accepted by Docker Compose when services declared both `network_mode` and `networks`; Docktree now skips that check during load.
+- Docktree's generated override attached isolated networks to `network_mode` services; it now omits that override for those services so the layered Compose config remains valid.
