@@ -39,4 +39,4 @@ Thumbs.db
 .env.*
 .docktree/
 .cursor
-docktree
+docktreenode_modules/
