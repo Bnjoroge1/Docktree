@@ -83,3 +83,65 @@ func TestPrepareSkipsCopyAndSymlinkForSameDir(t *testing.T) {
 		t.Fatalf(".env missing after prepare: %v", err)
 	}
 }
+func TestStaleFilesDetectsDifferentContent(t *testing.T) {
+	source := t.TempDir()
+	target := t.TempDir()
+	if err := os.WriteFile(filepath.Join(source, ".env"), []byte("PORT=3000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Target has different content.
+	if err := os.WriteFile(filepath.Join(target, ".env"), []byte("PORT=4000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Defaults()
+	cfg.Setup.Copy = []string{".env"}
+	stale := StaleFiles(source, target, &cfg)
+	if len(stale) != 1 || stale[0] != ".env" {
+		t.Fatalf("StaleFiles = %v, want [.env]", stale)
+	}
+}
+
+func TestStaleFilesDetectsMissingTarget(t *testing.T) {
+	source := t.TempDir()
+	target := t.TempDir()
+	if err := os.WriteFile(filepath.Join(source, ".env"), []byte("PORT=3000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Target has no .env.
+	cfg := config.Defaults()
+	cfg.Setup.Copy = []string{".env"}
+	stale := StaleFiles(source, target, &cfg)
+	if len(stale) != 1 || stale[0] != ".env" {
+		t.Fatalf("StaleFiles = %v, want [.env]", stale)
+	}
+}
+
+func TestStaleFilesReturnsEmptyWhenIdentical(t *testing.T) {
+	source := t.TempDir()
+	target := t.TempDir()
+	data := []byte("PORT=3000\n")
+	if err := os.WriteFile(filepath.Join(source, ".env"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, ".env"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Defaults()
+	cfg.Setup.Copy = []string{".env"}
+	stale := StaleFiles(source, target, &cfg)
+	if len(stale) != 0 {
+		t.Fatalf("StaleFiles = %v, want empty", stale)
+	}
+}
+
+func TestStaleFilesSkipsMissingSource(t *testing.T) {
+	source := t.TempDir()
+	target := t.TempDir()
+	// Source has no .env — nothing to sync.
+	cfg := config.Defaults()
+	cfg.Setup.Copy = []string{".env"}
+	stale := StaleFiles(source, target, &cfg)
+	if len(stale) != 0 {
+		t.Fatalf("StaleFiles = %v, want empty", stale)
+	}
+}

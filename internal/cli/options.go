@@ -10,6 +10,24 @@ import (
 	"github.com/bnjoroge/docktree/internal/state"
 )
 
+type simpleHelpOptions struct {
+	help bool
+}
+
+func parseNoArgHelpOptions(command string, args []string) (simpleHelpOptions, error) {
+	var options simpleHelpOptions
+	for _, arg := range args {
+		switch arg {
+		case "-h", "--help":
+			options.help = true
+			return options, nil
+		default:
+			return simpleHelpOptions{}, fmt.Errorf("unknown %s flag %q", command, arg)
+		}
+	}
+	return options, nil
+}
+
 type portsOptions struct {
 	all  bool
 	help bool
@@ -30,7 +48,28 @@ func parsePortsOptions(args []string) (portsOptions, error) {
 	return options, nil
 }
 
+type volumesOptions struct {
+	all  bool
+	help bool
+}
+
+func parseVolumesOptions(args []string) (volumesOptions, error) {
+	var options volumesOptions
+	for _, arg := range args {
+		switch arg {
+		case "-a", "--all", "-all":
+			options.all = true
+		case "-h", "--help":
+			options.help = true
+		default:
+			return volumesOptions{}, fmt.Errorf("unknown volumes flag %q", arg)
+		}
+	}
+	return options, nil
+}
+
 type cleanOptions struct {
+	help    bool
 	dryRun  bool
 	yes     bool
 	volumes bool
@@ -114,6 +153,7 @@ type upOptions struct {
 }
 
 type createOptions struct {
+	help   bool
 	branch string
 }
 
@@ -157,6 +197,9 @@ func parseUpOptions(args []string) (upOptions, error) {
 }
 
 func parseCreateOptions(args []string) (createOptions, error) {
+	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
+		return createOptions{help: true}, nil
+	}
 	if len(args) != 1 {
 		return createOptions{}, fmt.Errorf("usage: docktree create <branch>")
 	}
@@ -170,6 +213,9 @@ func parseCleanOptions(args []string) (cleanOptions, error) {
 	var options cleanOptions
 	for _, arg := range args {
 		switch arg {
+		case "-h", "--help":
+			options.help = true
+			return options, nil
 		case "--dry-run":
 			options.dryRun = true
 		case "--yes":
@@ -195,6 +241,31 @@ func parseGlobalFlags(args []string) (bool, []string) {
 	}
 	return jsonMode, rest
 }
+
+type syncOptions struct {
+	help    bool
+	dryRun  bool
+	force   bool
+}
+
+func parseSyncOptions(args []string) (syncOptions, error) {
+	var options syncOptions
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--help" || arg == "-h":
+			options.help = true
+		case arg == "--dry-run":
+			options.dryRun = true
+		case arg == "--force":
+			options.force = true
+		default:
+			return options, fmt.Errorf("unknown flag: %s", arg)
+		}
+	}
+	return options, nil
+}
+
 
 func sortedKeys(m map[string][]ports.Assignment) []string {
 	keys := make([]string, 0, len(m))

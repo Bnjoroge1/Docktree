@@ -158,3 +158,52 @@ func parseLabelString(value string) map[string]string {
 	}
 	return labels
 }
+
+type VolumeInfo struct {
+	Name        string
+	Driver      string
+	ProjectName string
+	VolumeName  string
+}
+
+func ListDocktreeVolumes() ([]VolumeInfo, error) {
+	lines, err := dockerLines("volume", "ls", "--format", "{{.Name}}\t{{.Driver}}\t{{.Labels}}")
+	if err != nil {
+		return nil, err
+	}
+	var volumes []VolumeInfo
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "\t")
+		if len(parts) < 2 {
+			continue
+		}
+		name := parts[0]
+		driver := parts[1]
+		var labelsStr string
+		if len(parts) >= 3 {
+			labelsStr = parts[2]
+		}
+		labels := parseLabelString(labelsStr)
+		project := labels["docktree.instance"]
+		if project == "" {
+			project = labels["com.docker.compose.project"]
+		}
+		if project == "" {
+			continue
+		}
+		volName := labels["com.docker.compose.volume"]
+		if volName == "" {
+			volName = name
+		}
+		volumes = append(volumes, VolumeInfo{
+			Name:        name,
+			Driver:      driver,
+			ProjectName: project,
+			VolumeName:  volName,
+		})
+	}
+	return volumes, nil
+}

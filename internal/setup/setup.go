@@ -1,6 +1,8 @@
 package setup
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -164,4 +166,48 @@ func samePath(a, b string) bool {
 		b = bb
 	}
 	return filepath.Clean(a) == filepath.Clean(b)
+}
+// StaleFiles reports which files in cfg.Setup.Copy differ between sourceDir
+// (typically the main repo root) and targetDir (a worktree). Returns a list
+// of relative paths that need syncing (missing in target or content differs).
+func StaleFiles(sourceDir, targetDir string, cfg *config.Config) []string {
+	if samePath(sourceDir, targetDir) {
+		return nil
+	}
+	var stale []string
+	for _, rel := range cfg.Setup.Copy {
+		source := filepath.Join(sourceDir, rel)
+		target := filepath.Join(targetDir, rel)
+		if filesDiffer(source, target) {
+			stale = append(stale, rel)
+		}
+	}
+	return stale
+}
+
+func filesDiffer(a, b string) bool {
+	ha, errA := fileHash(a)
+	hb, errB := fileHash(b)
+	// If source doesn't exist, nothing to sync.
+	if errA != nil {
+		return false
+	}
+	// Target missing or hash differs.
+	if errB != nil || ha != hb {
+		return true
+	}
+	return false
+}
+
+func fileHash(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }

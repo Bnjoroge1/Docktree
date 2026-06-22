@@ -39,9 +39,11 @@ func printHelp(w io.Writer) {
 	printHelpCmd(w, maxCmd, "start", "Pass through to docker compose start")
 	printHelpCmd(w, maxCmd, "status", "Show managed worktree services")
 	printHelpCmd(w, maxCmd, "stop", "Stop running containers without removing them")
+	printHelpCmd(w, maxCmd, "sync", "Sync setup.copy files to all worktrees")
 	printHelpCmd(w, maxCmd, "top", "Pass through to docker compose top")
 	printHelpCmd(w, maxCmd, "unpause", "Pass through to docker compose unpause")
 	printHelpCmd(w, maxCmd, "up", "Start the current worktree's Compose project (or --create <branch>)")
+	printHelpCmd(w, maxCmd, "volumes", "Show Docktree-managed volumes (use --all for all worktrees)")
 	printHelpCmd(w, maxCmd, "wait", "Pass through to docker compose wait")
 	printHelpCmd(w, maxCmd, "watch", "Pass through to docker compose watch")
 	printHelpCmd(w, maxCmd, "help", "Show this help text")
@@ -62,6 +64,70 @@ Show allocated host ports.
 Options:
   -a, --all    Show ports for all worktree instances
   -h, --help   Show this help text`)
+}
+
+func printVolumesHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree volumes [options]
+
+Show Docktree-managed volumes.
+
+Options:
+  -a, --all    Show volumes for all worktree instances
+  -h, --help   Show this help text`)
+}
+
+func printCleanHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree clean [options]
+
+Remove stale Docktree-managed resources for missing or idle worktrees.
+
+Options:
+  --dry-run    Show stale resources without removing them
+  --yes        Skip the interactive confirmation prompt
+  --volumes    Include Docker volumes when discovering and removing stale resources
+  -h, --help   Show this help text`)
+}
+
+func printCreateHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree create <branch>
+
+Create a new git worktree for <branch> and prepare its local Docker setup.
+
+Options:
+  -h, --help   Show this help text
+
+Examples:
+  docktree create feature/auth
+  docktree create bugfix/api-timeout`)
+}
+
+func printPrepareHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree prepare [options]
+
+Prepare the current worktree's local Docker setup from docktree.yml.
+
+Options:
+  -h, --help   Show this help text
+
+Examples:
+  docktree prepare`)
+}
+
+func printStatusHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree status [options]
+
+Show the current worktree's managed Compose services.
+
+Options:
+  -h, --help   Show this help text
+
+Examples:
+  docktree status`)
 }
 
 func printDownHelp(w io.Writer) {
@@ -295,4 +361,17 @@ Examples:
   docktree push              # push all services
   docktree push api          # push the api service
   docktree push --ignore-push-failures`)
+}
+func printSyncHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree sync [options]
+
+Sync setup.copy files from the main repo to all worktrees.
+Reports which files are stale (different or missing) and copies them.
+Skips worktrees that are currently running.
+
+Options:
+  --dry-run    Show what would be synced without copying
+  --force      Sync without confirmation prompt
+  -h, --help   Show this help text`)
 }

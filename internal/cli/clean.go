@@ -22,6 +22,10 @@ func runClean(ctx *Context) (any, int, error) {
 	if err != nil {
 		return nil, output.ExitUsage, err
 	}
+	if options.help {
+		printCleanHelp(ctx.Stdout)
+		return nil, output.ExitOK, nil
+	}
 	portRegistry := ports.NewRegistry()
 	if err := portRegistry.Lock(); err != nil {
 		return nil, output.ExitDocker, err

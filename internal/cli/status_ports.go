@@ -18,6 +18,15 @@ import (
 )
 
 func runStatus(ctx *Context) (any, int, error) {
+	options, err := parseNoArgHelpOptions("status", ctx.Args[1:])
+	if err != nil {
+		return nil, output.ExitUsage, err
+	}
+	if options.help {
+		printStatusHelp(ctx.Stdout)
+		return nil, output.ExitOK, nil
+	}
+
 	repo, err := dockgit.DetectRepo()
 	if err != nil {
 		return nil, output.ExitConfig, err

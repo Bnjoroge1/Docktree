@@ -81,6 +81,12 @@ func humanRenderer() func(io.Writer, any) {
 				fmt.Fprintf(w, "%s %s\n",
 					tui.WarningS("⚠ Warning:"), tui.DimS(warning.Message))
 			}
+			if len(v.StaleCopies) > 0 {
+				fmt.Fprintln(w)
+				fmt.Fprintf(w, "%s %s\n",
+					tui.WarningS("⚠ Stale copies:"), strings.Join(v.StaleCopies, ", "))
+				fmt.Fprintf(w, "  %s\n", tui.DimS("Run `docktree sync` to update"))
+			}
 			if len(v.IsolatedVolumes) > 0 {
 				fmt.Fprintln(w)
 				fmt.Fprintf(w, "%s %s\n",
@@ -408,6 +414,60 @@ func humanRenderer() func(io.Writer, any) {
 				}
 				return val
 			}))
+		case VolumesResult:
+			if v.All {
+				fmt.Fprintf(w, "%s %s\n", tui.BrandS("Docktree"), tui.MutedS("volumes (all instances)"))
+			} else {
+				fmt.Fprintf(w, "%s %s\n", tui.BrandS("Docktree"), tui.AccentS(v.Instance))
+			}
+			if len(v.Entries) == 0 {
+				break
+			}
+			fmt.Fprintln(w)
+			var tbl tui.Table
+			tbl.TermWidth = tw
+			if v.All {
+				tbl.Headers = []string{"INSTANCE", "VOLUME", "DRIVER", "DOCKER NAME"}
+				for _, entry := range v.Entries {
+					tbl.Rows = append(tbl.Rows, []string{
+						entry.Instance, entry.Volume, entry.Driver, entry.Name,
+					})
+				}
+			} else {
+				tbl.Headers = []string{"VOLUME", "DRIVER", "DOCKER NAME"}
+				for _, entry := range v.Entries {
+					tbl.Rows = append(tbl.Rows, []string{
+						entry.Volume, entry.Driver, entry.Name,
+					})
+				}
+			}
+			fmt.Fprintln(w, tbl.RenderBorderedStyled(func(row, col int, val string) string {
+				if row == -1 {
+					return tui.DimS(val)
+				}
+				if len(tbl.Headers) == 4 {
+					switch col {
+					case 0:
+						return tui.MutedS(val)
+					case 1:
+						return tui.OKS(val)
+					case 2:
+						return tui.AccentS(val)
+					case 3:
+						return tui.DimS(val)
+					}
+				} else {
+					switch col {
+					case 0:
+						return tui.OKS(val)
+					case 1:
+						return tui.AccentS(val)
+					case 2:
+						return tui.DimS(val)
+					}
+				}
+				return val
+			}))
 		case PrepareResult:
 			fmt.Fprintf(w, "%s %s %s\n",
 				tui.BrandS("Docktree"), tui.MutedS("preparing"), tui.AccentS(v.WorktreeRoot))
@@ -579,6 +639,48 @@ func humanRenderer() func(io.Writer, any) {
 				}
 				return val
 			}))
+		case SyncResult:
+			if len(v.Items) == 0 {
+				fmt.Fprintf(w, "%s Everything is in sync.\n", tui.BrandS("Docktree"))
+				return
+			}
+			if v.Synced {
+				fmt.Fprintf(w, "%s Synced %d file(s) across %d worktree(s)\n",
+					tui.OKS("✓"), countFilesFromItems(v.Items), len(v.Items))
+			} else {
+				fmt.Fprintf(w, "%s Found %d stale worktree(s)\n",
+					tui.WarningS("⚠"), len(v.Items))
+			}
+			fmt.Fprintln(w)
+			var tbl tui.Table
+			tbl.TermWidth = tw
+			tbl.Headers = []string{"INSTANCE", "BRANCH", "FILES"}
+			for _, item := range v.Items {
+				files := strings.Join(item.Files, ", ")
+				if item.Skipped != "" {
+					files = tui.WarningS(item.Skipped)
+				}
+				tbl.Rows = append(tbl.Rows, []string{
+					truncate(item.Instance, 35),
+					item.Branch,
+					files,
+				})
+			}
+			fmt.Fprintln(w, tbl.RenderBorderedStyled(func(row, col int, val string) string {
+				if row == -1 {
+					return tui.DimS(val)
+				}
+				switch col {
+				case 0:
+					return tui.MutedS(val)
+				case 1:
+					return tui.AccentS(val)
+				case 2:
+					return tui.TextS(val)
+				}
+				return val
+			}))
+
 		default:
 			_ = json.NewEncoder(w).Encode(data)
 		}
@@ -595,6 +697,13 @@ func truncate(s string, max int) string {
 		return s
 	}
 	return string(runes[:max-1]) + "…"
+}
+func countFilesFromItems(items []SyncItem) int {
+	n := 0
+	for _, item := range items {
+		n += len(item.Files)
+	}
+	return n
 }
 
 func errorCode(code int) string {

@@ -43,9 +43,11 @@ var rootCommands = map[string]commandSpec{
 	"start":    {run: runStart},
 	"status":   {run: runStatus},
 	"stop":     {run: runStop},
+	"sync":     {run: runSync},
 	"top":      {run: runTop},
 	"unpause":  {run: runUnpause},
 	"up":       {run: runUp, progress: true},
+	"volumes":  {run: runVolumes},
 	"wait":     {run: runWait},
 	"watch":    {run: runWatch},
 }

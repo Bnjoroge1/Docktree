@@ -35,6 +35,7 @@ type UpResult struct {
 	Scaffolded      bool               `json:"scaffolded,omitempty"`
 	Synced          bool               `json:"synced,omitempty"`
 	AlreadyRunning  bool               `json:"already_running,omitempty"`
+	StaleCopies     []string           `json:"stale_copies,omitempty"`
 }
 
 type ValidateResult struct {
@@ -144,6 +145,19 @@ type CleanResult struct {
 	Totals    CleanTotals `json:"totals"`
 }
 
+type VolumesEntry struct {
+	Instance string `json:"instance"`
+	Volume   string `json:"volume"`
+	Name     string `json:"name"`
+	Driver   string `json:"driver"`
+}
+
+type VolumesResult struct {
+	All      bool           `json:"all"`
+	Instance string         `json:"instance,omitempty"`
+	Entries  []VolumesEntry `json:"entries"`
+}
+
 type composePsEntry struct {
 	Service    string               `json:"Service"`
 	Name       string               `json:"Name"`
@@ -159,4 +173,17 @@ type composePsPublisher struct {
 	TargetPort    int    `json:"TargetPort"`
 	PublishedPort int    `json:"PublishedPort"`
 	Protocol      string `json:"Protocol"`
+}
+type SyncItem struct {
+	Instance     string   `json:"instance"`
+	WorktreeRoot string   `json:"worktree_root"`
+	MainRoot     string   `json:"main_root"`
+	Branch       string   `json:"branch"`
+	Files        []string `json:"files"`
+	Skipped      string   `json:"skipped,omitempty"` // reason if skipped
+}
+
+type SyncResult struct {
+	Items  []SyncItem `json:"items"`
+	Synced bool       `json:"synced"` // true if files were actually copied
 }
