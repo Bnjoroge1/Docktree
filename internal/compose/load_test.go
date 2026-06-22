@@ -76,6 +76,37 @@ services:
 	}
 }
 
+func TestLoadProjectReadsDotEnvFromComposeDirectory(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("WEB_PORT=18081\nAPI_BASE_URL=http://from-dotenv\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "compose.yml")
+	data := []byte(`
+services:
+  web:
+    image: nginx:alpine
+    ports:
+      - "${WEB_PORT}:80"
+    environment:
+      API_BASE: ${API_BASE_URL:?required}
+`)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	project, err := LoadProject([]string{path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	web := project.Services["web"]
+	if got := web.Ports[0].Published; got != 18081 {
+		t.Fatalf("published port = %d, want .env value 18081", got)
+	}
+	if got := web.Environment["API_BASE"]; got != "http://from-dotenv" {
+		t.Fatalf("API_BASE = %q, want .env value", got)
+	}
+}
+
 func TestLoadProjectSupportsContainerOnlyPortSyntax(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "compose.yml")

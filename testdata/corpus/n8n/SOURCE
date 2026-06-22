@@ -1,0 +1,3 @@
+url: https://raw.githubusercontent.com/n8n-io/n8n-hosting/main/docker-compose/withPostgres/docker-compose.yml
+license: Apache-2.0
+status: parses

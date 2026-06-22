@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 
+	"github.com/compose-spec/compose-go/v2/dotenv"
 	composeloader "github.com/compose-spec/compose-go/v2/loader"
 	composetypes "github.com/compose-spec/compose-go/v2/types"
 )
@@ -25,7 +26,7 @@ func LoadFull(files []string) (*composetypes.Project, *ComposeProject, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	details.Environment = composeEnvironment()
+	details.Environment = composeEnvironment(workingDir)
 	projectName := filepath.Base(filepath.Clean(workingDir))
 	if projectName == "." || projectName == string(os.PathSeparator) || projectName == "" {
 		projectName = "docktree"
@@ -126,8 +127,14 @@ func convertService(svc composetypes.ServiceConfig) Service {
 	return converted
 }
 
-func composeEnvironment() map[string]string {
+func composeEnvironment(workingDir string) map[string]string {
 	env := map[string]string{}
+	envPath := filepath.Join(workingDir, ".env")
+	if dotEnv, err := dotenv.GetEnvFromFile(env, []string{envPath}); err == nil {
+		for key, value := range dotEnv {
+			env[key] = value
+		}
+	}
 	for _, pair := range os.Environ() {
 		key, value, ok := splitEnv(pair)
 		if ok {
