@@ -114,3 +114,31 @@ func TestVolumesResultJSONRendering(t *testing.T) {
 		t.Fatalf("unexpected volumes payload: %#v", entries)
 	}
 }
+
+func TestCleanResultJSONRendering(t *testing.T) {
+	got := renderJSONForTest(t, CleanResult{
+		DryRun:  true,
+		Volumes: true,
+		Instances: []CleanItem{{
+			Instance:   "docktree-old",
+			Reason:     "worktree path gone",
+			Ports:      2,
+			Containers: 1,
+			Networks:   1,
+			Volumes:    1,
+		}},
+		Totals: CleanTotals{Instances: 1, Ports: 2, Containers: 1, Networks: 1, Volumes: 1},
+	})
+	if got["dry_run"] != true || got["volumes"] != true {
+		t.Fatalf("unexpected clean flags: %#v", got)
+	}
+	instances := got["instances"].([]any)
+	item := instances[0].(map[string]any)
+	if item["instance"] != "docktree-old" || item["reason"] != "worktree path gone" || item["volumes"] != float64(1) {
+		t.Fatalf("unexpected clean item: %#v", item)
+	}
+	totals := got["totals"].(map[string]any)
+	if totals["instances"] != float64(1) || totals["ports"] != float64(2) {
+		t.Fatalf("unexpected clean totals: %#v", totals)
+	}
+}
