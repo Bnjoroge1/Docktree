@@ -74,11 +74,8 @@ func configComposeArgs(args []string, jsonMode bool) []string {
 }
 
 func hasConfigFormatArg(args []string) bool {
-	for i, arg := range args {
-		if arg == "--format" && i+1 < len(args) {
-			return true
-		}
-		if strings.HasPrefix(arg, "--format=") {
+	for _, arg := range args {
+		if arg == "--format" || strings.HasPrefix(arg, "--format=") {
 			return true
 		}
 	}

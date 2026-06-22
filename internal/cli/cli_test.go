@@ -467,3 +467,16 @@ func TestConfigComposeArgsJSONKeepsExplicitFormat(t *testing.T) {
 		}
 	}
 }
+
+func TestConfigComposeArgsJSONDoesNotMaskMissingFormatValue(t *testing.T) {
+	got := configComposeArgs([]string{"--format"}, true)
+	want := []string{"config", "--format"}
+	if len(got) != len(want) {
+		t.Fatalf("args length = %d, want %d: %#v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("arg %d = %q, want %q; all %#v", i, got[i], want[i], got)
+		}
+	}
+}
