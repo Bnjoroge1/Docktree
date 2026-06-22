@@ -10,6 +10,24 @@ import (
 	"github.com/bnjoroge/docktree/internal/state"
 )
 
+type simpleHelpOptions struct {
+	help bool
+}
+
+func parseNoArgHelpOptions(command string, args []string) (simpleHelpOptions, error) {
+	var options simpleHelpOptions
+	for _, arg := range args {
+		switch arg {
+		case "-h", "--help":
+			options.help = true
+			return options, nil
+		default:
+			return simpleHelpOptions{}, fmt.Errorf("unknown %s flag %q", command, arg)
+		}
+	}
+	return options, nil
+}
+
 type portsOptions struct {
 	all  bool
 	help bool

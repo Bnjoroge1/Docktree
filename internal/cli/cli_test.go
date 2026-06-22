@@ -247,6 +247,23 @@ func TestParseCreateOptionsHelp(t *testing.T) {
 	}
 }
 
+func TestParseNoArgHelpOptionsHelp(t *testing.T) {
+	opts, err := parseNoArgHelpOptions("status", []string{"--help"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opts.help {
+		t.Fatal("expected help=true")
+	}
+}
+
+func TestParseNoArgHelpOptionsUnknown(t *testing.T) {
+	_, err := parseNoArgHelpOptions("status", []string{"--json"})
+	if err == nil {
+		t.Fatal("expected error for unknown flag")
+	}
+}
+
 func TestParseDownOptionsHelp(t *testing.T) {
 	opts, err := parseDownOptions([]string{"-h"})
 	if err != nil {

@@ -103,6 +103,32 @@ Examples:
   docktree create bugfix/api-timeout`)
 }
 
+func printPrepareHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree prepare [options]
+
+Prepare the current worktree's local Docker setup from docktree.yml.
+
+Options:
+  -h, --help   Show this help text
+
+Examples:
+  docktree prepare`)
+}
+
+func printStatusHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree status [options]
+
+Show the current worktree's managed Compose services.
+
+Options:
+  -h, --help   Show this help text
+
+Examples:
+  docktree status`)
+}
+
 func printDownHelp(w io.Writer) {
 	fmt.Fprintln(w, `Usage:
   docktree down [options] [service...]

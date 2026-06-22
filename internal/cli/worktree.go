@@ -16,6 +16,15 @@ import (
 )
 
 func runPrepare(ctx *Context) (any, int, error) {
+	options, err := parseNoArgHelpOptions("prepare", ctx.Args[1:])
+	if err != nil {
+		return nil, output.ExitUsage, err
+	}
+	if options.help {
+		printPrepareHelp(ctx.Stdout)
+		return nil, output.ExitOK, nil
+	}
+
 	repo, err := dockgit.DetectRepo()
 	if err != nil {
 		return nil, output.ExitConfig, err
