@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"strings"
+
 	"github.com/bnjoroge/docktree/internal/config"
 	"github.com/bnjoroge/docktree/internal/docker"
 	dockgit "github.com/bnjoroge/docktree/internal/git"
@@ -25,7 +27,7 @@ func runConfig(ctx *Context) (any, int, error) {
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	composeArgs := append([]string{"config"}, args...)
+	composeArgs := configComposeArgs(args, ctx.Renderer.JSON)
 	var cmd docker.ComposeCommand
 	cmd.Files = files
 	cmd.CommandArgs = composeArgs
@@ -61,4 +63,24 @@ func runLs(ctx *Context) (any, int, error) {
 
 func runPort(ctx *Context) (any, int, error) {
 	return runComposePassthrough(ctx, "port", ctx.Args[1:], false, printPortHelp)
+}
+
+func configComposeArgs(args []string, jsonMode bool) []string {
+	composeArgs := append([]string{"config"}, args...)
+	if jsonMode && !hasConfigFormatArg(args) {
+		composeArgs = append(composeArgs, "--format", "json")
+	}
+	return composeArgs
+}
+
+func hasConfigFormatArg(args []string) bool {
+	for i, arg := range args {
+		if arg == "--format" && i+1 < len(args) {
+			return true
+		}
+		if strings.HasPrefix(arg, "--format=") {
+			return true
+		}
+	}
+	return false
 }
