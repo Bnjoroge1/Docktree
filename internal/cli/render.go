@@ -346,6 +346,49 @@ func humanRenderer() func(io.Writer, any) {
 			if v.Text != "" {
 				fmt.Fprintln(w, v.Text)
 			}
+		case StatusAllResult:
+			if len(v.Entries) == 0 {
+				fmt.Fprintf(w, "%s No worktree instances found.\n", tui.BrandS("Docktree"))
+				return
+			}
+			fmt.Fprintf(w, "%s\n", tui.BrandS("Docktree"))
+			fmt.Fprintln(w)
+			var tbl tui.Table
+			tbl.TermWidth = tw
+			tbl.Headers = []string{"", "INSTANCE", "BRANCH", "SERVICES"}
+			for _, e := range v.Entries {
+				statusIcon := tui.ErrorS("○")
+				if e.Running {
+					statusIcon = tui.OKS("●")
+				}
+				services := fmt.Sprintf("%d/%d", e.RunningCount, e.TotalServices)
+				if e.TotalServices == 0 {
+					services = "—"
+				}
+				tbl.Rows = append(tbl.Rows, []string{
+					statusIcon,
+					e.Instance,
+					e.Branch,
+					services,
+				})
+			}
+			fmt.Fprintln(w, tbl.RenderBorderedStyled(func(row, col int, val string) string {
+				if row == -1 {
+					return tui.DimS(val)
+				}
+				switch col {
+				case 0:
+					return val // already styled as icon
+				case 1:
+					return tui.MutedS(val)
+				case 2:
+					return tui.AccentS(val)
+				case 3:
+					return tui.TextS(val)
+				}
+				return val
+			}))
+
 		case PortsResult:
 			if v.All {
 				fmt.Fprintf(w, "%s %s\n", tui.BrandS("Docktree"), tui.MutedS("ports (all instances)"))

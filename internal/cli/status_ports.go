@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/bnjoroge/docktree/internal/config"
@@ -18,13 +19,17 @@ import (
 )
 
 func runStatus(ctx *Context) (any, int, error) {
-	options, err := parseNoArgHelpOptions("status", ctx.Args[1:])
+	options, err := parseStatusOptions(ctx.Args[1:])
 	if err != nil {
 		return nil, output.ExitUsage, err
 	}
 	if options.help {
 		printStatusHelp(ctx.Stdout)
 		return nil, output.ExitOK, nil
+	}
+
+	if options.all {
+		return runStatusAll(ctx)
 	}
 
 	repo, err := dockgit.DetectRepo()
@@ -42,7 +47,76 @@ func runStatus(ctx *Context) (any, int, error) {
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	out, err := docker.RunCapture(docker.ComposeCommand{ProjectName: inst.ProjectName, Files: activeComposeFiles(repo.WorktreeRoot, cfg, inst), CommandArgs: []string{"ps", "--format", "json"}})
+	return statusForInstance(ctx, inst, cfg)
+}
+
+func runStatusAll(ctx *Context) (any, int, error) {
+	instances, err := state.LoadGlobalInstances("")
+	if err != nil {
+		return nil, output.ExitConfig, err
+	}
+	if len(instances) == 0 {
+		return StatusAllResult{}, output.ExitNoop, nil
+	}
+
+	// Sort instances by name for stable output.
+	names := make([]string, 0, len(instances))
+	for name := range instances {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	var entries []StatusAllEntry
+	for _, name := range names {
+		inst := instances[name]
+		entry := StatusAllEntry{
+			Instance: inst.Name,
+			Branch:   inst.Branch,
+		}
+
+		// Check if worktree path still exists.
+		if inst.WorktreeRoot == "" {
+			entries = append(entries, entry)
+			continue
+		}
+		if _, err := os.Stat(inst.WorktreeRoot); err != nil {
+			entries = append(entries, entry)
+			continue
+		}
+
+		cfg, err := config.Load(inst.RepoRoot)
+		if err != nil {
+			entries = append(entries, entry)
+			continue
+		}
+
+		out, err := docker.RunCapture(docker.ComposeCommand{
+			ProjectName: inst.ProjectName,
+			Files:       activeComposeFiles(inst.WorktreeRoot, cfg, &inst),
+			CommandArgs: []string{"ps", "--format", "json"},
+		})
+		if err != nil {
+			entries = append(entries, entry)
+			continue
+		}
+
+		services := parseComposePS(out)
+		entry.TotalServices = len(services)
+		for _, svc := range services {
+			if strings.EqualFold(svc.State, "running") {
+				entry.RunningCount++
+			}
+		}
+		entry.Running = entry.RunningCount > 0
+		entry.ServiceCount = entry.TotalServices
+		entries = append(entries, entry)
+	}
+
+	return StatusAllResult{Entries: entries}, output.ExitOK, nil
+}
+
+func statusForInstance(ctx *Context, inst *state.Instance, cfg *config.Config) (any, int, error) {
+	out, err := docker.RunCapture(docker.ComposeCommand{ProjectName: inst.ProjectName, Files: activeComposeFiles(inst.WorktreeRoot, cfg, inst), CommandArgs: []string{"ps", "--format", "json"}})
 	if err != nil {
 		return nil, output.ExitDocker, err
 	}
@@ -63,6 +137,26 @@ func runStatus(ctx *Context) (any, int, error) {
 		result.Raw = data
 	}
 	return result, output.ExitOK, nil
+}
+
+type composePSEntry struct {
+	Service string `json:"Service"`
+	State   string `json:"State"`
+}
+
+func parseComposePS(out string) []composePSEntry {
+	var services []composePSEntry
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || !json.Valid([]byte(line)) {
+			continue
+		}
+		var entry composePSEntry
+		if err := json.Unmarshal([]byte(line), &entry); err == nil {
+			services = append(services, entry)
+		}
+	}
+	return services
 }
 
 func runPorts(ctx *Context) (any, int, error) {

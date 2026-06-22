@@ -64,7 +64,6 @@ func runSync(ctx *Context) (any, int, error) {
 			continue
 		}
 		for _, inst := range g.instances {
-			// Skip the main worktree — its files ARE the source, nothing to sync.
 			if filepath.Clean(inst.WorktreeRoot) == filepath.Clean(root) {
 				continue
 			}
@@ -76,7 +75,7 @@ func runSync(ctx *Context) (any, int, error) {
 			}
 			stale := setup.StaleFiles(root, inst.WorktreeRoot, cfg)
 			if len(stale) == 0 {
-				continue // already in sync
+				continue 
 			}
 			item.Files = stale
 			items = append(items, item)
@@ -112,7 +111,7 @@ func runSync(ctx *Context) (any, int, error) {
 			item.Skipped = "failed to load config"
 			continue
 		}
-		// Check if the worktree is running — skip to avoid swapping files mid-restart.
+		// avoid swapping files mid-restart.
 		if isWorktreeRunning(item.Instance) {
 			item.Skipped = "worktree is running"
 			continue
