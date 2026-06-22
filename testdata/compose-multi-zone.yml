@@ -2,6 +2,7 @@ version: '3.9'
 
 services:
   ui:
+    build: ./ui
     image: my-ui:latest
     ports:
       - "127.0.0.1:3000:80"
@@ -13,6 +14,7 @@ services:
       - api-zone-b
 
   api-zone-a:
+    build: ./api
     image: my-api:latest
     container_name: platform-api-zone-a
     ports:
@@ -27,6 +29,7 @@ services:
       - redis
 
   api-zone-b:
+    build: ./api
     image: my-api:latest
     container_name: platform-api-zone-b
     ports:
@@ -72,6 +75,7 @@ services:
       - ui
 
   migrate:
+    build: ./api
     image: my-migrate:latest
     profiles:
       - migrate

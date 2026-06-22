@@ -1,6 +1,6 @@
 compose:
     files:
-      - testdata/compose-basic.yml
+      - testdata/compose-multi-zone.yml
 setup:
     copy:
         - .env

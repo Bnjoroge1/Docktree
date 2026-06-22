@@ -1,0 +1,5 @@
+:80 {
+    reverse_proxy /api/a/* http://api-zone-a:8080
+    reverse_proxy /api/b/* http://api-zone-b:8080
+    reverse_proxy * http://ui:80
+}

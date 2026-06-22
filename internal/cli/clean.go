@@ -45,8 +45,10 @@ func runClean(ctx *Context) (any, int, error) {
 		if !ctx.Renderer.IsTTY {
 			return nil, output.ExitUsage, fmt.Errorf("clean requires --yes or --dry-run in non-interactive mode")
 		}
+		ctx.Renderer.Render(result, humanRenderer())
+		fmt.Fprintln(ctx.Stdout)
 		if !confirmClean(ctx.Stdout) {
-			return cleanResultFromCandidates(candidates, false, options.volumes, false), output.ExitNoop, nil
+			return nil, output.ExitNoop, nil
 		}
 	}
 	var applied []cleanCandidate

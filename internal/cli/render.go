@@ -440,19 +440,46 @@ func humanRenderer() func(io.Writer, any) {
 				fmt.Fprintf(w, "%s found no stale resources.\n", tui.BrandS("Docktree"))
 				return
 			}
+			var tbl tui.Table
+			tbl.TermWidth = tw
+			tbl.Headers = []string{"INSTANCE", "REASON", "RESOURCES"}
+			for _, item := range v.Instances {
+				resources := fmt.Sprintf("%d ports, %d containers, %d networks", item.Ports, item.Containers, item.Networks)
+				if v.Volumes {
+					resources = fmt.Sprintf("%s, %d volumes", resources, item.Volumes)
+				}
+				tbl.Rows = append(tbl.Rows, []string{
+					item.Instance,
+					item.Reason,
+					resources,
+				})
+			}
+			renderedTable := tbl.RenderBorderedStyled(func(row, col int, val string) string {
+				if row == -1 {
+					return tui.DimS(val)
+				}
+				switch col {
+				case 0:
+					return tui.MutedS(val)
+				case 1:
+					return tui.DimS(val)
+				case 2:
+					return tui.MutedS(val)
+				}
+				return val
+			})
+
 			if v.DryRun {
 				fmt.Fprintf(w, "%s %s\n", tui.BrandS("Docktree"), tui.MutedS("dry run — nothing will be removed"))
 				fmt.Fprintln(w)
 				fmt.Fprintf(w, "%s\n", tui.MutedS("Would remove:"))
-				for _, item := range v.Instances {
-					resources := fmt.Sprintf("→ %d ports, %d containers, %d networks", item.Ports, item.Containers, item.Networks)
-					fmt.Fprintf(w, "  %s  %s  %s\n",
-						tui.DimS("instance"), tui.AccentS(item.Instance), tui.MutedS(resources))
-				}
+				fmt.Fprintln(w, renderedTable)
 				fmt.Fprintln(w)
-				fmt.Fprintf(w, "%s  %s\n", tui.MutedS("Total:"),
-					tui.MutedS(fmt.Sprintf("%d ports, %d containers, %d networks",
-						v.Totals.Ports, v.Totals.Containers, v.Totals.Networks)))
+				totalsStr := fmt.Sprintf("%d ports, %d containers, %d networks", v.Totals.Ports, v.Totals.Containers, v.Totals.Networks)
+				if v.Volumes {
+					totalsStr = fmt.Sprintf("%s, %d volumes", totalsStr, v.Totals.Volumes)
+				}
+				fmt.Fprintf(w, "%s  %s\n", tui.MutedS("Total:"), tui.MutedS(totalsStr))
 				return
 			}
 			if v.Removed {
@@ -461,16 +488,7 @@ func humanRenderer() func(io.Writer, any) {
 				fmt.Fprintf(w, "%s %s\n", tui.BrandS("Docktree"), tui.MutedS("scanning for stale resources..."))
 			}
 			fmt.Fprintln(w)
-			fmt.Fprintf(w, "  %s  %s  %s\n",
-				tui.WarningS("INSTANCE"), tui.WarningS("REASON"), tui.WarningS("RESOURCES"))
-			for _, item := range v.Instances {
-				resources := fmt.Sprintf("%d ports, %d containers, %d networks", item.Ports, item.Containers, item.Networks)
-				if v.Volumes {
-					resources = fmt.Sprintf("%s, %d volumes", resources, item.Volumes)
-				}
-				fmt.Fprintf(w, "  %s  %s  %s\n",
-					tui.MutedS(item.Instance), tui.DimS(item.Reason), tui.MutedS(resources))
-			}
+			fmt.Fprintln(w, renderedTable)
 			if v.Removed {
 				fmt.Fprintln(w)
 				fmt.Fprintf(w, "  %s %s\n", tui.OKS("✓"), tui.MutedS("Removed stale resources"))
