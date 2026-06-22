@@ -66,11 +66,11 @@ func runPort(ctx *Context) (any, int, error) {
 }
 
 func configComposeArgs(args []string, jsonMode bool) []string {
-	composeArgs := append([]string{"config"}, args...)
+	composeArgs := []string{"config"}
 	if jsonMode && !hasConfigFormatArg(args) {
 		composeArgs = append(composeArgs, "--format", "json")
 	}
-	return composeArgs
+	return append(composeArgs, args...)
 }
 
 func hasConfigFormatArg(args []string) bool {

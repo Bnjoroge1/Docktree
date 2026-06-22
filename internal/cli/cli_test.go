@@ -442,6 +442,19 @@ func TestConfigComposeArgsJSONAddsFormat(t *testing.T) {
 	}
 }
 
+func TestConfigComposeArgsJSONPlacesFormatBeforeServices(t *testing.T) {
+	got := configComposeArgs([]string{"api"}, true)
+	want := []string{"config", "--format", "json", "api"}
+	if len(got) != len(want) {
+		t.Fatalf("args length = %d, want %d: %#v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("arg %d = %q, want %q; all %#v", i, got[i], want[i], got)
+		}
+	}
+}
+
 func TestConfigComposeArgsJSONKeepsExplicitFormat(t *testing.T) {
 	got := configComposeArgs([]string{"--format", "yaml"}, true)
 	want := []string{"config", "--format", "yaml"}
