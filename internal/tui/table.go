@@ -86,47 +86,61 @@ func (t *Table) capWidths(widths []int, bordered bool, maxWidth int) int {
 		return overhead
 	}
 
-	// Reduce proportionally, but never below 3 chars per column
-	// First, ensure minimum widths
-	minWidth := 3
-	remaining := available
-	for i := range widths {
-		if widths[i] < minWidth {
-			remaining -= minWidth
+	// Define minimum widths for each column
+	mins := make([]int, colCount)
+	sumMins := 0
+	for i := 0; i < colCount; i++ {
+		if i == colCount-1 {
+			// Protect the last column (URL / resources / status)
+			// with a minimum of 25, or its original width if smaller.
+			m := 25
+			if widths[i] < m {
+				m = widths[i]
+			}
+			if m < 3 {
+				m = 3
+			}
+			mins[i] = m
 		} else {
-			remaining -= widths[i]
+			mins[i] = 3
+		}
+		sumMins += mins[i]
+	}
+
+	// Fallback if available space is too small for our protected minimums
+	if sumMins > available {
+		sumMins = 0
+		for i := 0; i < colCount; i++ {
+			mins[i] = 3
+			sumMins += 3
 		}
 	}
 
-	// If we went negative, scale down from minWidth
-	if remaining < 0 {
-		// Give each column at least minWidth, distribute rest proportionally
+	// If the terminal is extremely narrow, just enforce minWidth of 3 for all columns
+	if sumMins > available {
 		for i := range widths {
-			widths[i] = minWidth
+			widths[i] = 3
 		}
-		remaining = available - colCount*minWidth
-		if remaining > 0 {
-			// Distribute proportionally based on original relative sizes
-			totalOrig := 0
-			for _, w := range widths {
-				totalOrig += w
-			}
-			if totalOrig > 0 {
-				for i := range widths {
-					widths[i] = minWidth + (remaining * minWidth / totalOrig)
-				}
+		return overhead
+	}
+
+	// Reduce the widest eligible columns iteratively until total width fits available
+	for total > available {
+		targetIdx := -1
+		maxWidth := -1
+		for i := 0; i < colCount; i++ {
+			// A column is eligible for reduction only if its current width is greater than its min width
+			if widths[i] > mins[i] && widths[i] > maxWidth {
+				maxWidth = widths[i]
+				targetIdx = i
 			}
 		}
-	} else {
-		// Scale down proportionally
-		scale := float64(available) / float64(total)
-		for i := range widths {
-			w := int(float64(widths[i]) * scale)
-			if w < minWidth {
-				w = minWidth
-			}
-			widths[i] = w
+		if targetIdx == -1 {
+			// All columns are already at their minimum widths
+			break
 		}
+		widths[targetIdx]--
+		total--
 	}
 
 	return overhead
