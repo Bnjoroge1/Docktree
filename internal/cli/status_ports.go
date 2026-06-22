@@ -47,8 +47,20 @@ func runStatus(ctx *Context) (any, int, error) {
 		return nil, output.ExitDocker, err
 	}
 	result := StatusResult{Instance: inst, Text: strings.TrimSpace(out)}
-	if json.Valid([]byte(out)) {
-		result.Raw = json.RawMessage(out)
+	// docker compose ps --format json outputs NDJSON (one JSON object per line).
+	// Parse it into a JSON array so the renderer can unmarshal it.
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	var arr []json.RawMessage
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || !json.Valid([]byte(line)) {
+			continue
+		}
+		arr = append(arr, json.RawMessage(line))
+	}
+	if len(arr) > 0 {
+		data, _ := json.Marshal(arr)
+		result.Raw = data
 	}
 	return result, output.ExitOK, nil
 }
