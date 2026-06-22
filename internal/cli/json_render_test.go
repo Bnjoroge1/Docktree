@@ -66,3 +66,31 @@ func TestUpResultJSONRendering(t *testing.T) {
 		t.Fatalf("unexpected services payload: %#v", services)
 	}
 }
+
+func TestPortsResultJSONRendering(t *testing.T) {
+	got := renderJSONForTest(t, PortsResult{
+		All: true,
+		Entries: []PortsEntry{{
+			Instance: "docktree-main",
+			Ports: []ports.Assignment{{
+				Service:       "web",
+				ContainerPort: 3000,
+				HostIP:        "127.0.0.1",
+				HostPort:      41001,
+			}},
+		}},
+	})
+	if got["all"] != true {
+		t.Fatalf("all = %#v", got["all"])
+	}
+	entries := got["entries"].([]any)
+	entry := entries[0].(map[string]any)
+	if entry["instance"] != "docktree-main" {
+		t.Fatalf("instance = %#v", entry["instance"])
+	}
+	portsPayload := entry["ports"].([]any)
+	port := portsPayload[0].(map[string]any)
+	if port["service"] != "web" || port["container_port"] != float64(3000) || port["host_port"] != float64(41001) {
+		t.Fatalf("unexpected ports payload: %#v", portsPayload)
+	}
+}
