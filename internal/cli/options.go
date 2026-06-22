@@ -47,6 +47,26 @@ func parsePortsOptions(args []string) (portsOptions, error) {
 	}
 	return options, nil
 }
+type statusOptions struct {
+	help bool
+	all  bool
+}
+
+func parseStatusOptions(args []string) (statusOptions, error) {
+	var options statusOptions
+	for _, arg := range args {
+		switch arg {
+		case "-a", "--all", "-all":
+			options.all = true
+		case "-h", "--help":
+			options.help = true
+		default:
+			return statusOptions{}, fmt.Errorf("unknown status flag %q", arg)
+		}
+	}
+	return options, nil
+}
+
 
 type volumesOptions struct {
 	all  bool

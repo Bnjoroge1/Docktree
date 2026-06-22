@@ -90,6 +90,18 @@ type StatusResult struct {
 	Text     string          `json:"text,omitempty"`
 	Stopped  bool            `json:"stopped,omitempty"`
 }
+type StatusAllEntry struct {
+	Instance      string `json:"instance"`
+	Branch        string `json:"branch"`
+	Running       bool   `json:"running"`
+	ServiceCount  int    `json:"service_count"`
+	RunningCount  int    `json:"running_count"`
+	TotalServices int    `json:"total_services"`
+}
+
+type StatusAllResult struct {
+	Entries []StatusAllEntry `json:"entries"`
+}
 
 type PortsResult struct {
 	Instance string       `json:"instance,omitempty"`

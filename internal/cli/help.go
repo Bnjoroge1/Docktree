@@ -121,13 +121,15 @@ func printStatusHelp(w io.Writer) {
 	fmt.Fprintln(w, `Usage:
   docktree status [options]
 
-Show the current worktree's managed Compose services.
+Show managed worktree services.
 
 Options:
+  -a, --all    Show status for all worktree instances
   -h, --help   Show this help text
 
 Examples:
-  docktree status`)
+  docktree status
+  docktree status --all`)
 }
 
 func printDownHelp(w io.Writer) {
