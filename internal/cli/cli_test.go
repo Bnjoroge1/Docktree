@@ -361,3 +361,33 @@ func TestParseStopOptionsEmpty(t *testing.T) {
 		t.Fatalf("expected no services, got %v", opts.services)
 	}
 }
+
+func TestProjectHasBuild(t *testing.T) {
+	tests := []struct {
+		name    string
+		project *compose.ComposeProject
+		want    bool
+	}{
+		{
+			name: "with build",
+			project: &compose.ComposeProject{Services: map[string]compose.Service{
+				"api": {Build: &compose.BuildConfig{Context: "."}},
+			}},
+			want: true,
+		},
+		{
+			name: "without build",
+			project: &compose.ComposeProject{Services: map[string]compose.Service{
+				"api": {Image: "nginx:latest"},
+			}},
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := projectHasBuild(tt.project); got != tt.want {
+				t.Fatalf("projectHasBuild() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

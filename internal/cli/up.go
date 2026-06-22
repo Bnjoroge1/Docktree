@@ -199,12 +199,17 @@ func runUp(ctx *Context) (any, int, error) {
 	if options.dryRun {
 		return runDryRun(project, files, cfg, repo, instanceName, envWarnings)
 	}
+	projectNeedsBuild := projectHasBuild(project)
+	reuseRunningPorts := false
 	if inst != nil {
 		runningState, err := composeRunStateForInstance(inst, cfg)
 		if err != nil {
 			return nil, output.ExitDocker, err
 		}
-		if runningState == composeRunRunning {
+		if runningState == composeRunRunning && projectNeedsBuild {
+			reuseRunningPorts = true
+		}
+		if runningState == composeRunRunning && !projectNeedsBuild {
 			currentHash, err := state.HashFiles(files)
 			if err != nil {
 				return nil, output.ExitConfig, err
@@ -276,12 +281,24 @@ func runUp(ctx *Context) (any, int, error) {
 	}
 	composeFiles = append(composeFiles, overrideFile)
 	upArgs := []string{"up", "-d"}
-	if options.build {
+	if options.build || projectNeedsBuild {
 		upArgs = append(upArgs, "--build")
 	}
 	cmd := docker.ComposeCommand{ProjectName: instanceName, Files: composeFiles, CommandArgs: upArgs}
+	requests := portRequests(project, cfg.Ports.BindHost)
 	for attempt := 0; attempt < 10; attempt++ {
-		assignments, err = registry.Allocate(instanceName, portRequests(project, cfg.Ports.BindHost), portRange)
+		if reuseRunningPorts {
+			var ok bool
+			assignments, ok, err = registry.ExistingAssignments(instanceName, requests)
+			if err != nil {
+				return nil, output.ExitConflict, err
+			}
+			if !ok {
+				assignments, err = registry.Allocate(instanceName, requests, portRange)
+			}
+		} else {
+			assignments, err = registry.Allocate(instanceName, requests, portRange)
+		}
 		if err != nil {
 			return nil, output.ExitConflict, err
 		}
@@ -405,6 +422,15 @@ func runValidate(project *compose.ComposeProject, files []string, cfg *config.Co
 		errs = append(errs, "port clear generation returned nil despite having published ports")
 	}
 	return ValidateResult{Valid: len(errs) == 0, Services: serviceNames(project), Ports: assignments, IsolatedVolumes: isolated, EnvWarnings: envWarnings, Errors: errs}, output.ExitOK, nil
+}
+
+func projectHasBuild(project *compose.ComposeProject) bool {
+	for _, svc := range project.Services {
+		if svc.Build != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func runDryRun(project *compose.ComposeProject, files []string, cfg *config.Config, repo dockgit.RepoInfo, instanceName string, envWarnings []compose.Warning) (any, int, error) {
