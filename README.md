@@ -95,6 +95,12 @@ volumes:
     - cache-data  # Share this volume across worktrees
 ```
 
+### Note on shared databases and secret wrappers
+
+When using `shared.services` with `tenancy: per_database`, Docktree can only rewrite or inject database URLs that are visible as Compose environment variables. If your app constructs `DATABASE_URL` inside a runtime shell command, for example through Infisical or another secrets wrapper, Docktree cannot safely rewrite that inline command.
+
+Prefer letting the app read a Docktree-provided `DATABASE_URL` from the environment, or make the shell command respect an existing `DATABASE_URL` before constructing a fallback value. If the command must always build the database URL from secrets at runtime, use isolated per-worktree database containers instead of shared `per_database` tenancy.
+
 ## Windows
 
 On Windows, use it through WSL2 with Docker Desktop WSL integration enabled.
