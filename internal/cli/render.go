@@ -232,14 +232,21 @@ func humanRenderer() func(io.Writer, any) {
 				}
 				if true {
 					running := 0
+					paused := 0
 					for _, s := range services {
-						if strings.EqualFold(s.State, "running") {
+						switch {
+						case strings.EqualFold(s.State, "running"):
 							running++
+						case strings.EqualFold(s.State, "paused"):
+							paused++
 						}
 					}
 					statusLabel := tui.OKS("running")
 					statusBadge := tui.Badge("ok", "RUNNING")
-					if running < len(services) && running > 0 {
+					if running == 0 && paused == len(services) && len(services) > 0 {
+						statusLabel = tui.WarningS("paused")
+						statusBadge = tui.Badge("warning", "PAUSED")
+					} else if running < len(services) && running > 0 {
 						statusLabel = tui.WarningS("partial")
 						statusBadge = tui.Badge("warning", "PARTIAL")
 					} else if running == 0 {
@@ -280,6 +287,8 @@ func humanRenderer() func(io.Writer, any) {
 							switch {
 							case strings.EqualFold(val, "running"):
 								return tui.OKS(val)
+							case strings.EqualFold(val, "paused"):
+								return tui.WarningS(val)
 							case strings.EqualFold(val, "exited"), strings.EqualFold(val, "restarting"):
 								return tui.ErrorS(val)
 							default:
@@ -360,6 +369,8 @@ func humanRenderer() func(io.Writer, any) {
 				statusIcon := tui.ErrorS("○")
 				if e.Running {
 					statusIcon = tui.OKS("●")
+				} else if e.Paused {
+					statusIcon = tui.WarningS("◌")
 				}
 				services := fmt.Sprintf("%d/%d", e.RunningCount, e.TotalServices)
 				if e.TotalServices == 0 {
@@ -687,12 +698,27 @@ func humanRenderer() func(io.Writer, any) {
 				fmt.Fprintf(w, "%s Everything is in sync.\n", tui.BrandS("Docktree"))
 				return
 			}
-			if v.Synced {
+			syncedCount := 0
+			skippedCount := 0
+			for _, item := range v.Items {
+				if item.Skipped != "" {
+					skippedCount++
+				} else {
+					syncedCount++
+				}
+			}
+			if v.Synced && skippedCount > 0 {
+				fmt.Fprintf(w, "%s Synced %d file(s), skipped %d worktree(s)\n",
+					tui.OKS("✓"), countFilesFromItems(v.Items), skippedCount)
+			} else if v.Synced {
 				fmt.Fprintf(w, "%s Synced %d file(s) across %d worktree(s)\n",
 					tui.OKS("✓"), countFilesFromItems(v.Items), len(v.Items))
+			} else if skippedCount > 0 {
+				fmt.Fprintf(w, "%s Skipped %d worktree(s) (running)\n",
+					tui.WarningS("⚠"), skippedCount)
 			} else {
-				fmt.Fprintf(w, "%s Found %d stale worktree(s)\n",
-					tui.WarningS("⚠"), len(v.Items))
+				fmt.Fprintf(w, "%s Would sync %d file(s) across %d worktree(s)\n",
+					tui.MutedS("dry run"), countFilesFromItems(v.Items), len(v.Items))
 			}
 			fmt.Fprintln(w)
 			var tbl tui.Table
@@ -702,6 +728,8 @@ func humanRenderer() func(io.Writer, any) {
 				files := strings.Join(item.Files, ", ")
 				if item.Skipped != "" {
 					files = tui.WarningS(item.Skipped)
+				} else {
+					files = tui.OKS(files)
 				}
 				tbl.Rows = append(tbl.Rows, []string{
 					truncate(item.Instance, 35),
@@ -719,7 +747,7 @@ func humanRenderer() func(io.Writer, any) {
 				case 1:
 					return tui.AccentS(val)
 				case 2:
-					return tui.TextS(val)
+					return val // already styled
 				}
 				return val
 			}))
