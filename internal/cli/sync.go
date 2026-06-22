@@ -38,7 +38,6 @@ func runSync(ctx *Context) (any, int, error) {
 	// Group instances by repo root so we load config once per repo.
 	type repoGroup struct {
 		instances []state.Instance
-		config    *config.Config
 	}
 	groups := make(map[string]*repoGroup)
 	for _, inst := range instances {
@@ -198,7 +197,7 @@ func countFiles(items []SyncItem) int {
 func confirmSync(w io.Writer) bool {
 	fmt.Fprintf(w, "%s ", tui.DimS("Continue? [y/N]"))
 	var answer string
-	fmt.Fscanln(os.Stdin, &answer)
+	_, _ = fmt.Fscanln(os.Stdin, &answer)
 	return answer == "y" || answer == "Y" || answer == "yes"
 }
 
