@@ -237,6 +237,16 @@ func TestParseCleanOptionsHelp(t *testing.T) {
 	}
 }
 
+func TestParseCreateOptionsHelp(t *testing.T) {
+	opts, err := parseCreateOptions([]string{"-h"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opts.help {
+		t.Fatal("expected help=true")
+	}
+}
+
 func TestParseDownOptionsHelp(t *testing.T) {
 	opts, err := parseDownOptions([]string{"-h"})
 	if err != nil {

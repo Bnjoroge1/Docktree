@@ -89,6 +89,20 @@ Options:
   -h, --help   Show this help text`)
 }
 
+func printCreateHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree create <branch>
+
+Create a new git worktree for <branch> and prepare its local Docker setup.
+
+Options:
+  -h, --help   Show this help text
+
+Examples:
+  docktree create feature/auth
+  docktree create bugfix/api-timeout`)
+}
+
 func printDownHelp(w io.Writer) {
 	fmt.Fprintln(w, `Usage:
   docktree down [options] [service...]

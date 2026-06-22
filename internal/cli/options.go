@@ -135,6 +135,7 @@ type upOptions struct {
 }
 
 type createOptions struct {
+	help   bool
 	branch string
 }
 
@@ -178,6 +179,9 @@ func parseUpOptions(args []string) (upOptions, error) {
 }
 
 func parseCreateOptions(args []string) (createOptions, error) {
+	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
+		return createOptions{help: true}, nil
+	}
 	if len(args) != 1 {
 		return createOptions{}, fmt.Errorf("usage: docktree create <branch>")
 	}
