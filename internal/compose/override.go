@@ -30,6 +30,24 @@ func GenerateOverride(project *ComposeProject, instanceName string, assignments 
 		},
 		Volumes: map[string]VolumeOverride{},
 	}
+	platNet := "docktree-platform-" + repoPart(instanceName) + "-net"
+	for netKey, netConfig := range project.Networks {
+		if netKey == "default" {
+			continue
+		}
+		if netConfig.Name == platNet {
+			continue
+		}
+		if netConfig.External {
+			continue
+		}
+		if netConfig.Name != "" {
+			override.Networks[netKey] = NetworkOverride{
+				Name:     netConfig.Name + "-" + instanceName,
+				External: false,
+			}
+		}
+	}
 	for name, svc := range project.Services {
 		serviceOverride := ServiceOverride{}
 		if svc.ContainerName != "" {

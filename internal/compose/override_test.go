@@ -264,6 +264,41 @@ func TestGenerateOverride(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "namespace_custom_networks",
+			project: &ComposeProject{
+				Services: map[string]Service{
+					"web": {Image: "nginx:latest"},
+				},
+				Networks: map[string]Network{
+					"custom-net":   {Name: "shared_data_net", External: false},
+					"external-net": {Name: "already_exists_net", External: true},
+					"platform-net": {Name: "docktree-platform-repo-net", External: true},
+				},
+			},
+			instance: "repo-feature-xyz",
+			check: func(t *testing.T, o *Override) {
+				// custom-net should be rewritten to custom-net-<instance>
+				n1, ok := o.Networks["custom-net"]
+				if !ok {
+					t.Fatal("expected custom-net in override networks")
+				}
+				if n1.Name != "shared_data_net-repo-feature-xyz" {
+					t.Fatalf("expected custom-net Name: shared_data_net-repo-feature-xyz, got %q", n1.Name)
+				}
+				if n1.External {
+					t.Fatal("expected custom-net to not be external")
+				}
+
+				// external-net and platform-net should NOT be rewritten
+				if _, ok := o.Networks["external-net"]; ok {
+					t.Fatal("expected external-net to not be present in override (preserved as external)")
+				}
+				if _, ok := o.Networks["platform-net"]; ok {
+					t.Fatal("expected platform-net to not be present in override (preserved as external)")
+				}
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
