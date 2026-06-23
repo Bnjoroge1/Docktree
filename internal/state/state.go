@@ -122,7 +122,7 @@ func UpsertGlobalInstance(configDir string, inst *Instance) error {
 	if err != nil {
 		return err
 	}
-	defer unlockFile(lf)
+	defer func() { _ = unlockFile(lf) }()
 	instances, err := LoadGlobalInstances(configDir)
 	if err != nil {
 		return err
@@ -142,7 +142,7 @@ func RemoveGlobalInstance(configDir, name string) error {
 	if err != nil {
 		return err
 	}
-	defer unlockFile(lf)
+	defer func() { _ = unlockFile(lf) }()
 	instances, err := LoadGlobalInstances(configDir)
 	if err != nil {
 		return err
