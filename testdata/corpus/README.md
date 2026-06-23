@@ -53,6 +53,12 @@ to flip).
 | supabase       | ~15          | parses | env interpolation in published ports, kong/auth/postgres |
 | uptime-kuma    | 1            | parses | minimal single-service baseline |
 
+## 2026-06-23 third expansion report
+
+Added 20 more upstream Compose files: akeneo, calcom, changedetection, chroma, clickhouse-postgres, erpnext, gitlab, langfuse, linkwarden, matrix-synapse, moodle, open-webui, owncloud, photoprism, prestashop, qdrant-demo, searxng, spring-postgres, umami, weaviate.
+
+The full 60-project corpus passes Docker Compose config, Docktree dry-run, and Docker Compose config with Docktree clear+override files layered in. Start probes were attempted for all 60 projects with `--pull never`; none started because required images were not present locally. See `THIRD_EXPANSION_REPORT.md` for the third-batch per-project table and differences.
+
 ## 2026-06-23 expansion report
 
 Added 20 more diverse upstream Compose files: airflow, elastic, elk, flask-redis, graylog, hasura, hydra, jitsi, kafka, kratos, localstack, mattermost, nextcloud-postgres, nginx-golang, opensearch, prometheus-grafana, redash, temporal, traefik, wordpress.

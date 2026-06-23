@@ -1,0 +1,8 @@
+version: '3.7'
+
+services:
+  web:
+    build: .
+    container_name: qdrant_demo_web
+    ports:
+      - 8000:8000

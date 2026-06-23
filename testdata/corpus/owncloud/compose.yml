@@ -1,0 +1,115 @@
+# This oc-common template is a compose extension for ownCloud.
+# It is used for starting the main ownCloud instance and reused e.g. when defining listeners for WND.
+# This eases compose maintenance a lot.
+x-owncloud: &oc-common
+    image: owncloud/server:${OWNCLOUD_IMAGE}
+    restart: always
+    depends_on:
+      - mariadb
+      - redis
+    environment:
+      - OWNCLOUD_DOMAIN=${OWNCLOUD_DOMAIN}
+      - OWNCLOUD_TRUSTED_DOMAINS=${OWNCLOUD_TRUSTED_DOMAINS}
+      - OWNCLOUD_OVERWRITE_CLI_URL=${OWNCLOUD_OVERWRITE_CLI_URL}
+      - OWNCLOUD_DB_TYPE=mysql
+      - OWNCLOUD_DB_NAME=owncloud
+      - OWNCLOUD_DB_USERNAME=owncloud
+      - OWNCLOUD_DB_PASSWORD=owncloud
+      - OWNCLOUD_DB_HOST=mariadb
+      - OWNCLOUD_ADMIN_USERNAME=${ADMIN_USERNAME}
+      - OWNCLOUD_ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - OWNCLOUD_MYSQL_UTF8MB4=true
+      - OWNCLOUD_REDIS_ENABLED=true
+      - OWNCLOUD_REDIS_HOST=redis
+    volumes:
+      - type: volume
+        source: oc_files
+        target: /mnt/data
+    networks:
+      - oc_network
+
+services:
+
+  owncloud:
+    # Start the main ownCloud instance
+    <<: *oc-common
+    container_name: owncloud_server
+    ports:
+      - ${HTTP_PORT}:8080
+
+#  owncloud-wnd-1:
+#    # Enterprise only: uncomment and configure it accordingly if WND is used !
+#    # Create as many of these services (containers) as you need listeners for different host/share pairs.
+#    # Read the documentation for more details, such when you want to use a password file.
+#    <<: *oc-common
+#    container_name: owncloud-wnd-1
+#    command: ["/usr/bin/owncloud", "occ", "wnd:listen", "myhost", "myshare", "workgroup\myuser", "password"]
+
+  mariadb:
+    image: mariadb:${MARIADB_IMAGE}
+    container_name: owncloud_mariadb
+    restart: always
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=owncloud
+      - MYSQL_USER=owncloud
+      - MYSQL_PASSWORD=owncloud
+      - MYSQL_DATABASE=owncloud
+      - MARIADB_AUTO_UPGRADE=1
+    command: ["--max-allowed-packet=128M", "--innodb-log-file-size=64M"]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-u", "root", "--password=owncloud"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - mysql:/var/lib/mysql
+    networks:
+      - oc_network
+
+  redis:
+    image: redis:${REDIS_IMAGE}
+    container_name: owncloud_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    command: ["--databases", "1"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - redis:/data
+    networks:
+      - oc_network
+
+# As alternative to Redis, you can enable Memcached.
+# See the caching configuration documentation for more details.
+
+#  memcached:
+#    image: memcached:latest
+#    container_name: owncloud_memcached
+#    restart: always
+#    ports:
+#      - "11211:11211"
+#    networks:
+#      - oc_network
+
+volumes:
+  oc_files:
+    driver: local
+# Options when using bind mounts
+#    driver_opts:
+#      type: none
+#      device: /mnt/oc
+#      o: bind
+  mysql:
+    driver: local
+# Use the above options when configuring bind mounts
+  redis:
+    driver: local
+
+networks:
+  oc_network:
