@@ -75,7 +75,12 @@ func SaveGlobalInstances(configDir string, instances map[string]Instance) error 
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(configDir, "instances.json"), append(data, '\n'), 0o644)
+	target := filepath.Join(configDir, "instances.json")
+	tmp := target + ".tmp"
+	if err := os.WriteFile(tmp, append(data, '\n'), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, target)
 }
 
 func UpsertGlobalInstance(configDir string, inst *Instance) error {
@@ -154,7 +159,12 @@ func SaveInstance(stateDir string, inst *Instance) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(stateDir, "state.json"), append(data, '\n'), 0o644)
+	target := filepath.Join(stateDir, "state.json")
+	tmp := target + ".tmp"
+	if err := os.WriteFile(tmp, append(data, '\n'), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, target)
 }
 
 func HashFiles(paths []string) (string, error) {
