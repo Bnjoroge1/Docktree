@@ -1,13 +1,16 @@
 package cli
 
 import (
+	"bytes"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/bnjoroge/docktree/internal/compose"
 	"github.com/bnjoroge/docktree/internal/config"
 	dockgit "github.com/bnjoroge/docktree/internal/git"
+	"github.com/bnjoroge/docktree/internal/output"
 )
 
 func TestParseComposeRunState(t *testing.T) {
@@ -284,6 +287,24 @@ func TestParsePortsOptionsUnknown(t *testing.T) {
 	_, err := parsePortsOptions([]string{"--unknown"})
 	if err == nil {
 		t.Fatal("expected error for unknown flag")
+	}
+}
+
+func TestCommandHelpForInspectAndWorktreeCommands(t *testing.T) {
+	for _, cmd := range []string{"status", "prepare", "create", "clean"} {
+		t.Run(cmd, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := Run([]string{cmd, "--help"}, &stdout, &stderr)
+			if code != output.ExitOK {
+				t.Fatalf("exit code = %d, stderr=%q", code, stderr.String())
+			}
+			if !strings.Contains(stdout.String(), "Usage:") {
+				t.Fatalf("help output missing Usage block: %q", stdout.String())
+			}
+			if stderr.Len() != 0 {
+				t.Fatalf("stderr = %q", stderr.String())
+			}
+		})
 	}
 }
 
