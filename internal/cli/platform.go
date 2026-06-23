@@ -56,8 +56,7 @@ type PlatformTenantsResult struct {
 func runPlatform(ctx *Context) (any, int, error) {
 	args := ctx.Args[1:]
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		printPlatformHelp(ctx.Stdout)
-		return nil, output.ExitOK, nil
+		return platformHelpDoc(), output.ExitOK, nil
 	}
 	switch args[0] {
 	case "up":
@@ -73,9 +72,10 @@ func runPlatform(ctx *Context) (any, int, error) {
 	case "clean":
 		return runPlatformClean(ctx)
 	default:
-		fmt.Fprintf(ctx.Stderr, "unknown platform subcommand %q\n\n", args[0])
-		printPlatformHelp(ctx.Stderr)
-		return nil, output.ExitUsage, nil
+		if !ctx.Renderer.JSON {
+			printPlatformHelp(ctx.Stderr)
+		}
+		return nil, output.ExitUsage, fmt.Errorf("unknown platform subcommand %q", args[0])
 	}
 }
 

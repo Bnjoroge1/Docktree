@@ -57,7 +57,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	renderer := output.New(stdout, jsonMode)
 	ctx := &Context{Args: rest, Renderer: renderer, Stdout: stdout, Stderr: stderr}
 	if len(rest) == 0 {
-		printHelp(stdout)
+		renderer.Render(rootHelpDoc(), humanRenderer())
 		return output.ExitOK
 	}
 
@@ -76,18 +76,17 @@ func runRootCommand(ctx *Context) (any, int, error) {
 	cmd := ctx.Args[0]
 	switch cmd {
 	case "help", "-h", "--help":
-		printHelp(ctx.Stdout)
-		return nil, output.ExitOK, nil
+		return rootHelpDoc(), output.ExitOK, nil
 	case "version", "-v", "--version":
-		fmt.Fprintf(ctx.Stdout, "%s\n", tui.MutedS("docktree "+version))
-		return nil, output.ExitOK, nil
+		return VersionInfo{Name: "docktree", Version: version}, output.ExitOK, nil
 	}
 
 	spec, ok := rootCommands[cmd]
 	if !ok {
-		fmt.Fprintf(ctx.Stderr, "unknown command %q\n\n", cmd)
-		printHelp(ctx.Stderr)
-		return nil, output.ExitUsage, nil
+		if !ctx.Renderer.JSON {
+			printHelp(ctx.Stderr)
+		}
+		return nil, output.ExitUsage, fmt.Errorf("unknown command %q", cmd)
 	}
 	if spec.progress && !hasHelpFlag(ctx.Args[1:]) {
 		return runWithProgress(ctx, spec.run)

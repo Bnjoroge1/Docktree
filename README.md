@@ -131,6 +131,24 @@ On Windows, use it through WSL2 with Docker Desktop WSL integration enabled.
 | `clean --volumes`    | Also remove volumes                |
 
 
+## For AI agents
+
+Docktree ships an agent skill — a short prompt that teaches coding agents
+(Claude Code, Codex, Cursor, OpenCode, and 60+ others) how to invoke the CLI
+correctly, which commands honor `--json`, and the lifecycle gotchas.
+
+Install via [`npx skills`](https://github.com/vercel-labs/skills):
+
+```bash
+# install all docktree skills into the current project
+npx skills add Bnjoroge1/Docktree
+
+# or globally for a specific agent
+npx skills add Bnjoroge1/Docktree -g -a claude-code
+```
+
+See [`skills/`](./skills/) for what's available.
+
 ## Contributing
 
 Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for how to set

@@ -28,8 +28,7 @@ func runUp(ctx *Context) (any, int, error) {
 		return nil, output.ExitUsage, err
 	}
 	if options.help {
-		printUpHelp(ctx.Stdout)
-		return nil, output.ExitOK, nil
+		return upHelpDoc(), output.ExitOK, nil
 	}
 	if options.validate && options.dryRun {
 		return nil, output.ExitUsage, fmt.Errorf("--validate and --dry-run are mutually exclusive")

@@ -14,8 +14,7 @@ func runVolumes(ctx *Context) (any, int, error) {
 		return nil, output.ExitUsage, err
 	}
 	if options.help {
-		printVolumesHelp(ctx.Stdout)
-		return nil, output.ExitOK, nil
+		return volumesHelpDoc(), output.ExitOK, nil
 	}
 
 	volumesList, err := docker.ListDocktreeVolumes()
