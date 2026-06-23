@@ -1,0 +1,3 @@
+url: https://raw.githubusercontent.com/temporalio/docker-compose/main/docker-compose.yml
+license: MIT
+status: parses

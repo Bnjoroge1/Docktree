@@ -53,6 +53,12 @@ to flip).
 | supabase       | ~15          | parses | env interpolation in published ports, kong/auth/postgres |
 | uptime-kuma    | 1            | parses | minimal single-service baseline |
 
+## 2026-06-23 expansion report
+
+Added 20 more diverse upstream Compose files: airflow, elastic, elk, flask-redis, graylog, hasura, hydra, jitsi, kafka, kratos, localstack, mattermost, nextcloud-postgres, nginx-golang, opensearch, prometheus-grafana, redash, temporal, traefik, wordpress.
+
+The full 40-project corpus passes Docker Compose config, Docktree dry-run, and Docker Compose config with Docktree clear+override files layered in. Start probes were attempted for all 40 projects with `--pull never`; none started because required images were not present locally. See `EXPANSION_REPORT.md` for the second-batch per-project table and differences.
+
 ## 2026-06-22 validation report
 
 Imported 20 upstream Compose files and validated them with `go test ./internal/compose -count=1` plus `testdata/corpus/validate.py`.

@@ -1,0 +1,3 @@
+url: https://raw.githubusercontent.com/localstack/localstack/master/docker-compose.yml
+license: Apache-2.0
+status: parses
