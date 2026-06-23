@@ -136,8 +136,8 @@ git diff --exit-code go.mod go.sum
 - Every PR requires an approving review from the code owner
   (**@Bnjoroge1**, see [`.github/CODEOWNERS`](.github/CODEOWNERS)).
 - Required CI checks (build/test and lint) must pass.
-- Stale approvals are dismissed when new commits are pushed, conversations
-  must be resolved, and history is kept linear (no merge commits).
+- Stale approvals are dismissed when new commits are pushed, and open
+  conversations must be resolved before a PR can be merged.
 
 In practice this means **only the repository owner (@Bnjoroge1) merges to
 `main`**. Contributors should expect their PRs to be reviewed and merged by the
