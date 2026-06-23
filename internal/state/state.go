@@ -8,8 +8,36 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 )
+
+func lockFile(path string) (*os.File, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		f.Close()
+		return nil, err
+	}
+	return f, nil
+}
+
+func unlockFile(f *os.File) error {
+	if f == nil {
+		return nil
+	}
+	err := syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	closeErr := f.Close()
+	if err != nil {
+		return err
+	}
+	return closeErr
+}
 
 // Instance records the local metadata Docktree needs to manage one worktree.
 type Instance struct {
@@ -64,6 +92,36 @@ func LoadGlobalState(configDir string) (map[string]Instance, error) {
 	return LoadGlobalInstances(configDir)
 }
 
+func atomicWriteFile(path string, data []byte) error {
+	tmpFile, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmp := tmpFile.Name()
+	removeTmp := true
+	defer func() {
+		if removeTmp {
+			_ = os.Remove(tmp)
+		}
+	}()
+	if _, err := tmpFile.Write(data); err != nil {
+		_ = tmpFile.Close()
+		return err
+	}
+	if err := tmpFile.Chmod(0o644); err != nil {
+		_ = tmpFile.Close()
+		return err
+	}
+	if err := tmpFile.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	removeTmp = false
+	return nil
+}
+
 func SaveGlobalInstances(configDir string, instances map[string]Instance) error {
 	if configDir == "" {
 		configDir = GlobalConfigDir()
@@ -75,13 +133,21 @@ func SaveGlobalInstances(configDir string, instances map[string]Instance) error 
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(configDir, "instances.json"), append(data, '\n'), 0o644)
+	return atomicWriteFile(filepath.Join(configDir, "instances.json"), append(data, '\n'))
 }
 
 func UpsertGlobalInstance(configDir string, inst *Instance) error {
 	if inst == nil || inst.Name == "" {
 		return nil
 	}
+	if configDir == "" {
+		configDir = GlobalConfigDir()
+	}
+	lf, err := lockFile(filepath.Join(configDir, "instances.lock"))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = unlockFile(lf) }()
 	instances, err := LoadGlobalInstances(configDir)
 	if err != nil {
 		return err
@@ -94,6 +160,14 @@ func RemoveGlobalInstance(configDir, name string) error {
 	if name == "" {
 		return nil
 	}
+	if configDir == "" {
+		configDir = GlobalConfigDir()
+	}
+	lf, err := lockFile(filepath.Join(configDir, "instances.lock"))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = unlockFile(lf) }()
 	instances, err := LoadGlobalInstances(configDir)
 	if err != nil {
 		return err
@@ -154,7 +228,7 @@ func SaveInstance(stateDir string, inst *Instance) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(stateDir, "state.json"), append(data, '\n'), 0o644)
+	return atomicWriteFile(filepath.Join(stateDir, "state.json"), append(data, '\n'))
 }
 
 func HashFiles(paths []string) (string, error) {

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 
+	"github.com/compose-spec/compose-go/v2/dotenv"
 	composeloader "github.com/compose-spec/compose-go/v2/loader"
 	composetypes "github.com/compose-spec/compose-go/v2/types"
 )
@@ -25,13 +26,18 @@ func LoadFull(files []string) (*composetypes.Project, *ComposeProject, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	details.Environment = composeEnvironment()
+	env, err := composeEnvironment(workingDir)
+	if err != nil {
+		return nil, nil, err
+	}
+	details.Environment = env
 	projectName := filepath.Base(filepath.Clean(workingDir))
 	if projectName == "." || projectName == string(os.PathSeparator) || projectName == "" {
 		projectName = "docktree"
 	}
 	project, err := composeloader.LoadWithContext(context.Background(), *details, func(options *composeloader.Options) {
 		options.SetProjectName(projectName, false)
+		options.SkipConsistencyCheck = true
 	})
 	if err != nil {
 		return nil, nil, err
@@ -78,6 +84,7 @@ func convertService(svc composetypes.ServiceConfig) Service {
 	converted := Service{
 		ContainerName: svc.ContainerName,
 		Image:         svc.Image,
+		NetworkMode:   svc.NetworkMode,
 		Environment:   map[string]string{},
 	}
 	if svc.Build != nil {
@@ -126,15 +133,30 @@ func convertService(svc composetypes.ServiceConfig) Service {
 	return converted
 }
 
-func composeEnvironment() map[string]string {
+func composeEnvironment(workingDir string) (map[string]string, error) {
 	env := map[string]string{}
+	// Seed with process environment so .env values like ${HOST} resolve
+	// from exported shell variables during parsing.
 	for _, pair := range os.Environ() {
 		key, value, ok := splitEnv(pair)
 		if ok {
 			env[key] = value
 		}
 	}
-	return env
+	envPath := filepath.Join(workingDir, ".env")
+	if _, err := os.Stat(envPath); err == nil {
+		dotEnv, err := dotenv.GetEnvFromFile(env, []string{envPath})
+		if err != nil {
+			return nil, fmt.Errorf("parsing %s: %w", envPath, err)
+		}
+		// Shell env takes precedence over .env (docker compose semantics).
+		for key, value := range dotEnv {
+			if _, exists := env[key]; !exists {
+				env[key] = value
+			}
+		}
+	}
+	return env, nil
 }
 
 func splitEnv(value string) (string, string, bool) {

@@ -164,6 +164,26 @@ func TestRunValidateWithServices(t *testing.T) {
 	}
 }
 
+func TestNetworkIsolationWarningsForNetworkModeServices(t *testing.T) {
+	project := &compose.ComposeProject{
+		Services: map[string]compose.Service{
+			"api":     {Image: "alpine"},
+			"hoster":  {Image: "alpine", NetworkMode: "host"},
+			"sidecar": {Image: "alpine", NetworkMode: "service:hoster"},
+		},
+	}
+	warnings := networkIsolationWarnings(project)
+	if len(warnings) != 2 {
+		t.Fatalf("warnings = %#v, want 2 network_mode warnings", warnings)
+	}
+	if warnings[0].Key != "service.hoster.network_mode" || warnings[0].Value != "host" {
+		t.Fatalf("first warning = %#v", warnings[0])
+	}
+	if warnings[1].Key != "service.sidecar.network_mode" || warnings[1].Value != "service:hoster" {
+		t.Fatalf("second warning = %#v", warnings[1])
+	}
+}
+
 func TestParseUpOptionsDryRun(t *testing.T) {
 	opts, err := parseUpOptions([]string{"--dry-run"})
 	if err != nil {
