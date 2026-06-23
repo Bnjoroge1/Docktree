@@ -37,8 +37,6 @@ Thumbs.db
 # Environment
 .env
 .env.*
-!testdata/corpus/**/.env
-!testdata/corpus/**/.env.*
 .docktree/
 .cursor
 node_modules/
