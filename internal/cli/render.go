@@ -752,6 +752,12 @@ func humanRenderer() func(io.Writer, any) {
 				return val
 			}))
 
+		case HelpDoc:
+			renderHelpText(w, v)
+
+		case VersionInfo:
+			renderVersionText(w, v)
+
 		default:
 			_ = json.NewEncoder(w).Encode(data)
 		}

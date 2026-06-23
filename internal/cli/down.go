@@ -22,8 +22,7 @@ func runDown(ctx *Context) (any, int, error) {
 		return nil, output.ExitUsage, err
 	}
 	if options.help {
-		printDownHelp(ctx.Stdout)
-		return nil, output.ExitOK, nil
+		return downHelpDoc(), output.ExitOK, nil
 	}
 	repo, err := dockgit.DetectRepo()
 	if err != nil {
@@ -233,8 +232,7 @@ func runStop(ctx *Context) (any, int, error) {
 		return nil, output.ExitUsage, err
 	}
 	if options.help {
-		printStopHelp(ctx.Stdout)
-		return nil, output.ExitOK, nil
+		return stopHelpDoc(), output.ExitOK, nil
 	}
 	repo, err := dockgit.DetectRepo()
 	if err != nil {

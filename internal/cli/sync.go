@@ -22,8 +22,7 @@ func runSync(ctx *Context) (any, int, error) {
 		return nil, output.ExitUsage, err
 	}
 	if options.help {
-		printSyncHelp(ctx.Stdout)
-		return nil, output.ExitOK, nil
+		return syncHelpDoc(), output.ExitOK, nil
 	}
 
 	instances, err := state.LoadGlobalInstances("")

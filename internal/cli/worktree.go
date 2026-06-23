@@ -22,8 +22,7 @@ func runPrepare(ctx *Context) (any, int, error) {
 		return nil, output.ExitUsage, err
 	}
 	if options.help {
-		printPrepareHelp(ctx.Stdout)
-		return nil, output.ExitOK, nil
+		return prepareHelpDoc(), output.ExitOK, nil
 	}
 
 	repo, err := dockgit.DetectRepo()
@@ -58,8 +57,7 @@ func runCreate(ctx *Context) (any, int, error) {
 		return nil, output.ExitUsage, err
 	}
 	if options.help {
-		printCreateHelp(ctx.Stdout)
-		return nil, output.ExitOK, nil
+		return createHelpDoc(), output.ExitOK, nil
 	}
 	repo, err := dockgit.DetectRepo()
 	if err != nil {

@@ -24,8 +24,7 @@ func runStatus(ctx *Context) (any, int, error) {
 		return nil, output.ExitUsage, err
 	}
 	if options.help {
-		printStatusHelp(ctx.Stdout)
-		return nil, output.ExitOK, nil
+		return statusHelpDoc(), output.ExitOK, nil
 	}
 
 	if options.all {
@@ -172,8 +171,7 @@ func runPorts(ctx *Context) (any, int, error) {
 		return nil, output.ExitUsage, err
 	}
 	if options.help {
-		printPortsHelp(ctx.Stdout)
-		return nil, output.ExitOK, nil
+		return portsHelpDoc(), output.ExitOK, nil
 	}
 	if options.all {
 		all, err := ports.NewRegistry().Load()
