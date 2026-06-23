@@ -121,13 +121,14 @@ On Windows, use it through WSL2 with Docker Desktop WSL integration enabled.
 ## Flags
 
 
-| Flag              | Description                   |
-| ----------------- | ----------------------------- |
-| `--json`          | Output as JSON                |
-| `up -f <file>`    | Use specific compose file     |
-| `clean --dry-run` | Preview what would be removed |
-| `clean --yes`     | Skip confirmation prompt      |
-| `clean --volumes` | Also remove volumes           |
+| Flag                 | Description                        |
+| -------------------- | ---------------------------------- |
+| `--json`             | Output as JSON                     |
+| `up -f <file>`       | Use specific compose file          |
+| `up --only <name>`   | Start only the named service       |
+| `clean --dry-run`    | Preview what would be removed      |
+| `clean --yes`        | Skip confirmation prompt           |
+| `clean --volumes`    | Also remove volumes                |
 
 
 ## License
