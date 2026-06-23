@@ -1,6 +1,0 @@
-services:
-  generate:
-    image: ubuntu:latest
-    volumes:
-      - .:/prestashop-docker
-    command: ["/prestashop-docker/.docker/generate-docker.sh"]

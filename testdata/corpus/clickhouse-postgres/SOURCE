@@ -1,3 +1,0 @@
-url: https://raw.githubusercontent.com/ClickHouse/examples/main/docker-compose-recipes/recipes/ch-and-postgres/docker-compose.yaml
-license: Apache-2.0
-status: parses
