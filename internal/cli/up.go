@@ -197,6 +197,7 @@ func runUp(ctx *Context) (any, int, error) {
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
+	envWarnings = append(envWarnings, networkIsolationWarnings(project)...)
 	if options.validate {
 		return runValidate(project, files, cfg, repo, envWarnings)
 	}
@@ -426,6 +427,24 @@ func runValidate(project *compose.ComposeProject, files []string, cfg *config.Co
 		errs = append(errs, "port clear generation returned nil despite having published ports")
 	}
 	return ValidateResult{Valid: len(errs) == 0, Services: serviceNames(project), Ports: assignments, IsolatedVolumes: isolated, EnvWarnings: envWarnings, Errors: errs}, output.ExitOK, nil
+}
+func networkIsolationWarnings(project *compose.ComposeProject) []compose.Warning {
+	if project == nil {
+		return nil
+	}
+	var warnings []compose.Warning
+	for name, svc := range project.Services {
+		if svc.NetworkMode == "" {
+			continue
+		}
+		warnings = append(warnings, compose.Warning{
+			Key:     "service." + name + ".network_mode",
+			Value:   svc.NetworkMode,
+			Message: fmt.Sprintf("service %q uses network_mode: %s; Docktree cannot attach the per-worktree isolated network, so this service keeps Docker Compose's host/network namespace behavior.", name, svc.NetworkMode),
+		})
+	}
+	sort.Slice(warnings, func(i, j int) bool { return warnings[i].Key < warnings[j].Key })
+	return warnings
 }
 
 func projectHasBuild(project *compose.ComposeProject) bool {
