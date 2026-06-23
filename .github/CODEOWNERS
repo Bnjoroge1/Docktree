@@ -1,0 +1,8 @@
+# Code owners for Docktree.
+#
+# The owner listed here must approve every pull request before it can be
+# merged into a protected branch (see branch protection on `main`).
+# This makes @Bnjoroge1 the sole approver — and effective merge gatekeeper —
+# for all changes in the repository.
+
+* @Bnjoroge1
