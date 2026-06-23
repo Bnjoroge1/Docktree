@@ -151,6 +151,14 @@ func Defaults() Config {
 }
 
 func Load(dir string) (*Config, error) {
+	return load(dir, true)
+}
+
+func LoadUnvalidated(dir string) (*Config, error) {
+	return load(dir, false)
+}
+
+func load(dir string, validateShared bool) (*Config, error) {
 	cfg := Defaults()
 	path := filepath.Join(dir, "docktree.yml")
 	data, err := os.ReadFile(path)
@@ -165,8 +173,10 @@ func Load(dir string) (*Config, error) {
 		return nil, err
 	}
 	merge(&cfg, user)
-	if err := ValidateShared(cfg.Shared, cfg.Volumes.Share); err != nil {
-		return nil, err
+	if validateShared {
+		if err := ValidateShared(cfg.Shared, cfg.Volumes.Share); err != nil {
+			return nil, err
+		}
 	}
 	return &cfg, nil
 }
@@ -265,11 +275,15 @@ func DefaultTenantEnv(kind string) string {
 }
 
 // ValidateShared enforces the schema rules for shared.services and surfaces
-// conflicts with volumes.share. Returns the first failure found, deterministic
-// across runs so error messages are reproducible.
+// conflicts with volumes.share. It accumulates all violations in deterministic
+// order so users can fix the whole config in one pass.
 func ValidateShared(shared SharedConfig, sharedVolumes []string) error {
 	if len(shared.Services) == 0 {
 		return nil
+	}
+	var errs []string
+	add := func(format string, args ...any) {
+		errs = append(errs, fmt.Sprintf(format, args...))
 	}
 	names := make([]string, 0, len(shared.Services))
 	for name := range shared.Services {
@@ -283,31 +297,33 @@ func ValidateShared(shared SharedConfig, sharedVolumes []string) error {
 	for _, name := range names {
 		svc := shared.Services[name]
 		if name == "" {
-			return fmt.Errorf("shared.services: service key cannot be empty")
+			add("shared.services: service key cannot be empty")
+			continue
 		}
 		if svc.Kind == "" {
-			return fmt.Errorf("shared.services.%s.kind is required", name)
+			add("shared.services.%s.kind is required", name)
 		}
 		allowed, ok := allowedTenancyByKind[svc.Kind]
-		if !ok {
-			return fmt.Errorf("shared.services.%s.kind %q is not supported (use postgres, mysql, mongodb, redis, s3, generic)", name, svc.Kind)
+		if svc.Kind != "" && !ok {
+			add("shared.services.%s.kind %q is not supported (use postgres, mysql, mongodb, redis, s3, generic)", name, svc.Kind)
 		}
 		if svc.Tenancy == "" {
-			return fmt.Errorf("shared.services.%s.tenancy is required", name)
+			add("shared.services.%s.tenancy is required", name)
 		}
-		if !allowed[svc.Tenancy] {
+		if ok && svc.Tenancy != "" && !allowed[svc.Tenancy] {
 			allowedList := sortedKeys(allowed)
-			return fmt.Errorf("shared.services.%s.tenancy %q is not valid for kind %q (use %s)", name, svc.Tenancy, svc.Kind, strings.Join(allowedList, ", "))
+			add("shared.services.%s.tenancy %q is not valid for kind %q (use %s)", name, svc.Tenancy, svc.Kind, strings.Join(allowedList, ", "))
+		}
+		if !ok {
+			continue
 		}
 		if (svc.Template != "" || len(svc.URLEnvs) > 0) && len(svc.Databases) > 0 {
-			return fmt.Errorf("shared.services.%s cannot mix top-level url_envs/template with databases; choose one model", name)
+			add("shared.services.%s cannot mix top-level url_envs/template with databases; choose one model", name)
 		}
 		if len(svc.Databases) > 0 {
 			if svc.Kind != "postgres" && svc.Kind != "mysql" && svc.Kind != "mongodb" {
-				return fmt.Errorf("shared.services.%s.databases only applies to postgres/mysql/mongodb, not %s", name, svc.Kind)
+				add("shared.services.%s.databases only applies to postgres/mysql/mongodb, not %s", name, svc.Kind)
 			}
-			// Service-level tenancy must allow per_database when databases map
-			// is present; individual entries can override to full_share.
 			hasPerDB := false
 			for _, db := range svc.Databases {
 				t := db.Tenancy
@@ -320,7 +336,7 @@ func ValidateShared(shared SharedConfig, sharedVolumes []string) error {
 				}
 			}
 			if !hasPerDB && svc.Tenancy != "per_database" {
-				return fmt.Errorf("shared.services.%s.databases requires at least one per_database entry or service-level tenancy per_database", name)
+				add("shared.services.%s.databases requires at least one per_database entry or service-level tenancy per_database", name)
 			}
 			dbNames := make([]string, 0, len(svc.Databases))
 			for dbName := range svc.Databases {
@@ -330,40 +346,42 @@ func ValidateShared(shared SharedConfig, sharedVolumes []string) error {
 			for _, dbName := range dbNames {
 				db := svc.Databases[dbName]
 				if dbName == "" {
-					return fmt.Errorf("shared.services.%s.databases: database key cannot be empty", name)
+					add("shared.services.%s.databases: database key cannot be empty", name)
 				}
 				if db.Tenancy != "" && !allowed[db.Tenancy] {
 					allowedList := sortedKeys(allowed)
-					return fmt.Errorf("shared.services.%s.databases.%s.tenancy %q is not valid for kind %q (use %s)", name, dbName, db.Tenancy, svc.Kind, strings.Join(allowedList, ", "))
+					add("shared.services.%s.databases.%s.tenancy %q is not valid for kind %q (use %s)", name, dbName, db.Tenancy, svc.Kind, strings.Join(allowedList, ", "))
 				}
 				if db.Template != "" && svc.Kind != "postgres" {
-					return fmt.Errorf("shared.services.%s.databases.%s.template only applies to postgres, not %s (mysql templates are not supported)", name, dbName, svc.Kind)
+					add("shared.services.%s.databases.%s.template only applies to postgres, not %s (mysql templates are not supported)", name, dbName, svc.Kind)
 				}
 				if len(db.URLEnvs) == 0 {
-					return fmt.Errorf("shared.services.%s.databases.%s.url_envs must declare at least one env var", name, dbName)
+					add("shared.services.%s.databases.%s.url_envs must declare at least one env var", name, dbName)
 				}
 				for _, envName := range db.URLEnvs {
 					if envName == "" {
-						return fmt.Errorf("shared.services.%s.databases.%s.url_envs cannot contain empty entries", name, dbName)
+						add("shared.services.%s.databases.%s.url_envs cannot contain empty entries", name, dbName)
+						continue
 					}
 					owner := fmt.Sprintf("shared.services.%s.databases.%s", name, dbName)
 					if prev, taken := urlEnvOwners[envName]; taken && prev != owner {
-						return fmt.Errorf("url_env %q is claimed by both %s and %s", envName, prev, owner)
+						add("url_env %q is claimed by both %s and %s", envName, prev, owner)
 					}
 					urlEnvOwners[envName] = owner
 				}
 			}
 		} else {
 			if svc.Template != "" && svc.Kind != "postgres" {
-				return fmt.Errorf("shared.services.%s.template only applies to postgres, not %s (mysql templates are not supported)", name, svc.Kind)
+				add("shared.services.%s.template only applies to postgres, not %s (mysql templates are not supported)", name, svc.Kind)
 			}
 			for _, envName := range svc.URLEnvs {
 				if envName == "" {
-					return fmt.Errorf("shared.services.%s.url_envs cannot contain empty entries", name)
+					add("shared.services.%s.url_envs cannot contain empty entries", name)
+					continue
 				}
 				owner := fmt.Sprintf("shared.services.%s", name)
 				if prev, taken := urlEnvOwners[envName]; taken && prev != owner {
-					return fmt.Errorf("url_env %q is claimed by both %s and %s", envName, prev, owner)
+					add("url_env %q is claimed by both %s and %s", envName, prev, owner)
 				}
 				urlEnvOwners[envName] = owner
 			}
@@ -372,7 +390,7 @@ func ValidateShared(shared SharedConfig, sharedVolumes []string) error {
 		aliases := append([]string{name}, svc.Aliases...)
 		for _, alias := range aliases {
 			if owner, taken := owners[alias]; taken && owner != name {
-				return fmt.Errorf("shared.services: alias %q claimed by both %q and %q", alias, owner, name)
+				add("shared.services: alias %q claimed by both %q and %q", alias, owner, name)
 			}
 			owners[alias] = name
 		}
@@ -380,8 +398,11 @@ func ValidateShared(shared SharedConfig, sharedVolumes []string) error {
 
 	for _, v := range sharedVolumes {
 		if _, taken := shared.Services[v]; taken {
-			return fmt.Errorf("service %q appears in both shared.services and volumes.share; remove from volumes.share (platform tier already owns the data)", v)
+			add("service %q appears in both shared.services and volumes.share; remove from volumes.share (platform tier already owns the data)", v)
 		}
+	}
+	if len(errs) > 0 {
+		return errors.New(strings.Join(errs, "; "))
 	}
 	return nil
 }

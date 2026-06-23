@@ -202,6 +202,48 @@ func TestLoadRejectsInvalidShared(t *testing.T) {
 	}
 }
 
+func TestValidateSharedReportsMultipleErrors(t *testing.T) {
+	err := ValidateShared(SharedConfig{Services: map[string]SharedService{
+		"redis": {Kind: "redis", Tenancy: "per_database"},
+		"s3":    {Kind: "s3", Tenancy: "per_database"},
+	}}, nil)
+	if err == nil {
+		t.Fatal("expected validation errors")
+	}
+	msg := err.Error()
+	for _, want := range []string{
+		`shared.services.redis.tenancy "per_database" is not valid`,
+		`shared.services.s3.tenancy "per_database" is not valid`,
+	} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("error %q does not contain %q", msg, want)
+		}
+	}
+}
+
+func TestLoadUnvalidatedAllowsInvalidShared(t *testing.T) {
+	dir := t.TempDir()
+	yml := `shared:
+  services:
+    bad:
+      kind: redis
+      tenancy: per_database
+`
+	if err := os.WriteFile(filepath.Join(dir, "docktree.yml"), []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(dir); err == nil {
+		t.Fatal("expected strict Load to reject invalid shared config")
+	}
+	cfg, err := LoadUnvalidated(dir)
+	if err != nil {
+		t.Fatalf("LoadUnvalidated: %v", err)
+	}
+	if cfg.Shared.Services["bad"].Tenancy != "per_database" {
+		t.Fatalf("shared config not loaded: %#v", cfg.Shared.Services["bad"])
+	}
+}
+
 func TestDefaultTenantEnv(t *testing.T) {
 	cases := map[string]string{
 		"postgres": "DOCKTREE_DB",

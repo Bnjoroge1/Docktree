@@ -36,7 +36,7 @@ func runStatus(ctx *Context) (any, int, error) {
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	cfg, err := config.Load(repo.RepoRoot)
+	cfg, err := loadConfigWithSharedWarnings(repo.RepoRoot, ctx.Stderr)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
@@ -187,10 +187,14 @@ func runPorts(ctx *Context) (any, int, error) {
 		}
 		return PortsResult{All: true, Entries: entries}, output.ExitOK, nil
 	}
-	_, _, instanceName, err := commonIdentity()
+	repo, err := dockgit.DetectRepo()
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
+	if _, err := loadConfigWithSharedWarnings(repo.RepoRoot, ctx.Stderr); err != nil {
+		return nil, output.ExitConfig, err
+	}
+	instanceName := dockgit.InstanceName(dockgit.RepoName(repo.RepoRoot), dockgit.WorktreeName(repo.Branch, repo.WorktreeRoot), repo.RepoRoot, repo.WorktreeRoot)
 	all, err := ports.NewRegistry().Load()
 	if err != nil {
 		return nil, output.ExitConfig, err

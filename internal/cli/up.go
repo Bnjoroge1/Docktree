@@ -38,18 +38,8 @@ func runUp(ctx *Context) (any, int, error) {
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	// When the worktree has no shared.services of its own, inherit them
-	// from the main repo's docktree.yml so a single config covers every
-	// linked worktree.
-	if len(cfg.Shared.Services) == 0 {
-		mainRoot, mErr := dockgit.MainRepoRoot()
-		if mErr == nil && mainRoot != repo.RepoRoot {
-			mainCfg, mErr := config.Load(mainRoot)
-			if mErr == nil && len(mainCfg.Shared.Services) > 0 {
-				cfg.Shared.Services = mainCfg.Shared.Services
-			}
-		}
-	}
+	// commonIdentity now loads from the canonical config root (main repo),
+	// so shared.services is always inherited correctly.
 	steps := ctx.Steps
 	if steps != nil {
 		steps.Header("Starting services…", instanceName)
@@ -58,12 +48,12 @@ func runUp(ctx *Context) (any, int, error) {
 	var createdWorktree string
 	var synced bool
 	if options.create != "" {
-		scaffolded, err = config.Scaffold(repo.RepoRoot, cfg)
+		scaffolded, err = config.Scaffold(canonicalConfigRoot(repo), cfg)
 		if err != nil {
 			return nil, output.ExitConfig, err
 		}
 		if scaffolded {
-			cfg, err = config.Load(repo.RepoRoot)
+			cfg, err = loadCanonicalConfig(repo)
 			if err != nil {
 				return nil, output.ExitConfig, err
 			}
@@ -85,12 +75,12 @@ func runUp(ctx *Context) (any, int, error) {
 	inst, _ := state.LoadInstance(stateDir)
 	var envWarnings []compose.Warning
 	if inst == nil {
-		scaffolded, err = config.Scaffold(repo.RepoRoot, cfg)
+		scaffolded, err = config.Scaffold(canonicalConfigRoot(repo), cfg)
 		if err != nil {
 			return nil, output.ExitConfig, err
 		}
 		if scaffolded {
-			cfg, err = config.Load(repo.RepoRoot)
+			cfg, err = loadCanonicalConfig(repo)
 			if err != nil {
 				return nil, output.ExitConfig, err
 			}
@@ -214,7 +204,7 @@ func runUp(ctx *Context) (any, int, error) {
 		if runningState == composeRunRunning && projectNeedsBuild {
 			reuseRunningPorts = true
 		}
-		if runningState == composeRunRunning && !projectNeedsBuild {
+		if runningState == composeRunRunning && !projectNeedsBuild && len(options.services) == 0 {
 			currentHash, err := state.HashFiles(files)
 			if err != nil {
 				return nil, output.ExitConfig, err
@@ -289,6 +279,7 @@ func runUp(ctx *Context) (any, int, error) {
 	if options.build || projectNeedsBuild {
 		upArgs = append(upArgs, "--build")
 	}
+	upArgs = append(upArgs, options.services...)
 	cmd := docker.ComposeCommand{ProjectName: instanceName, Files: composeFiles, CommandArgs: upArgs}
 	requests := portRequests(project, cfg.Ports.BindHost)
 	for attempt := 0; attempt < 10; attempt++ {

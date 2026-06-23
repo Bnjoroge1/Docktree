@@ -84,6 +84,7 @@ func runComposeRun(ctx *Context) (any, int, error) {
 		return nil, output.ExitConfig, err
 	}
 	composeFiles := activeComposeFiles(repo.WorktreeRoot, cfg, inst)
+	args = stripRunSeparator(args)
 	composeArgs := append([]string{"run", "--rm"}, args...)
 	cmd := docker.ComposeCommand{
 		ProjectName: inst.ProjectName,
@@ -104,6 +105,19 @@ func runComposeRun(ctx *Context) (any, int, error) {
 		Subcommand:   "run",
 		Args:         args,
 	}, output.ExitOK, nil
+}
+
+func stripRunSeparator(args []string) []string {
+	for i, arg := range args {
+		if arg != "--" {
+			continue
+		}
+		stripped := make([]string, 0, len(args)-1)
+		stripped = append(stripped, args[:i]...)
+		stripped = append(stripped, args[i+1:]...)
+		return stripped
+	}
+	return args
 }
 
 func printDockerHelp(w io.Writer) {
