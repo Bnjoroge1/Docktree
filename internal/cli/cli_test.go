@@ -2,6 +2,7 @@ package cli
 
 import (
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/bnjoroge/docktree/internal/compose"
@@ -58,6 +59,22 @@ func TestParseComposeRunState(t *testing.T) {
 				t.Fatalf("state = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestStripRunSeparator(t *testing.T) {
+	got := stripRunSeparator([]string{"-e", "RAILS_ENV=test", "api", "--", "rake", "db:migrate"})
+	want := []string{"-e", "RAILS_ENV=test", "api", "rake", "db:migrate"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("stripRunSeparator() = %#v, want %#v", got, want)
+	}
+}
+
+func TestStripRunSeparatorKeepsArgsWithoutSeparator(t *testing.T) {
+	args := []string{"api", "rake", "db:migrate"}
+	got := stripRunSeparator(args)
+	if !slices.Equal(got, args) {
+		t.Fatalf("stripRunSeparator() = %#v, want %#v", got, args)
 	}
 }
 
