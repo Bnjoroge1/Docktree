@@ -26,7 +26,11 @@ func LoadFull(files []string) (*composetypes.Project, *ComposeProject, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	details.Environment = composeEnvironment(workingDir)
+	env, err := composeEnvironment(workingDir)
+	if err != nil {
+		return nil, nil, err
+	}
+	details.Environment = env
 	projectName := filepath.Base(filepath.Clean(workingDir))
 	if projectName == "." || projectName == string(os.PathSeparator) || projectName == "" {
 		projectName = "docktree"
@@ -129,21 +133,28 @@ func convertService(svc composetypes.ServiceConfig) Service {
 	return converted
 }
 
-func composeEnvironment(workingDir string) map[string]string {
+func composeEnvironment(workingDir string) (map[string]string, error) {
 	env := map[string]string{}
-	envPath := filepath.Join(workingDir, ".env")
-	if dotEnv, err := dotenv.GetEnvFromFile(env, []string{envPath}); err == nil {
-		for key, value := range dotEnv {
-			env[key] = value
-		}
-	}
+	// Seed with process environment so .env values like ${HOST} resolve
+	// from exported shell variables during parsing.
 	for _, pair := range os.Environ() {
 		key, value, ok := splitEnv(pair)
 		if ok {
 			env[key] = value
 		}
 	}
-	return env
+	envPath := filepath.Join(workingDir, ".env")
+	if _, err := os.Stat(envPath); err == nil {
+		dotEnv, err := dotenv.GetEnvFromFile(env, []string{envPath})
+		if err != nil {
+			return nil, fmt.Errorf("parsing %s: %w", envPath, err)
+		}
+		// .env values override process env (docker compose semantics)
+		for key, value := range dotEnv {
+			env[key] = value
+		}
+	}
+	return env, nil
 }
 
 func splitEnv(value string) (string, string, bool) {
