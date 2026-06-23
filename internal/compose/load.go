@@ -149,9 +149,11 @@ func composeEnvironment(workingDir string) (map[string]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("parsing %s: %w", envPath, err)
 		}
-		// .env values override process env (docker compose semantics)
+		// Shell env takes precedence over .env (docker compose semantics).
 		for key, value := range dotEnv {
-			env[key] = value
+			if _, exists := env[key]; !exists {
+				env[key] = value
+			}
 		}
 	}
 	return env, nil

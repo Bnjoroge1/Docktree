@@ -107,6 +107,39 @@ services:
 	}
 }
 
+func TestLoadProjectShellEnvTakesPrecedenceOverDotEnv(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("WEB_PORT", "19090")
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("WEB_PORT=18081\nAPI_BASE_URL=http://${HOST_NAME}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOST_NAME", "from-shell")
+	path := filepath.Join(dir, "compose.yml")
+	data := []byte(`
+services:
+  web:
+    image: nginx:alpine
+    ports:
+      - "${WEB_PORT}:80"
+    environment:
+      API_BASE: ${API_BASE_URL:?required}
+`)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	project, err := LoadProject([]string{path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	web := project.Services["web"]
+	if got := web.Ports[0].Published; got != 19090 {
+		t.Fatalf("published port = %d, want shell value 19090", got)
+	}
+	if got := web.Environment["API_BASE"]; got != "http://from-shell" {
+		t.Fatalf("API_BASE = %q, want .env value interpolated from shell", got)
+	}
+}
+
 func TestLoadProjectAllowsComposeAcceptedNetworkModeWithNetworks(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "compose.yml")
