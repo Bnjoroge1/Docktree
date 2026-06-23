@@ -1,90 +1,84 @@
-# Docktree - drop-in docker compose for managing your worktrees
+# Docktree — drop-in Docker Compose for git worktrees
 
-If you work with Docker Compose and want to launch multiple instances(whether these are in the form of clones/worktrees/jj workspaces), you will inevitably run into 3 different types of conflicts: the docker compose project name, port conflicts and service name conflicts. 
+Running Docker Compose across multiple git worktrees collides on three things:
+project name, host ports, and container names. Docktree gives every worktree
+its own isolated Compose project — unique ports (auto-allocated from a fixed
+range), unique container names, unique volumes — by generating override files
+on top of your existing `docker-compose.yml`. Zero config to start; the
+overrides are derived, not copies.
 
-Why would you want to run multiple instances at once? Maybe you want to hot-fix something that happened in prod without stashing your ongoing changes or it cant quite fit in a branch. To be honest, there wasn't much of a reason before agents became mainstream. Before building this project, i was basically either just running one instance at a time, but this limited the agents ability to really work autonomously,  or setting the compose project name and ports or letting docker assign a random port for each worktree. Works mostly well until you are running more than even 2 worktrees, now you gotta remember the ports for each worktree, or you could have each worktree run its in own docker daemon inside another container. Could totally work but that ends up being a DinD setup which requires your containers to run as privileged containers, among a host(pun most intended) of other performance issues, which in my opinion is unnecessary overhead. 
-
-This project is basically a layer over git worktrees(for now, adding support JJ workspaces is in the roadmap), but specifically to address docker compose uniqueness constraints mentioned above. This means it could easily work or complement your existing way of managing worktrees, whether using worktrunk, something homegrown, desktop orchestrators or terminal orchestrators. It's a drop-in replacement for docker compose that works out of the box with zero config(you can further customize it if you want), by overriding your docker compose files. 
-
-The main use case I've been using for is to have the agent work autonomously on specific tasks, and more crucially enable them to fully test the end to end flow. Each worktree gets its own isolated services(the default), or for either of {mysql, postgres, mongodb} you can give each worktree its own database in a shared container with no application changes. You can then hook up each agent with Playwright or Agent-browser or (Bombadil)[[https://github.com/antithesishq/bombadil]]([https://github.com/antithesishq/bombadil]](https://github.com/antithesishq/bombadil])) and have the agents prepare screenshots or a report of their work. 
-
-Docktree was designed to be agent-native from the start so agents could manage the lifecycles of the docktree instances themselves so they can bring up their own docktrees, or drive multiple instances(this becomes very useful if they want to actually close the loop with end to end testing.). 
-
-2. 
-
-Each worktree gets its own isolated project with unique ports, container names, and volumes. They're all managed through generated Compose overrides.
+It exists because agents work better when they can spin up their own isolated
+stack to test end-to-end, without stepping on a sibling worktree or your own
+running services. Docktree is agent-native: every command speaks `--json`
+(see [For AI agents](#for-ai-agents)).
 
 ## Install
 
 ```bash
-# One-line install (macOS / Linux)
+# macOS / Linux
 curl -fsSL https://raw.githubusercontent.com/Bnjoroge1/docktree/main/install.sh | sh
 
-# Or via Homebrew
+# Homebrew
 brew tap Bnjoroge1/tap
-brew trust Bnjoroge1/tap  # Homebrew 4.4+ requires trusting unsigned custom taps
+brew trust Bnjoroge1/tap   # Homebrew 4.4+ requires trusting unsigned custom taps
 brew install docktree
 
-# Or from source
+# From source
 go install github.com/bnjoroge/docktree/cmd/docktree@latest
 ```
 
-### Install options
+Pin a version or relocate the binary via environment variables:
 
 ```bash
-# Install a specific version
-VERSION=v0.1.0 curl -fsSL https://raw.githubusercontent.com/bnjoroge/docktree/main/install.sh | sh
-
-# Install to a custom directory
-INSTALL_DIR=~/.local/bin curl -fsSL https://raw.githubusercontent.com/bnjoroge/docktree/main/install.sh | sh
-```
-
-## Usage
-
-```bash
-# Start services in the current worktree
-docktree up
-
-# Stop services
-docktree down
-
-# Show running status
-docktree status
-
-# Show allocated ports
-docktree ports
-
-# Clean stale resources
-docktree clean
+VERSION=v0.1.0     curl -fsSL https://raw.githubusercontent.com/Bnjoroge1/docktree/main/install.sh | sh
+INSTALL_DIR=~/.local/bin curl -fsSL https://raw.githubusercontent.com/Bnjoroge1/docktree/main/install.sh | sh
 ```
 
 ## How it works
 
-1. You have a Docker Compose project with services
-2. Create a git worktree: `git worktree add ../feature-branch feature-branch`
-3. Run `docktree up` in the worktree
-4. Docktree:
-  - Detects your compose files
-  - Allocates unique ports from the range 41000-49999
-  - Generates an override file with isolated container names and ports
-  - Starts the project with `docker compose up -d`
+1. You have a Compose project in a git repo.
+2. Create a worktree: `git worktree add ../feature-x feature-x`.
+3. In the worktree, run `docktree up`.
 
-Each worktree runs independently without any port conflicts, or name collisions.
+Docktree discovers your compose files, allocates unique ports from `41000–49999`,
+writes a generated override with isolated names and ports, and runs
+`docker compose up -d`. Worktrees never collide.
+
+## Commands
+
+```bash
+docktree up           # start the current worktree's project
+docktree down         # stop and remove (add -v to drop volumes too)
+docktree stop         # stop without removing
+docktree status       # show running services
+docktree ports        # show this worktree's allocated host ports (--all for every worktree)
+docktree volumes      # show managed volumes (--all for every worktree)
+docktree clean        # remove stale resources from missing worktrees (--dry-run first)
+docktree sync         # propagate setup.copy files to every worktree
+docktree platform up  # start the repo-scoped shared-services tier (when configured)
+```
+
+Docker Compose passthroughs (`build`, `config`, `logs`, `exec`, `run`, `ls`,
+…) work too, with this worktree's project context pre-filled. Run
+`docktree help` or `docktree <cmd> --help` for the authoritative reference.
+
+Global flag: `--json` (before the subcommand) emits machine-readable JSON for
+every native command, including `help` and `version`.
 
 ## Configuration
 
-Docktree works without configuration. If you need to customize behavior, create `docktree.yml`:
+Docktree works without configuration. To customize, create `docktree.yml`:
 
 ```yaml
+compose:
+  files:
+    - docker-compose.yml
+
 setup:
   copy:
     - .env
   symlink:
     - node_modules
-
-compose:
-  files:
-    - docker-compose.yml
 
 ports:
   bind_host: "127.0.0.1"
@@ -92,67 +86,43 @@ ports:
 
 volumes:
   share:
-    - cache-data  # Share this volume across worktrees
+    - cache-data   # share this volume across worktrees
 ```
 
-### Note on shared databases and secret wrappers
+### Shared databases and secret wrappers
 
-When using `shared.services` with `tenancy: per_database`, Docktree can only rewrite or inject database URLs that are visible as Compose environment variables. If your app constructs `DATABASE_URL` inside a runtime shell command, for example through Infisical or another secrets wrapper, Docktree cannot safely rewrite that inline command.
-
-Prefer letting the app read a Docktree-provided `DATABASE_URL` from the environment, or make the shell command respect an existing `DATABASE_URL` before constructing a fallback value. If the command must always build the database URL from secrets at runtime, use isolated per-worktree database containers instead of shared `per_database` tenancy.
-
-## Windows
-
-On Windows, use it through WSL2 with Docker Desktop WSL integration enabled.
-
-## Commands
-
-
-| Command              | Description                        |
-| -------------------- | ---------------------------------- |
-| `docktree up`        | Start services in current worktree |
-| `docktree down`      | Stop services                      |
-| `docktree status`    | Show managed services              |
-| `docktree ports`     | Show allocated ports               |
-| `docktree clean`     | Remove stale resources             |
-| `docktree --version` | Print version                      |
-
-
-## Flags
-
-
-| Flag              | Description                   |
-| ----------------- | ----------------------------- |
-| `--json`          | Output as JSON                |
-| `up -f <file>`    | Use specific compose file     |
-| `clean --dry-run` | Preview what would be removed |
-| `clean --yes`     | Skip confirmation prompt      |
-| `clean --volumes` | Also remove volumes           |
-
+With `shared.services` and `tenancy: per_database`, Docktree rewrites
+database URLs that are visible as Compose environment variables. If your app
+builds `DATABASE_URL` inside a runtime shell command (Infisical, Doppler,
+Vault, etc.), Docktree cannot safely rewrite it — prefer reading a
+Docktree-provided `DATABASE_URL` from the environment, have the wrapper
+respect an existing one, or fall back to isolated per-worktree database
+containers.
 
 ## For AI agents
 
-Docktree ships an agent skill — a short prompt that teaches coding agents
-(Claude Code, Codex, Cursor, OpenCode, and 60+ others) how to invoke the CLI
-correctly, which commands honor `--json`, and the lifecycle gotchas.
+Docktree ships an agent skill that teaches coding agents (Claude Code, Codex,
+Cursor, OpenCode, and 60+ others) how to drive the CLI: which commands honor
+`--json`, the error envelope, and the stderr/stdout split.
 
 Install via [`npx skills`](https://github.com/vercel-labs/skills):
 
 ```bash
-# install all docktree skills into the current project
-npx skills add Bnjoroge1/Docktree
-
-# or globally for a specific agent
-npx skills add Bnjoroge1/Docktree -g -a claude-code
+npx skills add Bnjoroge1/Docktree              # current project
+npx skills add Bnjoroge1/Docktree -g           # globally
+npx skills add Bnjoroge1/Docktree --list       # preview without installing
 ```
 
-See [`skills/`](./skills/) for what's available.
+See [`skills/`](./skills/) for the skill source.
+
+## Windows
+
+Use through WSL2 with Docker Desktop's WSL integration enabled.
 
 ## Contributing
 
-Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for how to set
-up a dev environment, run the tests, and open a pull request. Note that `main`
-is protected and merges are gated on code-owner review.
+See [CONTRIBUTING.md](CONTRIBUTING.md). `main` is protected; merges are gated
+on code-owner review.
 
 ## License
 
