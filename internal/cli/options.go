@@ -214,10 +214,17 @@ func parseUpOptions(args []string) (upOptions, error) {
 			if i+1 >= len(args) {
 				return upOptions{}, fmt.Errorf("%s requires a service name", arg)
 			}
+			if args[i+1] == "" || strings.HasPrefix(args[i+1], "-") {
+				return upOptions{}, fmt.Errorf("%s requires a service name", arg)
+			}
 			options.services = append(options.services, args[i+1])
 			i++
 		case strings.HasPrefix(arg, "--only="):
-			options.services = append(options.services, strings.TrimPrefix(arg, "--only="))
+			service := strings.TrimPrefix(arg, "--only=")
+			if service == "" {
+				return upOptions{}, fmt.Errorf("--only requires a service name")
+			}
+			options.services = append(options.services, service)
 		default:
 			if strings.HasPrefix(arg, "-") {
 				return upOptions{}, fmt.Errorf("unknown up flag %q", arg)

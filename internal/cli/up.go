@@ -204,7 +204,7 @@ func runUp(ctx *Context) (any, int, error) {
 		if runningState == composeRunRunning && projectNeedsBuild {
 			reuseRunningPorts = true
 		}
-		if runningState == composeRunRunning && !projectNeedsBuild {
+		if runningState == composeRunRunning && !projectNeedsBuild && len(options.services) == 0 {
 			currentHash, err := state.HashFiles(files)
 			if err != nil {
 				return nil, output.ExitConfig, err

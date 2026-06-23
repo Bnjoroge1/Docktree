@@ -166,6 +166,21 @@ func TestParseUpOptionsOnly(t *testing.T) {
 	}
 }
 
+func TestParseUpOptionsOnlyEmptyValue(t *testing.T) {
+	_, err := parseUpOptions([]string{"--only="})
+	if err == nil {
+		t.Fatal("expected error for empty --only=")
+	}
+}
+
+func TestParseUpOptionsOnlyFlagAsValue(t *testing.T) {
+	_, err := parseUpOptions([]string{"--only", "--build"})
+	if err == nil {
+		t.Fatal("expected error for --only consuming a flag")
+	}
+}
+
+
 func TestRunValidateNoServices(t *testing.T) {
 	project := &compose.ComposeProject{Services: map[string]compose.Service{}}
 	cfg := config.Defaults()
