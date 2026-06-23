@@ -92,6 +92,36 @@ func LoadGlobalState(configDir string) (map[string]Instance, error) {
 	return LoadGlobalInstances(configDir)
 }
 
+func atomicWriteFile(path string, data []byte) error {
+	tmpFile, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmp := tmpFile.Name()
+	removeTmp := true
+	defer func() {
+		if removeTmp {
+			_ = os.Remove(tmp)
+		}
+	}()
+	if _, err := tmpFile.Write(data); err != nil {
+		_ = tmpFile.Close()
+		return err
+	}
+	if err := tmpFile.Chmod(0o644); err != nil {
+		_ = tmpFile.Close()
+		return err
+	}
+	if err := tmpFile.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	removeTmp = false
+	return nil
+}
+
 func SaveGlobalInstances(configDir string, instances map[string]Instance) error {
 	if configDir == "" {
 		configDir = GlobalConfigDir()
@@ -103,12 +133,7 @@ func SaveGlobalInstances(configDir string, instances map[string]Instance) error 
 	if err != nil {
 		return err
 	}
-	target := filepath.Join(configDir, "instances.json")
-	tmp := target + ".tmp"
-	if err := os.WriteFile(tmp, append(data, '\n'), 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, target)
+	return atomicWriteFile(filepath.Join(configDir, "instances.json"), append(data, '\n'))
 }
 
 func UpsertGlobalInstance(configDir string, inst *Instance) error {
@@ -203,12 +228,7 @@ func SaveInstance(stateDir string, inst *Instance) error {
 	if err != nil {
 		return err
 	}
-	target := filepath.Join(stateDir, "state.json")
-	tmp := target + ".tmp"
-	if err := os.WriteFile(tmp, append(data, '\n'), 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, target)
+	return atomicWriteFile(filepath.Join(stateDir, "state.json"), append(data, '\n'))
 }
 
 func HashFiles(paths []string) (string, error) {
