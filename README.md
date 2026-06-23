@@ -130,6 +130,12 @@ On Windows, use it through WSL2 with Docker Desktop WSL integration enabled.
 | `clean --volumes` | Also remove volumes           |
 
 
+## Contributing
+
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for how to set
+up a dev environment, run the tests, and open a pull request. Note that `main`
+is protected and merges are gated on code-owner review.
+
 ## License
 
 MIT
