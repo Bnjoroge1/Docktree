@@ -312,18 +312,26 @@ Examples:
 
 func printUpHelp(w io.Writer) {
 	fmt.Fprintln(w, `Usage:
-  docktree up [options]
+  docktree up [options] [service...]
 
-Start the current worktree's Compose project.
+Start the current worktree's Compose project. When services are provided, only
+those services are started; overrides and port allocations are still generated
+for the full project.
 
 Options:
   -f, --file <path>     Use a specific Compose file
+  --only <service>      Start only the named service (repeatable)
   --build               Force rebuild of images with a build: directive
   --create <branch>     Create and prepare a new worktree before starting
   --sync                Run setup copy/symlink/run steps before starting
   --validate            Check config, ports, and compose validity without starting
   --dry-run             Show what would happen without making changes
-  -h, --help            Show this help text`)
+  -h, --help            Show this help text
+
+Examples:
+  docktree up
+  docktree up db redis
+  docktree up --only db`)
 }
 
 func printBuildHelp(w io.Writer) {

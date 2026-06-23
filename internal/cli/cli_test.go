@@ -140,6 +140,29 @@ func TestParseUpOptionsValidateWithSync(t *testing.T) {
 	}
 }
 
+func TestParseUpOptionsServices(t *testing.T) {
+	opts, err := parseUpOptions([]string{"--build", "db", "redis"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opts.build {
+		t.Fatal("expected build=true")
+	}
+	if !slices.Equal(opts.services, []string{"db", "redis"}) {
+		t.Fatalf("services = %#v", opts.services)
+	}
+}
+
+func TestParseUpOptionsOnly(t *testing.T) {
+	opts, err := parseUpOptions([]string{"--only", "db", "--only=redis"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(opts.services, []string{"db", "redis"}) {
+		t.Fatalf("services = %#v", opts.services)
+	}
+}
+
 func TestRunValidateNoServices(t *testing.T) {
 	project := &compose.ComposeProject{Services: map[string]compose.Service{}}
 	cfg := config.Defaults()

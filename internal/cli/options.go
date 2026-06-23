@@ -47,6 +47,7 @@ func parsePortsOptions(args []string) (portsOptions, error) {
 	}
 	return options, nil
 }
+
 type statusOptions struct {
 	help bool
 	all  bool
@@ -66,7 +67,6 @@ func parseStatusOptions(args []string) (statusOptions, error) {
 	}
 	return options, nil
 }
-
 
 type volumesOptions struct {
 	all  bool
@@ -170,6 +170,7 @@ type upOptions struct {
 	validate bool
 	dryRun   bool
 	build    bool
+	services []string
 }
 
 type createOptions struct {
@@ -209,8 +210,19 @@ func parseUpOptions(args []string) (upOptions, error) {
 			options.dryRun = true
 		case arg == "--build":
 			options.build = true
+		case arg == "--only":
+			if i+1 >= len(args) {
+				return upOptions{}, fmt.Errorf("%s requires a service name", arg)
+			}
+			options.services = append(options.services, args[i+1])
+			i++
+		case strings.HasPrefix(arg, "--only="):
+			options.services = append(options.services, strings.TrimPrefix(arg, "--only="))
 		default:
-			return upOptions{}, fmt.Errorf("unknown up flag %q", arg)
+			if strings.HasPrefix(arg, "-") {
+				return upOptions{}, fmt.Errorf("unknown up flag %q", arg)
+			}
+			options.services = append(options.services, arg)
 		}
 	}
 	return options, nil
@@ -263,9 +275,9 @@ func parseGlobalFlags(args []string) (bool, []string) {
 }
 
 type syncOptions struct {
-	help    bool
-	dryRun  bool
-	force   bool
+	help   bool
+	dryRun bool
+	force  bool
 }
 
 func parseSyncOptions(args []string) (syncOptions, error) {
@@ -285,7 +297,6 @@ func parseSyncOptions(args []string) (syncOptions, error) {
 	}
 	return options, nil
 }
-
 
 func sortedKeys(m map[string][]ports.Assignment) []string {
 	keys := make([]string, 0, len(m))

@@ -289,6 +289,7 @@ func runUp(ctx *Context) (any, int, error) {
 	if options.build || projectNeedsBuild {
 		upArgs = append(upArgs, "--build")
 	}
+	upArgs = append(upArgs, options.services...)
 	cmd := docker.ComposeCommand{ProjectName: instanceName, Files: composeFiles, CommandArgs: upArgs}
 	requests := portRequests(project, cfg.Ports.BindHost)
 	for attempt := 0; attempt < 10; attempt++ {
