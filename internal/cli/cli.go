@@ -36,6 +36,7 @@ var rootCommands = map[string]commandSpec{
 	"port":     {run: runPort},
 	"ports":    {run: runPorts},
 	"prepare":  {run: runPrepare},
+	"proxy":    {run: runProxy},
 	"pull":     {run: runPull},
 	"push":     {run: runPush},
 	"restart":  {run: runRestart},
@@ -48,8 +49,8 @@ var rootCommands = map[string]commandSpec{
 	"top":      {run: runTop},
 	"unpause":  {run: runUnpause},
 	"up":       {run: runUp, progress: true},
+	"tunnel":   {run: runTunnel},
 	"volumes":  {run: runVolumes},
-	"wait":     {run: runWait},
 	"watch":    {run: runWatch},
 }
 

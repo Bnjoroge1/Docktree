@@ -153,6 +153,8 @@ type StatusResult struct {
 type StatusAllEntry struct {
 	Instance      string `json:"instance"`
 	Branch        string `json:"branch"`
+	ProxyURL      string `json:"proxy_url,omitempty"`
+	TunnelURL     string `json:"tunnel_url,omitempty"`
 	Running       bool   `json:"running"`
 	Paused        bool   `json:"paused"`
 	ServiceCount  int    `json:"service_count"`

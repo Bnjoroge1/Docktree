@@ -66,6 +66,16 @@ func runStatusAll(ctx *Context) (any, int, error) {
 	sort.Strings(names)
 
 	var entries []StatusAllEntry
+
+	// Load config once for proxy port
+	var proxyPort int
+	if cfg, err := config.Load(""); err == nil {
+		proxyPort = cfg.Proxy.Port
+	}
+	if proxyPort == 0 {
+		proxyPort = 8320
+	}
+
 	for _, name := range names {
 		inst := instances[name]
 		entry := StatusAllEntry{
@@ -87,6 +97,15 @@ func runStatusAll(ctx *Context) (any, int, error) {
 		if err != nil {
 			entries = append(entries, entry)
 			continue
+		}
+
+		// Proxy URL for this instance
+		entry.ProxyURL = fmt.Sprintf("http://%s.localhost:%d", inst.Name, proxyPort)
+
+		// Tunnel URL if running
+		ts, _ := LoadTunnelState(inst.WorktreeRoot, inst.StateDirectory)
+		if ts != nil && processAlive(ts.PID) && ts.URL != "" {
+			entry.TunnelURL = ts.URL
 		}
 
 		out, err := docker.RunCapture(docker.ComposeCommand{

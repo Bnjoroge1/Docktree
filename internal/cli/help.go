@@ -45,8 +45,9 @@ func printHelp(w io.Writer) {
 	printHelpCmd(w, maxCmd, "unpause", "Pass through to docker compose unpause")
 	printHelpCmd(w, maxCmd, "up", "Start the current worktree's Compose project (or --create <branch>)")
 	printHelpCmd(w, maxCmd, "volumes", "Show Docktree-managed volumes (use --all for all worktrees)")
+	printHelpCmd(w, maxCmd, "proxy", "Reverse proxy routing by hostname to worktree ports")
+	printHelpCmd(w, maxCmd, "tunnel", "Expose worktrees externally via Cloudflare Tunnel or ngrok")
 	printHelpCmd(w, maxCmd, "wait", "Pass through to docker compose wait")
-	printHelpCmd(w, maxCmd, "watch", "Pass through to docker compose watch")
 	printHelpCmd(w, maxCmd, "help", "Show this help text")
 	printHelpCmd(w, maxCmd, "version", "Print the docktree version")
 }

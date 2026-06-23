@@ -443,7 +443,7 @@ func humanRenderer() func(io.Writer, any) {
 			fmt.Fprintln(w)
 			var tbl tui.Table
 			tbl.TermWidth = tw
-			tbl.Headers = []string{"", "INSTANCE", "BRANCH", "SERVICES"}
+			tbl.Headers = []string{"", "INSTANCE", "BRANCH", "SERVICES", "PROXY URL"}
 			for _, e := range v.Entries {
 				statusIcon := tui.ErrorS("○")
 				if e.Running {
@@ -455,11 +455,16 @@ func humanRenderer() func(io.Writer, any) {
 				if e.TotalServices == 0 {
 					services = "—"
 				}
+				proxyURL := e.ProxyURL
+				if proxyURL == "" {
+					proxyURL = "—"
+				}
 				tbl.Rows = append(tbl.Rows, []string{
 					statusIcon,
 					e.Instance,
 					e.Branch,
 					services,
+					proxyURL,
 				})
 			}
 			fmt.Fprintln(w, tbl.RenderBorderedStyled(func(row, col int, val string) string {
@@ -475,6 +480,11 @@ func humanRenderer() func(io.Writer, any) {
 					return tui.AccentS(val)
 				case 3:
 					return tui.TextS(val)
+				case 4:
+					if val == "—" {
+						return tui.DimS(val)
+					}
+					return tui.URLS(val)
 				}
 				return val
 			}))
@@ -836,9 +846,57 @@ func humanRenderer() func(io.Writer, any) {
 
 		case VersionInfo:
 			renderVersionText(w, v)
+		case TunnelStartResult:
+			// Already printed by the command itself via Steps; nothing to add here.
+
+		case TunnelListResult:
+			if len(v.Entries) == 0 {
+				fmt.Fprintf(w, "%s No tunnels running.\n", tui.BrandS("Docktree"))
+				return
+			}
+			fmt.Fprintf(w, "%s %s\n", tui.BrandS("Docktree"), tui.MutedS("tunnels"))
+			fmt.Fprintln(w)
+			var tbl tui.Table
+			tbl.TermWidth = tw
+			tbl.Headers = []string{"", "INSTANCE", "BRANCH", "PROVIDER", "URL", "PORT"}
+			for _, e := range v.Entries {
+				statusIcon := tui.ErrorS("○")
+				if e.Alive {
+					statusIcon = tui.OKS("●")
+				}
+				url := e.URL
+				if url == "" {
+					url = "—"
+				}
+				tbl.Rows = append(tbl.Rows, []string{
+					statusIcon, e.Instance, e.Branch, e.Provider, url, fmt.Sprintf("%d", e.Port),
+				})
+			}
+			fmt.Fprintln(w, tbl.RenderBorderedStyled(func(row, col int, val string) string {
+				if row == -1 {
+					return tui.DimS(val)
+				}
+				switch col {
+				case 0:
+					return val
+				case 1:
+					return tui.MutedS(val)
+				case 2:
+					return tui.AccentS(val)
+				case 3:
+					return tui.TextS(val)
+				case 4:
+					if val == "—" {
+						return tui.DimS(val)
+					}
+					return tui.URLS(val)
+				case 5:
+					return tui.AccentS(val)
+				}
+				return val
+			}))
 
 		default:
-			_ = json.NewEncoder(w).Encode(data)
 		}
 	}
 }
