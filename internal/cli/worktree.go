@@ -2,6 +2,7 @@ package cli
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -29,7 +30,7 @@ func runPrepare(ctx *Context) (any, int, error) {
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	cfg, err := config.Load(repo.RepoRoot)
+	cfg, err := loadConfigWithSharedWarnings(repo.RepoRoot, ctx.Stderr)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
@@ -176,6 +177,17 @@ func repoRootVolumesShare() []string {
 		return nil
 	}
 	return repoCfg.Volumes.Share
+}
+
+func loadConfigWithSharedWarnings(dir string, stderr io.Writer) (*config.Config, error) {
+	cfg, err := config.LoadUnvalidated(dir)
+	if err != nil {
+		return nil, err
+	}
+	if err := config.ValidateShared(cfg.Shared, cfg.Volumes.Share); err != nil && stderr != nil {
+		fmt.Fprintf(stderr, "warning: %v\n", err)
+	}
+	return cfg, nil
 }
 
 func commonIdentity() (dockgit.RepoInfo, *config.Config, string, error) {
