@@ -30,12 +30,12 @@ func runPrepare(ctx *Context) (any, int, error) {
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	cfg, err := loadConfigWithSharedWarnings(repo.RepoRoot, ctx.Stderr)
+	cfg, err := loadCanonicalConfigWithWarnings(repo, ctx.Stderr)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
 	if err := setup.Prepare(setup.Options{
-		SourceDir: repo.RepoRoot,
+		SourceDir: canonicalConfigRoot(repo),
 		TargetDir: repo.WorktreeRoot,
 		Config:    cfg,
 		Stdout:    ctx.Stdout,
@@ -65,11 +65,12 @@ func runCreate(ctx *Context) (any, int, error) {
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	cfg, err := config.Load(repo.RepoRoot)
+	configRoot := canonicalConfigRoot(repo)
+	cfg, err := config.Load(configRoot)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	worktreeRoot, err := createPreparedWorktree(repo.RepoRoot, cfg, options.branch, ctx.Stdout, ctx.Stderr)
+	worktreeRoot, err := createPreparedWorktree(configRoot, cfg, options.branch, ctx.Stdout, ctx.Stderr)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
@@ -190,12 +191,31 @@ func loadConfigWithSharedWarnings(dir string, stderr io.Writer) (*config.Config,
 	return cfg, nil
 }
 
+// canonicalConfigRoot returns the main repo root when running inside a
+// linked worktree, or repo.RepoRoot when in the main repo itself. This
+// ensures worktree commands and platform read the same docktree.yml.
+func canonicalConfigRoot(repo dockgit.RepoInfo) string {
+	mainRoot, err := dockgit.MainRepoRootForPath(repo.WorktreeRoot)
+	if err == nil && mainRoot != "" {
+		return mainRoot
+	}
+	return repo.RepoRoot
+}
+
+func loadCanonicalConfig(repo dockgit.RepoInfo) (*config.Config, error) {
+	return config.Load(canonicalConfigRoot(repo))
+}
+
+func loadCanonicalConfigWithWarnings(repo dockgit.RepoInfo, stderr io.Writer) (*config.Config, error) {
+	return loadConfigWithSharedWarnings(canonicalConfigRoot(repo), stderr)
+}
+
 func commonIdentity() (dockgit.RepoInfo, *config.Config, string, error) {
 	repo, err := dockgit.DetectRepo()
 	if err != nil {
 		return dockgit.RepoInfo{}, nil, "", err
 	}
-	cfg, err := config.Load(repo.RepoRoot)
+	cfg, err := loadCanonicalConfig(repo)
 	if err != nil {
 		return dockgit.RepoInfo{}, nil, "", err
 	}

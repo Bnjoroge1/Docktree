@@ -10,7 +10,6 @@ import (
 
 	"github.com/bnjoroge/docktree/internal/config"
 	"github.com/bnjoroge/docktree/internal/docker"
-	dockgit "github.com/bnjoroge/docktree/internal/git"
 	"github.com/bnjoroge/docktree/internal/output"
 	"github.com/bnjoroge/docktree/internal/setup"
 	"github.com/bnjoroge/docktree/internal/state"
@@ -140,21 +139,7 @@ func runSync(ctx *Context) (any, int, error) {
 }
 
 func loadConfigForRepo(repoRoot string) (*config.Config, error) {
-	cfg, err := config.Load(repoRoot)
-	if err != nil {
-		return nil, err
-	}
-	// Inherit shared services from main repo if worktree has none.
-	if len(cfg.Shared.Services) == 0 {
-		mainRoot, mErr := dockgit.MainRepoRoot()
-		if mErr == nil && mainRoot != repoRoot {
-			mainCfg, mErr := config.Load(mainRoot)
-			if mErr == nil && len(mainCfg.Shared.Services) > 0 {
-				cfg.Shared.Services = mainCfg.Shared.Services
-			}
-		}
-	}
-	return cfg, nil
+	return config.Load(repoRoot)
 }
 
 func isWorktreeRunning(inst *state.Instance) bool {
