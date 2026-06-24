@@ -96,6 +96,12 @@ Exit codes: `0` ok, `1` general, `2` usage, `3` config, `4` docker,
 - **Propagate setup files** (`.env`, etc.) to every worktree:
 
   `docktree --json sync`.
+- **First-time hint**: when `docktree up` starts services in a worktree that
+  has no `docktree.yml` and the compose file contains shareable services
+  (postgres, redis, minio, etc.), the human-readable output includes a
+  one-line tip. In `--json` mode the same info is in the `hint` field of
+  the `UpResult`. Use this to decide whether to help the user set up
+  `shared.services` in `docktree.yml`.
 - **Shared platform tier** (when `docktree.yml` defines `shared.services`):
 
   `docktree --json platform status | up | down`.

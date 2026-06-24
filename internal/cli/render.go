@@ -92,6 +92,10 @@ func humanRenderer() func(io.Writer, any) {
 				fmt.Fprintf(w, "%s %s\n",
 					tui.DimS("Isolated volumes:"), strings.Join(v.IsolatedVolumes, ", "))
 			}
+			if v.Hint != "" {
+				fmt.Fprintln(w)
+				fmt.Fprintln(w, tui.DimS(v.Hint))
+			}
 		case DownResult:
 			if len(v.DroppedTenants) > 0 {
 				for _, db := range v.DroppedTenants {

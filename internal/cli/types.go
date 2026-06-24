@@ -36,6 +36,7 @@ type UpResult struct {
 	Synced          bool               `json:"synced,omitempty"`
 	AlreadyRunning  bool               `json:"already_running,omitempty"`
 	StaleCopies     []string           `json:"stale_copies,omitempty"`
+	Hint            string             `json:"hint,omitempty"`
 }
 
 type ValidateResult struct {

@@ -67,6 +67,47 @@ func TestUpResultJSONRendering(t *testing.T) {
 	}
 }
 
+func TestUpResultJSONRenderingHint(t *testing.T) {
+	got := renderJSONForTest(t, UpResult{
+		Instance: &state.Instance{Name: "x", ProjectName: "x"},
+		Hint:     "tip: detected shareable services (postgres). Ask your AI agent to set up a shared platform tier in docktree.yml.",
+	})
+	if got["hint"] != "tip: detected shareable services (postgres). Ask your AI agent to set up a shared platform tier in docktree.yml." {
+		t.Fatalf("hint = %#v", got["hint"])
+	}
+	// Empty hint must be omitted entirely (omitempty).
+	bare := renderJSONForTest(t, UpResult{Instance: &state.Instance{Name: "x", ProjectName: "x"}})
+	if _, ok := bare["hint"]; ok {
+		t.Fatalf("empty hint should be omitted, got %#v", bare["hint"])
+	}
+}
+
+func TestUpResultHumanRendererPrintsHint(t *testing.T) {
+	var buf bytes.Buffer
+	output.New(&buf, false).Render(UpResult{
+		Instance: &state.Instance{Name: "x", ProjectName: "x"},
+		Hint:     "tip: detected shareable services (postgres, redis). Ask your AI agent to set up a shared platform tier in docktree.yml.",
+	}, humanRenderer())
+	out := buf.String()
+	if !contains(out, "tip: detected shareable services (postgres, redis)") {
+		t.Fatalf("human render missing hint:\n%s", out)
+	}
+
+	// Empty hint -> no "tip:" line.
+	buf.Reset()
+	output.New(&buf, false).Render(UpResult{
+		Instance: &state.Instance{Name: "x", ProjectName: "x"},
+	}, humanRenderer())
+	if contains(buf.String(), "tip:") {
+		t.Fatalf("empty hint should not render a tip line:\n%s", buf.String())
+	}
+}
+
+// contains avoids pulling in strings just for one test.
+func contains(haystack, needle string) bool {
+	return bytes.Contains([]byte(haystack), []byte(needle))
+}
+
 func TestPortsResultJSONRendering(t *testing.T) {
 	got := renderJSONForTest(t, PortsResult{
 		All: true,

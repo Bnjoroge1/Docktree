@@ -72,6 +72,7 @@ func runUp(ctx *Context) (any, int, error) {
 	}
 	stateDir := state.StatePath(repo.WorktreeRoot, cfg.State.Directory)
 	inst, _ := state.LoadInstance(stateDir)
+	firstTime := inst == nil
 	var envWarnings []compose.Warning
 	if inst == nil {
 		scaffolded, err = config.Scaffold(canonicalConfigRoot(repo), cfg)
@@ -187,6 +188,10 @@ func runUp(ctx *Context) (any, int, error) {
 		return nil, output.ExitConfig, err
 	}
 	envWarnings = append(envWarnings, networkIsolationWarnings(project)...)
+	var hint string
+	if firstTime && len(cfg.Shared.Services) == 0 {
+		hint = setup.HintLine(setup.DetectShareable(project))
+	}
 	if options.validate {
 		return runValidate(project, files, cfg, repo, envWarnings)
 	}
@@ -367,7 +372,7 @@ func runUp(ctx *Context) (any, int, error) {
 		sharedSvcNames = append(sharedSvcNames, name)
 	}
 	sort.Strings(sharedSvcNames)
-	return UpResult{Instance: inst, CreatedWorktree: createdWorktree, ComposeFiles: files, OverrideFile: overrideFile, ClearFile: clearFile, Ports: assignments, Services: serviceNames(project), SharedServices: sharedSvcNames, IsolatedVolumes: isolatedVolumes(project, repoRootVolumesShare()), EnvWarnings: envWarnings, Scaffolded: scaffolded, Synced: synced, StaleCopies: staleCopies}, output.ExitOK, nil
+	return UpResult{Instance: inst, CreatedWorktree: createdWorktree, ComposeFiles: files, OverrideFile: overrideFile, ClearFile: clearFile, Ports: assignments, Services: serviceNames(project), SharedServices: sharedSvcNames, IsolatedVolumes: isolatedVolumes(project, repoRootVolumesShare()), EnvWarnings: envWarnings, Scaffolded: scaffolded, Synced: synced, StaleCopies: staleCopies, Hint: hint}, output.ExitOK, nil
 }
 
 func runValidate(project *compose.ComposeProject, files []string, cfg *config.Config, repo dockgit.RepoInfo, envWarnings []compose.Warning) (any, int, error) {
