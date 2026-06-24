@@ -95,43 +95,6 @@ When using `shared.services` with `tenancy: per_database`, Docktree can only rew
 
 Prefer letting the app read a Docktree-provided `DATABASE_URL` from the environment, or make the shell command respect an existing `DATABASE_URL` before constructing a fallback value. If the command must always build the database URL from secrets at runtime, use isolated per-worktree database containers instead of shared `per_database` tenancy.
 
-## Windows
-
-On Windows, use it through WSL2 with Docker Desktop WSL integration enabled.
-
-## Commands
-
-
-| Command              | Description                        |
-| -------------------- | ---------------------------------- |
-| `docktree up`        | Start services in current worktree |
-| `docktree down`      | Stop services                      |
-| `docktree status`    | Show managed services              |
-| `docktree ports`     | Show allocated ports               |
-| `docktree clean`     | Remove stale resources             |
-| `docktree --version` | Print version                      |
-
-
-## Flags
-
-
-| Flag                 | Description                        |
-| -------------------- | ---------------------------------- |
-| `--json`             | Output as JSON                     |
-| `up -f <file>`       | Use specific compose file          |
-| `up --only <name>`   | Start only the named service       |
-| `clean --dry-run`    | Preview what would be removed      |
-| `clean --yes`        | Skip confirmation prompt           |
-| `clean --volumes`    | Also remove volumes                |
-
-With `shared.services` and `tenancy: per_database`, Docktree rewrites
-database URLs that are visible as Compose environment variables. If your app
-builds `DATABASE_URL` inside a runtime shell command (Infisical, Doppler,
-Vault, etc.), Docktree cannot safely rewrite it — prefer reading a
-Docktree-provided `DATABASE_URL` from the environment, have the wrapper
-respect an existing one, or fall back to isolated per-worktree database
-containers.
-
 ## For AI agents
 
 Docktree ships an agent skill that teaches coding agents (Claude Code, Codex,
