@@ -107,10 +107,7 @@ With `shared.services` and `tenancy: per_database`, Docktree rewrites database U
 
 ## Windows
 
-## Windows
-
 On Windows, use it through WSL2 with Docker Desktop WSL integration enabled.
-Use through WSL2 with Docker Desktop's WSL integration enabled.
 
 ## Contributing
 
