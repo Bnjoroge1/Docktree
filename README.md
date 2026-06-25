@@ -49,7 +49,7 @@ docktree ports        # show this worktree's allocated host ports (--all for eve
 docktree volumes      # show managed volumes (--all for every worktree)
 docktree clean        # remove stale resources from missing worktrees (--dry-run first)
 docktree sync         # propagate setup.copy files to every worktree
-docktree platform up  # start the repo-scoped shared-services tier (when configured)
+docktree init         # generate a docktree.yml from your compose files
 ```
 
 Docker Compose passthroughs (`build`, `config`, `logs`, `exec`, `run`, `ls`,
