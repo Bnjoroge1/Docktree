@@ -22,19 +22,20 @@ func TestAllocateReuseAndRelease(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reg.Unlock()
+	base, max := freeRange(t, 10)
 	requests := []PortRequest{{Service: "web", ContainerPort: 80, HostIP: "127.0.0.1"}}
-	first, err := reg.Allocate("one", requests, Range{Min: 41000, Max: 41010})
+	first, err := reg.Allocate("one", requests, Range{Min: base, Max: max})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := reg.Allocate("one", requests, Range{Min: 41000, Max: 41010})
+	second, err := reg.Allocate("one", requests, Range{Min: base, Max: max})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if first[0].HostPort != second[0].HostPort {
 		t.Fatalf("port not reused: %#v vs %#v", first, second)
 	}
-	other, err := reg.Allocate("two", requests, Range{Min: 41000, Max: 41010})
+	other, err := reg.Allocate("two", requests, Range{Min: base, Max: max})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,26 +55,29 @@ func TestAllocateReuseAndRelease(t *testing.T) {
 }
 
 func TestAllocateSkipsBoundPort(t *testing.T) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	base, max := freeRange(t, 10)
+	listener, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(base)))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer listener.Close()
-	port := listener.Addr().(*net.TCPAddr).Port
+
 	reg := &Registry{Dir: t.TempDir()}
-	got, err := reg.Allocate("one", []PortRequest{{Service: "web", ContainerPort: 80, HostIP: "127.0.0.1"}}, Range{Min: port, Max: port + 1})
+	requests := []PortRequest{{Service: "web", ContainerPort: 80, HostIP: "127.0.0.1"}}
+	got, err := reg.Allocate("one", requests, Range{Min: base, Max: max})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got[0].HostPort == port {
-		t.Fatalf("allocated already-bound port %d", port)
+	if got[0].HostPort == base {
+		t.Fatalf("allocated already-bound port %d", base)
 	}
 }
 
 func TestAllocateReplacesTakenExistingPort(t *testing.T) {
+	base, max := freeRange(t, 10)
 	reg := &Registry{Dir: t.TempDir()}
 	requests := []PortRequest{{Service: "web", ContainerPort: 80, HostIP: "127.0.0.1"}}
-	first, err := reg.Allocate("one", requests, Range{Min: 41000, Max: 41010})
+	first, err := reg.Allocate("one", requests, Range{Min: base, Max: max})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,9 +97,10 @@ func TestAllocateReplacesTakenExistingPort(t *testing.T) {
 }
 
 func TestExistingAssignmentsKeepsCurrentlyBoundOwnPort(t *testing.T) {
+	base, max := freeRange(t, 10)
 	reg := &Registry{Dir: t.TempDir()}
 	requests := []PortRequest{{Service: "web", ContainerPort: 80, HostIP: "127.0.0.1"}}
-	first, err := reg.Allocate("one", requests, Range{Min: 41000, Max: 41010})
+	first, err := reg.Allocate("one", requests, Range{Min: base, Max: max})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,14 +110,50 @@ func TestExistingAssignmentsKeepsCurrentlyBoundOwnPort(t *testing.T) {
 	}
 	defer listener.Close()
 
-	kept, ok, err := reg.ExistingAssignments("one", requests)
+	existing, ok, err := reg.ExistingAssignments("one", requests)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !ok {
-		t.Fatal("expected existing assignments to cover requested ports")
+		t.Fatal("ExistingAssignments returned false for own instance")
 	}
-	if kept[0].HostPort != first[0].HostPort {
-		t.Fatalf("expected to keep existing port %d, got %d", first[0].HostPort, kept[0].HostPort)
+	if existing[0].HostPort != first[0].HostPort {
+		t.Fatalf("expected to keep own bound port %d, got %d", first[0].HostPort, existing[0].HostPort)
 	}
+}
+
+// freeRange finds a contiguous block of `count` TCP ports on 127.0.0.1
+// that are all available right now by listening on each in sequence.
+func freeRange(t *testing.T, count int) (int, int) {
+	t.Helper()
+	for attempt := 0; attempt < 50; attempt++ {
+		baseL, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		base := baseL.Addr().(*net.TCPAddr).Port
+		baseL.Close()
+
+		listeners := make([]net.Listener, 0, count)
+		ok := true
+		for i := 0; i < count; i++ {
+			l, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(base+i)))
+			if err != nil {
+				ok = false
+				break
+			}
+			listeners = append(listeners, l)
+		}
+		if ok {
+			for _, l := range listeners {
+				l.Close()
+			}
+			return base, base + count - 1
+		}
+		for _, l := range listeners {
+			l.Close()
+		}
+	}
+	t.Fatal("could not find a free contiguous port range after 50 attempts")
+	return 0, 0
 }

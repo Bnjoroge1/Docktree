@@ -9,71 +9,31 @@ import (
 	"github.com/bnjoroge/docktree/internal/compose"
 )
 
-// ServiceCandidate is a compose service whose image suggests it would benefit
-// from running in Docktree's shared platform tier instead of being duplicated
-// per worktree (e.g. postgres, redis).
-// The agent skill 'docktree-init' consumes these to identify which compose
-// services could run in the shared platform tier; 'docktree up' uses them
-// to print a one-line tip when the user has no shared services configured
-// yet.
 type ServiceCandidate struct {
-	// ServiceName is the key under compose `services:` (e.g. "db", "cache").
-	ServiceName string `json:"service"`
-	// Kind is one of: postgres, mysql, mongodb, redis, s3. These match the
-	// values config.SharedService.Kind accepts (see allowedTenancyByKind in
-	// internal/config/config.go). "generic" is intentionally excluded — it
-	// isn't auto-detectable from an image name.
-	Kind string `json:"kind"`
-	// Image is the raw image reference from the compose file.
-	Image string `json:"image"`
-	// URLEnvs lists env var KEYS on *consumer* services (anything other than
-	// the candidate itself) whose value references the candidate service name
-	// AND whose key looks like a connection-string env. These are the env
-	// vars the runtime would rewrite under tenancy:per_database. Heuristic,
-	// not authoritative — the agent should confirm with the user.
+	ServiceName string   `json:"service"`
+	Kind        string   `json:"kind"`
+	Image       string   `json:"image"`
+	// URLEnvs are env var keys on *consumer* services (not the candidate)
+	// whose value references the candidate. Heuristic — agent confirms with user.
 	URLEnvs []string `json:"url_envs,omitempty"`
 }
 
-// kindPatterns maps a Kind to substrings that, when found in an image name
-// (case-insensitive, after stripping any registry/org prefix), indicate that
-// kind. Order matters: the first kind whose pattern list matches wins, so
-// more specific kinds must precede generic-token kinds.
+// Order matters: first match wins. MongoDB before mysql because
+// "percona-server-mongodb" contains both "mongo" and "percona".
 var kindPatterns = []struct {
 	kind     string
 	patterns []string
 }{
-	// Drop-in postgres replacements share the wire protocol and reuse postgres
-	// tenant provisioning, so we classify them as "postgres".
 	{"postgres", []string{"postgres", "postgis", "timescaledb", "pgvector"}},
-	// MongoDB before mysql: "percona-server-mongodb" contains both "mongo"
-	// and "percona". The mongo token is exclusive to MongoDB across all real
-	// images, so putting mongodb first gives the correct kind for that image
-	// without breaking any other classification (no postgres/mysql/redis
-	// image contains "mongo").
 	{"mongodb", []string{"mongo"}},
-	// "percona" alone (no mongo) is Percona Server for MySQL.
 	{"mysql", []string{"mysql", "mariadb", "percona"}},
-	// keydb / dragonflydb / valkey speak the Redis protocol.
 	{"redis", []string{"redis", "keydb", "dragonfly", "valkey"}},
-	// S3-compatible object stores.
 	{"s3", []string{"minio", "localstack", "seaweedfs"}},
 }
 
-// excludedBasenameEntries contains well-known sidecar/admin/monitoring image
-// basenames that match a kindPatterns token but which are NOT the database
-// cache service itself. classifyImage returns "" for any image whose
-// basename (or full path for slash-containing entries) is in this set.
-//
-// Two styles of entry:
-//   - bare basename (no slash): "postgres-exporter" matches any registry/org
-//     prefix, e.g. ghcr.io/foo/postgres-exporter:latest.
-//   - org/basename (has slash): "bitnami/postgresql-exporter" matches the
-//     full image path, e.g. bitnami/postgresql-exporter:16 — useful when
-//     the same basename under a different org IS a real DB service.
-//
-// Keep sorted within each group. The false-positive cost of misclassifying
-// a sidecar as shareable is worse than a false-negative (which just means
-// one service doesn't get suggested; the user can always add it manually).
+// False-positive (misclassify sidecar as shareable) is worse than
+// false-negative (user adds it manually). Bare basenames match any
+// registry prefix; org/basename entries match the full image path.
 var excludedBasenameEntries = []string{
 	"adminer",
 	"backrest",
@@ -87,18 +47,10 @@ var excludedBasenameEntries = []string{
 	"redis-commander",
 	"redisinsight",
 	"redmon",
-	// Full org/path entries — match against full lowercased image path.
 	"bitnami/postgresql-exporter",
 }
 
-// excludedBasenameSet is built once at init from excludedBasenameEntries for
-// O(1) lookup. Only bare basenames (no slash) are included — classifyImage
-// checks these against the registry-stripped basename.
 var excludedBasenameSet map[string]struct{}
-
-// excludedFullpathSet contains entries that include an org prefix (contain a
-// slash). classifyImage checks these against the full lowercased image ref
-// (tag stripped but prefix kept).
 var excludedFullpathSet map[string]struct{}
 
 func init() {
@@ -113,22 +65,12 @@ func init() {
 	}
 }
 
-// urlEnvPattern matches env var KEYS that conventionally hold a parseable
-// connection URL/URI/DSN — the only shapes the runtime's URL rewriter knows
-// how to mutate per worktree.
-//
-// Intentionally narrow: keys like POSTGRES_HOST, POSTGRES_USER, POSTGRES_DB,
-// REDIS_PASSWORD reference a shared service but their VALUES are not URLs,
-// so feeding them into shared.services.*.url_envs would make RewriteURL a
-// no-op and give false isolation confidence (POSTGRES_DB belongs under the
-// separate db_name_envs field, not url_envs).
+// Intentionally narrow to _URL/_URI/_DSN: keys like POSTGRES_HOST or
+// POSTGRES_DB reference a shared service but their values are not URLs,
+// so putting them in url_envs would make RewriteURL a no-op and give
+// false isolation confidence.
 var urlEnvPattern = regexp.MustCompile(`(?i)(_URL|_URI|_DSN)$`)
 
-// DetectShareable scans a loaded compose project and returns services whose
-// image matches a known shareable-service pattern, with detected connection
-// env var names. Returns candidates sorted by service name for stable output.
-//
-// Pure function: no I/O.
 func DetectShareable(project *compose.ComposeProject) []ServiceCandidate {
 	if project == nil || len(project.Services) == 0 {
 		return nil
@@ -150,39 +92,29 @@ func DetectShareable(project *compose.ComposeProject) []ServiceCandidate {
 	return out
 }
 
-// classifyImage returns the Kind for an image reference, or "" if no pattern
-// matches, or if the image is in excludedBasenameSet/excludedFullpathSet.
-//
 // Registry ports (localhost:5000/...) must not be confused with image tags
-// (postgres:16). The helper stripImageTag operates on the path component
-// after the last '/' only, so registry colons are never truncated.
+// (postgres:16) — stripImageTag operates on the path component after the
+// last '/' only.
 func classifyImage(image string) string {
 	if image == "" {
 		return ""
 	}
 	lower := strings.ToLower(image)
-	// Check full-path exclusions BEFORE stripping the registry prefix.
-	// Normalize by dropping the optional registry segment so that
-	// "docker.io/bitnami/postgresql-exporter" matches the exclusion
-	// entry "bitnami/postgresql-exporter".
+	// Normalize registry prefix so "docker.io/bitnami/..." matches the
+	// exclusion entry "bitnami/...".
 	fullPath := stripRegistry(stripImageTag(lower))
 	if _, ok := excludedFullpathSet[fullPath]; ok {
 		return ""
 	}
-	// Extract the basename by stripping registry/org prefix from the
-	// tag-cleaned full path: "ghcr.io/foo/postgres" -> "postgres".
 	ref := fullPath
 	if i := strings.LastIndex(ref, "/"); i >= 0 {
 		ref = ref[i+1:]
 	}
-	// Check bare-basename exclusions against the registry-stripped ref.
 	if _, ok := excludedBasenameSet[ref]; ok {
 		return ""
 	}
-	// Any Prometheus-style exporter (mysqld-exporter, redis_exporter,
-	// mongodb-exporter, etc.) is a monitoring sidecar, not a database
-	// service. Match by suffix so we don't need to enumerate every
-	// permutation.
+	// Suffix check catches any Prometheus-style exporter without
+	// enumerating every permutation (mysqld-exporter, redis_exporter, ...).
 	if strings.HasSuffix(ref, "-exporter") || strings.HasSuffix(ref, "_exporter") {
 		return ""
 	}
@@ -196,36 +128,16 @@ func classifyImage(image string) string {
 	return ""
 }
 
-// stripImageTag removes the tag or digest from a lowercased image reference,
-// operating only on the path component after the last '/' so that registry
-// ports (localhost:5000/...) are never truncated.
-//
-//	"postgres:16-alpine"            -> "postgres"
-//	"localhost:5000/lib/postgres:16" -> "localhost:5000/lib/postgres"
-//	"postgres@sha256:abcdef"        -> "postgres"
-//	"ghcr.io/foo/postgres"          -> "ghcr.io/foo/postgres"  (unchanged)
-//	"minio"                         -> "minio"
 func stripImageTag(image string) string {
 	if i := strings.LastIndex(image, "/"); i >= 0 {
-		// Has a path: strip tag/digest from the basename only.
 		base := image[i+1:]
 		base = stripTag(base)
 		return image[:i+1] + base
 	}
-	// No path: strip tag/digest from the whole string.
 	return stripTag(image)
 }
 
-// stripRegistry drops the leading segment of a slash-separated image path
-// if it looks like a Docker registry hostname (contains '.', ':', or is
-// "localhost"). This is the same heuristic Docker uses to distinguish a
-// registry from an org/user namespace.
-//
-//	"docker.io/bitnami/postgresql-exporter" -> "bitnami/postgresql-exporter"
-//	"ghcr.io/myorg/postgres"                -> "myorg/postgres"
-//	"localhost:5000/lib/redis"              -> "lib/redis"
-//	"bitnami/postgresql-exporter"           -> "bitnami/postgresql-exporter" (unchanged)
-//	"postgres"                              -> "postgres" (unchanged)
+// Same heuristic Docker uses to distinguish a registry from an org namespace.
 func stripRegistry(path string) string {
 	i := strings.Index(path, "/")
 	if i <= 0 {
@@ -238,9 +150,8 @@ func stripRegistry(path string) string {
 	return path
 }
 
-// stripTag removes the trailing :tag or @digest from a single path segment
-// (no '/' expected). Digest (@sha256:...) takes precedence over tag (:16):
-// if '@' exists, cut there; otherwise cut at the last ':'.
+// Digest (@sha256:...) takes precedence over tag (:16): if '@' exists,
+// cut there; otherwise cut at the last ':'.
 func stripTag(segment string) string {
 	if at := strings.LastIndex(segment, "@"); at >= 0 {
 		return segment[:at]
@@ -251,24 +162,14 @@ func stripTag(segment string) string {
 	return segment
 }
 
-// detectConsumerURLEnvs returns env var KEYS on services other than the
-// candidate, where the key looks like a connection-string env AND the value
-// references the candidate service name (typically the host segment of a
-// connection URL). Sorted, deduplicated.
-//
-// Why not scan the candidate's own env? `shared.services.<name>.url_envs`
-// names env vars on CONSUMER (app) services that the runtime rewrites per
-// worktree — not env vars on the database container itself. Surfacing the
-// candidate's own POSTGRES_DB/POSTGRES_USER here would cause a generated
-// docktree.yml to put the wrong env names under url_envs, which silently
-// breaks per_database isolation (the runtime would find no app-side env to
-// rewrite, and all worktrees would land on the same database).
+// Scans *other* services for env keys whose value references the candidate.
+// We don't scan the candidate's own env because url_envs names vars on
+// consumer services that the runtime rewrites per worktree — surfacing
+// the candidate's own POSTGRES_DB here would silently break isolation.
 func detectConsumerURLEnvs(candidate string, services map[string]compose.Service) []string {
 	if candidate == "" || len(services) == 0 {
 		return nil
 	}
-	// Token-boundary fallback for non-URL forms (host=db, jdbc:...://db:port).
-	// `_` is treated as part of the identifier so "db_old" does NOT match "db".
 	refPattern := regexp.MustCompile(`(^|[^A-Za-z0-9_-])` + regexp.QuoteMeta(candidate) + `([^A-Za-z0-9_-]|$)`)
 	seen := make(map[string]struct{})
 	for name, svc := range services {
@@ -296,18 +197,9 @@ func detectConsumerURLEnvs(candidate string, services map[string]compose.Service
 	return out
 }
 
-// referencesService reports whether value plausibly refers to the candidate
-// service hostname. Two phases:
-//
-//  1. If the value parses as a URL with both a scheme and a host
-//     (postgres://db:5432/app), require u.Hostname() == candidate exactly.
-//     This is the only check that fires for URLs — `mongodb://other/x` and
-//     `postgres://db.internal:5432` both correctly fail to match "db".
-//
-//  2. Otherwise (key=value forms, JDBC-style opaque URIs, comma-separated
-//     host lists), fall back to a token-boundary regexp so "host=db",
-//     "jdbc:postgresql://db:5432", and ",db," all match while "db_old",
-//     "mongodb", and "stub" do not.
+// Two phases: URL values get exact hostname matching (so mongodb://other
+// doesn't match "db"); non-URL values fall back to token-boundary regex
+// (so host=db matches but db_old doesn't).
 func referencesService(value, candidate string, refPattern *regexp.Regexp) bool {
 	if value == "" {
 		return false
@@ -318,9 +210,6 @@ func referencesService(value, candidate string, refPattern *regexp.Regexp) bool 
 	return refPattern.MatchString(value)
 }
 
-// HintLine renders a single-line user-facing tip summarizing the candidates,
-// or "" if there are none. Used by `docktree up` on first-time runs in a
-// worktree that has no shared.services configured.
 func HintLine(candidates []ServiceCandidate) string {
 	if len(candidates) == 0 {
 		return ""
