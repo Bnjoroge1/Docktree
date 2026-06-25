@@ -76,7 +76,8 @@ See `skills/` for the skill source.
 
 ## Configuration
 
-Docktree works without configuration. To customize, create `docktree.yml`:
+Docktree works without configuration. To customize, create `docktree.yml` (or
+run `docktree init` to generate one from your compose files):
 
 ```yaml
 compose:

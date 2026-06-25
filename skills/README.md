@@ -23,9 +23,10 @@ npx skills add Bnjoroge1/Docktree --skill docktree
 ## Skills in this repo
 
 
-| Skill                             | Purpose                                                                                                            |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `[docktree](./docktree/SKILL.md)` | How an agent should invoke the `docktree` CLI: which commands honor `--json`, lifecycle gotchas, common workflows. |
+| Skill | Purpose |
+| --- | --- |
+| [`docktree`](./docktree/SKILL.md) | How an agent should invoke the `docktree` CLI: which commands honor `--json`, lifecycle gotchas, common workflows. |
+| [`docktree-init`](./docktree-init/SKILL.md) | Generate a `docktree.yml` by scanning compose files and walking the user through shareable-service decisions. |
 
 
 
