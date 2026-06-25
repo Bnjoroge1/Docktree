@@ -23,6 +23,7 @@ func printHelp(w io.Writer) {
 	printHelpCmd(w, maxCmd, "down", "Stop the current worktree's Compose project (or specific services)")
 	printHelpCmd(w, maxCmd, "exec", "Pass through to docker compose exec")
 	printHelpCmd(w, maxCmd, "images", "Pass through to docker compose images")
+	printHelpCmd(w, maxCmd, "init", "Generate a docktree.yml from your compose files")
 	printHelpCmd(w, maxCmd, "kill", "Pass through to docker compose kill")
 	printHelpCmd(w, maxCmd, "logs", "Pass through to docker compose logs")
 	printHelpCmd(w, maxCmd, "ls", "Pass through to docker compose ls (all projects)")

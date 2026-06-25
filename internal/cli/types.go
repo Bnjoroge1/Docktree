@@ -202,3 +202,25 @@ type SyncResult struct {
 	Items  []SyncItem `json:"items"`
 	Synced bool       `json:"synced"` // true if files were actually copied
 }
+
+// InitTodo describes one decision point in a generated docktree.yml.
+// The agent skill uses these to ask the user targeted questions.
+type InitTodo struct {
+	Path     string   `json:"path"`               // YAML path, e.g. "shared.services.db.tenancy"
+	Question string   `json:"question"`           // Human-readable question
+	Kind     string   `json:"kind"`               // "enum", "string_list", "string"
+	Options  []string `json:"options,omitempty"`   // Allowed values when Kind == "enum"
+}
+
+// InitWarning surfaces a non-blocking concern the agent should show the user.
+type InitWarning struct {
+	Path    string `json:"path"`
+	Message string `json:"message"`
+}
+
+// InitResult is the --json output of `docktree init`.
+type InitResult struct {
+	Written string        `json:"written"`           // path to proposed or final config
+	Todos   []InitTodo    `json:"todos,omitempty"`   // decisions the agent should walk through
+	Warnings []InitWarning `json:"warnings,omitempty"`
+}
