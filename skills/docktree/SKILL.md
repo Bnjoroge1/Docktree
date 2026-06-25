@@ -108,10 +108,9 @@ Exit codes: `0` ok, `1` general, `2` usage, `3` config, `4` docker,
 
 ## Out of scope
 
-- Authoring `docktree.yml` — read the project's own `docktree.yml` and
-
-  `README.md`; 
+- Authoring `docktree.yml` — use `docktree init` or the `docktree-init` skill
+  to generate one; read the project's own `docktree.yml` and `README.md` for
+  reference.
 - Debugging Compose files — use `docktree config` (passthrough) to see the
-
   fully-merged compose docktree will run.
 

@@ -41,6 +41,7 @@ writes a generated override with isolated names and ports, and runs
 ## Commands
 
 ```bash
+docktree init         # generate a docktree.yml from your compose files
 docktree up           # start the current worktree's project
 docktree down         # stop and remove (add -v to drop volumes too)
 docktree stop         # stop without removing
