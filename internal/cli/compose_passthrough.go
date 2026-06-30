@@ -35,8 +35,8 @@ func runComposePassthrough(ctx *Context, subcommand string, args []string, allow
 	if err != nil {
 		// No saved instance — tabular commands return empty results;
 		// other commands error out.
-		if len(args) > 0 {
-			switch args[0] {
+		if subcommand != "" {
+			switch subcommand {
 			case "images":
 				return ImagesResult{Entries: []ImagesEntry{}}, output.ExitOK, nil
 			case "top":
