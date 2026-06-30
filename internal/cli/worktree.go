@@ -208,12 +208,39 @@ func loadCanonicalConfigWithWarnings(repo dockgit.RepoInfo, stderr io.Writer) (*
 	return loadConfigWithSharedWarnings(canonicalConfigRoot(repo), stderr)
 }
 
+func loadMergedConfig(repo dockgit.RepoInfo, worktreeRoot string) (*config.Config, error) {
+	cfg, err := loadCanonicalConfig(repo)
+	if err != nil {
+		return nil, err
+	}
+	local, err := config.LoadLocalOverrides(config.LocalOverridesPath(worktreeRoot, cfg.State.Directory))
+	if err != nil {
+		return nil, fmt.Errorf("worktree local overrides: %w", err)
+	}
+	config.MergeLocalOverrides(cfg, local)
+	if err := config.ValidateOverrides(cfg.Overrides, cfg.Shared); err != nil {
+		return nil, err
+	}
+	return cfg, nil
+}
+
+func loadMergedConfigWithWarnings(repo dockgit.RepoInfo, worktreeRoot string, stderr io.Writer) (*config.Config, error) {
+	cfg, err := loadMergedConfig(repo, worktreeRoot)
+	if err != nil {
+		return nil, err
+	}
+	if err := config.ValidateShared(cfg.Shared, cfg.Volumes.Share); err != nil && stderr != nil {
+		fmt.Fprintf(stderr, "warning: %v\n", err)
+	}
+	return cfg, nil
+}
+
 func commonIdentity() (dockgit.RepoInfo, *config.Config, string, error) {
 	repo, err := dockgit.DetectRepo()
 	if err != nil {
 		return dockgit.RepoInfo{}, nil, "", err
 	}
-	cfg, err := loadCanonicalConfig(repo)
+	cfg, err := loadMergedConfig(repo, repo.WorktreeRoot)
 	if err != nil {
 		return dockgit.RepoInfo{}, nil, "", err
 	}

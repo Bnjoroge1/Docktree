@@ -322,6 +322,9 @@ for the full project.
 Options:
   -f, --file <path>     Use a specific Compose file
   --only <service>      Start only the named service (repeatable)
+  --skip <service>      Skip a service and save it for this worktree (repeatable)
+  --skip-clear          Clear all saved skipped services for this worktree
+  --profile <name>      Activate a Compose profile for this run only (repeatable, not saved)
   --build               Force rebuild of images with a build: directive
   --create <branch>     Create and prepare a new worktree before starting
   --sync                Run setup copy/symlink/run steps before starting
