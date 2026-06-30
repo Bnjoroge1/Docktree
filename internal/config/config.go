@@ -293,8 +293,8 @@ func DefaultTenantEnv(kind string) string {
 	}
 }
 
-// ValidateShared enforces the schema rules for shared.services and surfaces
-// conflicts with volumes.share. It accumulates all violations in deterministic
+// ValidateOverrides enforces the schema rules for overrides and surfaces
+// conflicts with shared volumes. It accumulates all violations in deterministic
 // order so users can fix the whole config in one pass.
 func ValidateOverrides(overrides OverridesConfig, shared SharedConfig) error {
 	if len(overrides.SkipServices) == 0 && len(overrides.DropDependencies) == 0 && len(overrides.Profiles) == 0 {
