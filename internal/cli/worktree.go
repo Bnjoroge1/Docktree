@@ -224,16 +224,7 @@ func loadMergedConfig(repo dockgit.RepoInfo, worktreeRoot string) (*config.Confi
 	return cfg, nil
 }
 
-func loadMergedConfigWithWarnings(repo dockgit.RepoInfo, worktreeRoot string, stderr io.Writer) (*config.Config, error) {
-	cfg, err := loadMergedConfig(repo, worktreeRoot)
-	if err != nil {
-		return nil, err
-	}
-	if err := config.ValidateShared(cfg.Shared, cfg.Volumes.Share); err != nil && stderr != nil {
-		fmt.Fprintf(stderr, "warning: %v\n", err)
-	}
-	return cfg, nil
-}
+
 
 func commonIdentity() (dockgit.RepoInfo, *config.Config, string, error) {
 	repo, err := dockgit.DetectRepo()
