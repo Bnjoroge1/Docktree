@@ -218,8 +218,13 @@ func runDockerImages(projectName string, composeFiles, args []string) (any, int,
 		return ImagesResult{Entries: []ImagesEntry{}}, output.ExitOK, nil
 	}
 	var entries []ImagesEntry
-	if err := json.Unmarshal([]byte(out), &entries); err != nil {
-		return nil, output.ExitConfig, fmt.Errorf("parsing images JSON: %w", err)
+	dec := json.NewDecoder(strings.NewReader(out))
+	for dec.More() {
+		var entry ImagesEntry
+		if err := dec.Decode(&entry); err != nil {
+			return nil, output.ExitConfig, fmt.Errorf("parsing images JSON: %w", err)
+		}
+		entries = append(entries, entry)
 	}
 	return ImagesResult{ProjectName: projectName, Entries: entries}, output.ExitOK, nil
 }
