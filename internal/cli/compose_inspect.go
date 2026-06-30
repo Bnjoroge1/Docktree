@@ -2,7 +2,9 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"strings"
 
 	"github.com/bnjoroge/docktree/internal/config"
@@ -61,8 +63,9 @@ func runImages(ctx *Context) (any, int, error) {
 	stateDir := state.StatePath(repo.WorktreeRoot, cfg.State.Directory)
 	inst, err := state.LoadInstance(stateDir)
 	if err != nil {
-		// No saved instance means nothing is running for images/top;
-		// return an empty result instead of an error.
+		if !errors.Is(err, fs.ErrNotExist) {
+			return nil, output.ExitConfig, fmt.Errorf("failed to load state: %w", err)
+		}
 		return ImagesResult{Entries: []ImagesEntry{}}, output.ExitOK, nil
 	}
 	composeFiles := activeComposeFiles(repo.WorktreeRoot, cfg, inst)
@@ -79,8 +82,13 @@ func runImages(ctx *Context) (any, int, error) {
 		return ImagesResult{Entries: []ImagesEntry{}}, output.ExitOK, nil
 	}
 	var entries []ImagesEntry
-	if err := json.Unmarshal([]byte(out), &entries); err != nil {
-		return nil, output.ExitConfig, fmt.Errorf("parsing images JSON: %w", err)
+	dec := json.NewDecoder(strings.NewReader(out))
+	for dec.More() {
+		var entry ImagesEntry
+		if err := dec.Decode(&entry); err != nil {
+			return nil, output.ExitConfig, fmt.Errorf("parsing images JSON: %w", err)
+		}
+		entries = append(entries, entry)
 	}
 	return ImagesResult{ProjectName: inst.ProjectName, Entries: entries}, output.ExitOK, nil
 }
@@ -105,6 +113,9 @@ func runTop(ctx *Context) (any, int, error) {
 	stateDir := state.StatePath(repo.WorktreeRoot, cfg.State.Directory)
 	inst, err := state.LoadInstance(stateDir)
 	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			return nil, output.ExitConfig, fmt.Errorf("failed to load state: %w", err)
+		}
 		return TopResult{Rows: nil}, output.ExitOK, nil
 	}
 	composeFiles := activeComposeFiles(repo.WorktreeRoot, cfg, inst)

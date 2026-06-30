@@ -116,7 +116,7 @@ type ImagesEntry struct {
 	Tag           string `json:"Tag"`
 	Platform      string `json:"Platform,omitempty"`
 	Size          int64  `json:"Size"`
-	Created       string `json:"Created,omitempty"`
+	Created       string `json:"LastTagTime,omitempty"`
 }
 
 // ImagesResult renders docker compose images with docktree table formatting.
