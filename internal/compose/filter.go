@@ -52,6 +52,7 @@ func FilterServices(raw *composetypes.Project, filter ServiceFilter) (*composety
 		Volumes:     raw.Volumes,
 		Secrets:     raw.Secrets,
 		Configs:     raw.Configs,
+		Models:      raw.Models,
 		Extensions:  raw.Extensions,
 		WorkingDir:  raw.WorkingDir,
 		Environment: raw.Environment,
