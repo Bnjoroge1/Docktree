@@ -23,6 +23,25 @@ func TestComposeCommandArgs(t *testing.T) {
 	}
 }
 
+func TestComposeCommandArgsProfiles(t *testing.T) {
+	cmd := ComposeCommand{
+		ProjectName: "repo-branch-abcdef",
+		Files:       []string{"compose.yml"},
+		Profiles:    []string{"seed", "debug"},
+		CommandArgs: []string{"up", "-d"},
+	}
+	got := cmd.Args()
+	want := []string{"compose", "-f", "compose.yml", "-p", "repo-branch-abcdef", "--profile", "seed", "--profile", "debug", "up", "-d"}
+	if len(got) != len(want) {
+		t.Fatalf("args length = %d, want %d: %#v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("arg %d = %q, want %q; all %#v", i, got[i], want[i], got)
+		}
+	}
+}
+
 func TestIsPortBindError(t *testing.T) {
 	tests := []struct {
 		name string

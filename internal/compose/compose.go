@@ -23,6 +23,7 @@ type Service struct {
 	Networks      []string          `yaml:"networks,omitempty"`
 	Volumes       []string          `yaml:"volumes,omitempty"`
 	DependsOn     []string          `yaml:"depends_on,omitempty"`
+	Profiles      []string          `yaml:"profiles,omitempty"`
 }
 
 type BuildConfig struct {

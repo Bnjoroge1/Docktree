@@ -18,6 +18,7 @@ type Config struct {
 	Worktrees  WorktreesConfig `yaml:"worktrees"`
 	Setup      SetupConfig     `yaml:"setup"`
 	Shared     SharedConfig    `yaml:"shared,omitempty"`
+	Overrides  OverridesConfig `yaml:"overrides,omitempty"`
 	Volumes    VolumeSetConfig `yaml:"volumes"`
 	Ports      PortsConfig     `yaml:"ports"`
 	Transforms TransformConfig `yaml:"transforms"`
@@ -48,6 +49,12 @@ type SetupConfig struct {
 // Empty == no platform tier; behaviour is identical to the defayult isolated mode.
 type SharedConfig struct {
 	Services map[string]SharedService `yaml:"services,omitempty"`
+}
+
+type OverridesConfig struct {
+	SkipServices     []string `yaml:"skip_services,omitempty"`
+	DropDependencies []string `yaml:"drop_dependencies,omitempty"`
+	Profiles         []string `yaml:"profiles,omitempty"`
 }
 
 type SharedDatabase struct {
@@ -177,6 +184,9 @@ func load(dir string, validateShared bool) (*Config, error) {
 		if err := ValidateShared(cfg.Shared, cfg.Volumes.Share); err != nil {
 			return nil, err
 		}
+		if err := ValidateOverrides(cfg.Overrides, cfg.Shared); err != nil {
+			return nil, err
+		}
 	}
 	return &cfg, nil
 }
@@ -214,6 +224,15 @@ func merge(base *Config, user Config) {
 	}
 	if user.Shared.Services != nil {
 		base.Shared.Services = user.Shared.Services
+	}
+	if user.Overrides.SkipServices != nil {
+		base.Overrides.SkipServices = user.Overrides.SkipServices
+	}
+	if user.Overrides.DropDependencies != nil {
+		base.Overrides.DropDependencies = user.Overrides.DropDependencies
+	}
+	if user.Overrides.Profiles != nil {
+		base.Overrides.Profiles = user.Overrides.Profiles
 	}
 	if user.Volumes.Share != nil {
 		base.Volumes.Share = user.Volumes.Share
@@ -277,6 +296,59 @@ func DefaultTenantEnv(kind string) string {
 // ValidateShared enforces the schema rules for shared.services and surfaces
 // conflicts with volumes.share. It accumulates all violations in deterministic
 // order so users can fix the whole config in one pass.
+func ValidateOverrides(overrides OverridesConfig, shared SharedConfig) error {
+	if len(overrides.SkipServices) == 0 && len(overrides.DropDependencies) == 0 && len(overrides.Profiles) == 0 {
+		return nil
+	}
+
+	var errs []string
+
+	// Skip services must not include shared services.
+	if len(shared.Services) > 0 && len(overrides.SkipServices) > 0 {
+		skip := sortedKeys(sliceSet(overrides.SkipServices))
+		for _, name := range skip {
+			if _, ok := shared.Services[name]; ok {
+				errs = append(errs, fmt.Sprintf("overrides.skip_services: cannot skip shared service %q", name))
+			}
+		}
+	}
+
+	if dups := duplicateNames(overrides.SkipServices); len(dups) > 0 {
+		errs = append(errs, fmt.Sprintf("overrides.skip_services: duplicate entries: %s", strings.Join(dups, ", ")))
+	}
+	if dups := duplicateNames(overrides.DropDependencies); len(dups) > 0 {
+		errs = append(errs, fmt.Sprintf("overrides.drop_dependencies: duplicate entries: %s", strings.Join(dups, ", ")))
+	}
+
+	if len(errs) > 0 {
+		return errors.New(strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+func sliceSet(in []string) map[string]bool {
+	out := make(map[string]bool, len(in))
+	for _, v := range in {
+		out[v] = true
+	}
+	return out
+}
+
+func duplicateNames(in []string) []string {
+	seen := make(map[string]int, len(in))
+	for _, v := range in {
+		seen[v]++
+	}
+	var dups []string
+	for name, count := range seen {
+		if count > 1 {
+			dups = append(dups, name)
+		}
+	}
+	sort.Strings(dups)
+	return dups
+}
+
 func ValidateShared(shared SharedConfig, sharedVolumes []string) error {
 	if len(shared.Services) == 0 {
 		return nil

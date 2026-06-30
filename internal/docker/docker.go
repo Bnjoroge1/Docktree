@@ -11,6 +11,7 @@ import (
 type ComposeCommand struct {
 	ProjectName string
 	Files       []string
+	Profiles    []string
 	CommandArgs []string
 }
 
@@ -22,6 +23,9 @@ func (cmd ComposeCommand) Args() []string {
 	}
 	if cmd.ProjectName != "" {
 		args = append(args, "-p", cmd.ProjectName)
+	}
+	for _, profile := range cmd.Profiles {
+		args = append(args, "--profile", profile)
 	}
 	args = append(args, cmd.CommandArgs...)
 	return args

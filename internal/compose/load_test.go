@@ -140,6 +140,38 @@ services:
 	}
 }
 
+func TestConvertServicePreservesProfiles(t *testing.T) {
+	project, err := LoadProject([]string{"../../testdata/compose-with-profiles.yml"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string][]string{
+		"seed":  {"seed"},
+		"debug": {"debug"},
+		"redis": {"cache"},
+		"ui":    nil,
+		"api":   nil,
+		"db":    nil,
+	}
+	for name, want := range cases {
+		svc, ok := project.Services[name]
+		if !ok {
+			t.Fatalf("service %q not found", name)
+		}
+		if len(want) == 0 && len(svc.Profiles) == 0 {
+			continue
+		}
+		if len(want) != len(svc.Profiles) {
+			t.Fatalf("service %q profiles = %#v, want %#v", name, svc.Profiles, want)
+		}
+		for i := range want {
+			if svc.Profiles[i] != want[i] {
+				t.Fatalf("service %q profiles = %#v, want %#v", name, svc.Profiles, want)
+			}
+		}
+	}
+}
+
 func TestLoadProjectAllowsComposeAcceptedNetworkModeWithNetworks(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "compose.yml")
