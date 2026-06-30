@@ -151,9 +151,10 @@ func humanRenderer() func(io.Writer, any) {
 				return
 			}
 			var tbl tui.Table
+			tbl.TermWidth = tw
 			tbl.Headers = []string{"NAME", "STATUS", "CONFIG FILES"}
 			for _, e := range v.Entries {
-			tbl.Rows = append(tbl.Rows, []string{e.Name, e.Status, shortenConfigFiles(e.ConfigFiles)})
+				tbl.Rows = append(tbl.Rows, []string{e.Name, e.Status, shortenConfigFiles(e.ConfigFiles)})
 			}
 			fmt.Fprint(w, tbl.RenderBordered())
 		case ImagesResult:
@@ -162,24 +163,25 @@ func humanRenderer() func(io.Writer, any) {
 				return
 			}
 			var tbl tui.Table
+			tbl.TermWidth = tw
 			tbl.Headers = []string{"CONTAINER", "REPOSITORY", "TAG", "PLATFORM", "IMAGE ID", "SIZE", "CREATED"}
 			for _, e := range v.Entries {
 				platform := e.Platform
 				if platform == "" {
 					platform = "—"
-			}
-			container := e.ContainerName
-			if v.ProjectName != "" && strings.HasPrefix(container, v.ProjectName+"-") {
-				container = container[len(v.ProjectName)+1:]
-			}
+				}
+				container := e.ContainerName
+				if v.ProjectName != "" && strings.HasPrefix(container, v.ProjectName+"-") {
+					container = container[len(v.ProjectName)+1:]
+				}
 				tbl.Rows = append(tbl.Rows, []string{
-				container,
-				shortenRepository(e.Repository),
-				e.Tag,
-				platform,
-				shortImageID(e.ID),
-				formatBytes(e.Size),
-				relativeTime(e.Created),
+					container,
+					shortenRepository(e.Repository),
+					e.Tag,
+					platform,
+					shortImageID(e.ID),
+					formatBytes(e.Size),
+					relativeTime(e.Created),
 				})
 			}
 			fmt.Fprint(w, tbl.RenderBordered())
@@ -189,6 +191,7 @@ func humanRenderer() func(io.Writer, any) {
 				return
 			}
 			var tbl tui.Table
+			tbl.TermWidth = tw
 			tbl.Headers = []string{"SERVICE", "#", "UID", "PID", "PPID", "C", "STIME", "TTY", "TIME", "CMD"}
 			for _, r := range v.Rows {
 				tbl.Rows = append(tbl.Rows, []string{
@@ -205,13 +208,13 @@ func humanRenderer() func(io.Writer, any) {
 				fmt.Fprintln(w)
 				fmt.Fprintf(w, "%s  %s\n", tui.DimS("Services:"), strings.Join(v.Services, ", "))
 				if len(v.Profiles) > 0 {
-			fmt.Fprintf(w, "%s  %s\n", tui.DimS("Profiles:"), strings.Join(v.Profiles, ", "))
+					fmt.Fprintf(w, "%s  %s\n", tui.DimS("Profiles:"), strings.Join(v.Profiles, ", "))
 				}
 				if len(v.SkippedServices) > 0 {
-			fmt.Fprintf(w, "%s  %s\n", tui.DimS("Skipped:"), strings.Join(v.SkippedServices, ", "))
+					fmt.Fprintf(w, "%s  %s\n", tui.DimS("Skipped:"), strings.Join(v.SkippedServices, ", "))
 				}
 				if len(v.DroppedDependencies) > 0 {
-			fmt.Fprintf(w, "%s  %s\n", tui.DimS("Dropped deps:"), strings.Join(v.DroppedDependencies, ", "))
+					fmt.Fprintf(w, "%s  %s\n", tui.DimS("Dropped deps:"), strings.Join(v.DroppedDependencies, ", "))
 				}
 				if len(v.Ports) > 0 {
 					fmt.Fprintln(w)
@@ -245,13 +248,13 @@ func humanRenderer() func(io.Writer, any) {
 			fmt.Fprintln(w)
 			fmt.Fprintf(w, "%s  %s\n", tui.DimS("Services:"), strings.Join(v.Services, ", "))
 			if len(v.Profiles) > 0 {
-			fmt.Fprintf(w, "%s  %s\n", tui.DimS("Profiles:"), strings.Join(v.Profiles, ", "))
+				fmt.Fprintf(w, "%s  %s\n", tui.DimS("Profiles:"), strings.Join(v.Profiles, ", "))
 			}
 			if len(v.SkippedServices) > 0 {
-			fmt.Fprintf(w, "%s  %s\n", tui.DimS("Skipped:"), strings.Join(v.SkippedServices, ", "))
+				fmt.Fprintf(w, "%s  %s\n", tui.DimS("Skipped:"), strings.Join(v.SkippedServices, ", "))
 			}
 			if len(v.DroppedDependencies) > 0 {
-			fmt.Fprintf(w, "%s  %s\n", tui.DimS("Dropped deps:"), strings.Join(v.DroppedDependencies, ", "))
+				fmt.Fprintf(w, "%s  %s\n", tui.DimS("Dropped deps:"), strings.Join(v.DroppedDependencies, ", "))
 			}
 			fmt.Fprintf(w, "%s\n", tui.DimS("Compose files:"))
 			for _, f := range v.ComposeFiles {
@@ -897,8 +900,6 @@ func shortImageID(id string) string {
 	return id
 }
 
-
-
 // shortenRepository strips the registry/org prefix, keeping just the image name.
 // "docktree/docktree-main-4f19b3/api" → "api"
 // "postgres" → "postgres"
@@ -941,6 +942,7 @@ func relativeTime(ts string) string {
 		return fmt.Sprintf("%dy ago", int(d.Hours()/(24*365)))
 	}
 }
+
 // shortenConfigFiles collapses comma-separated absolute paths into basenames
 // for compact display. "a/b/c.yml,d/e/f.yml" → "c.yml, f.yml".
 func shortenConfigFiles(cfg string) string {
