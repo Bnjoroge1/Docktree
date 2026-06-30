@@ -180,12 +180,89 @@ func TestParseUpOptionsOnlyFlagAsValue(t *testing.T) {
 	}
 }
 
+func TestParseUpOptionsProfile(t *testing.T) {
+	opts, err := parseUpOptions([]string{"--profile", "seed", "--profile=debug"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(opts.profiles) != 2 || opts.profiles[0] != "seed" || opts.profiles[1] != "debug" {
+		t.Fatalf("profiles = %#v, want [seed debug]", opts.profiles)
+	}
+}
+
+func TestParseUpOptionsProfileEmptyValue(t *testing.T) {
+	_, err := parseUpOptions([]string{"--profile="})
+	if err == nil {
+		t.Fatal("expected error for empty --profile=")
+	}
+}
+
+func TestParseUpOptionsProfileFlagAsValue(t *testing.T) {
+	_, err := parseUpOptions([]string{"--profile", "--build"})
+	if err == nil {
+		t.Fatal("expected error for --profile consuming a flag")
+	}
+}
+
+func TestParseUpOptionsSkip(t *testing.T) {
+	opts, err := parseUpOptions([]string{"--skip", "ui", "--skip-service", "caddy"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(opts.skip, []string{"ui", "caddy"}) {
+		t.Fatalf("skip = %#v, want [ui caddy]", opts.skip)
+	}
+}
+
+func TestParseUpOptionsSkipEqualsForm(t *testing.T) {
+	opts, err := parseUpOptions([]string{"--skip=ui", "--skip-service=caddy"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(opts.skip, []string{"ui", "caddy"}) {
+		t.Fatalf("skip = %#v, want [ui caddy]", opts.skip)
+	}
+}
+
+func TestParseUpOptionsSkipEmptyValue(t *testing.T) {
+	_, err := parseUpOptions([]string{"--skip="})
+	if err == nil {
+		t.Fatal("expected error for empty --skip=")
+	}
+}
+
+func TestParseUpOptionsSkipFlagAsValue(t *testing.T) {
+	_, err := parseUpOptions([]string{"--skip", "--build"})
+	if err == nil {
+		t.Fatal("expected error for --skip consuming a flag")
+	}
+}
+
+func TestParseUpOptionsSkipClear(t *testing.T) {
+	opts, err := parseUpOptions([]string{"--skip-clear"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opts.skipClear {
+		t.Fatal("expected skipClear=true")
+	}
+	if len(opts.skip) != 0 {
+		t.Fatalf("expected no skip services, got %v", opts.skip)
+	}
+}
+
+func TestParseUpOptionsSkipAndClearMutualExclusion(t *testing.T) {
+	_, err := parseUpOptions([]string{"--skip", "ui", "--skip-clear"})
+	if err == nil {
+		t.Fatal("expected error for --skip and --skip-clear together")
+	}
+}
 
 func TestRunValidateNoServices(t *testing.T) {
 	project := &compose.ComposeProject{Services: map[string]compose.Service{}}
 	cfg := config.Defaults()
 	repo := dockgit.RepoInfo{RepoRoot: "/tmp/Docktree", WorktreeRoot: "/tmp/Docktree", Branch: "main"}
-	result, code, err := runValidate(project, nil, &cfg, repo, nil)
+	result, code, err := runValidate(project, nil, &cfg, repo, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +286,7 @@ func TestRunValidateWithServices(t *testing.T) {
 	}
 	cfg := config.Defaults()
 	repo := dockgit.RepoInfo{RepoRoot: "/tmp/Docktree", WorktreeRoot: "/tmp/Docktree", Branch: "main"}
-	result, code, err := runValidate(project, nil, &cfg, repo, nil)
+	result, code, err := runValidate(project, nil, &cfg, repo, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,6 +407,27 @@ func TestParseCleanOptionsHelp(t *testing.T) {
 	}
 	if !opts.help {
 		t.Fatal("expected help=true")
+	}
+}
+
+func TestPlatformCommandDispatch(t *testing.T) {
+	// Regression: "platform" was listed in help but missing from rootCommands,
+	// producing "unknown command" at dispatch time.
+	for _, args := range [][]string{
+		{"platform", "--help"},
+		{"platform"},
+	} {
+		var stdout, stderr bytes.Buffer
+		code := Run(args, &stdout, &stderr)
+		if code != output.ExitOK {
+			t.Errorf("Run(%v): exit code = %d, stderr=%q", args, code, stderr.String())
+		}
+		if !strings.Contains(stdout.String(), "Usage:") {
+			t.Errorf("Run(%v): help output missing Usage block: %q", args, stdout.String())
+		}
+		if stderr.Len() != 0 {
+			t.Errorf("Run(%v): stderr = %q", args, stderr.String())
+		}
 	}
 }
 

@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/bnjoroge/docktree/internal/output"
 	"github.com/bnjoroge/docktree/internal/tui"
@@ -143,6 +145,58 @@ func humanRenderer() func(io.Writer, any) {
 			if len(v.Services) > 0 {
 				fmt.Fprintf(w, "  Services: %s\n", strings.Join(v.Services, ", "))
 			}
+		case LsResult:
+			if len(v.Entries) == 0 {
+				fmt.Fprintf(w, "%s No Compose projects found.\n", tui.BrandS("Docktree"))
+				return
+			}
+			var tbl tui.Table
+			tbl.Headers = []string{"NAME", "STATUS", "CONFIG FILES"}
+			for _, e := range v.Entries {
+			tbl.Rows = append(tbl.Rows, []string{e.Name, e.Status, shortenConfigFiles(e.ConfigFiles)})
+			}
+			fmt.Fprint(w, tbl.RenderBordered())
+		case ImagesResult:
+			if len(v.Entries) == 0 {
+				fmt.Fprintf(w, "%s No images found for this project.\n", tui.BrandS("Docktree"))
+				return
+			}
+			var tbl tui.Table
+			tbl.Headers = []string{"CONTAINER", "REPOSITORY", "TAG", "PLATFORM", "IMAGE ID", "SIZE", "CREATED"}
+			for _, e := range v.Entries {
+				platform := e.Platform
+				if platform == "" {
+					platform = "—"
+			}
+			container := e.ContainerName
+			if v.ProjectName != "" && strings.HasPrefix(container, v.ProjectName+"-") {
+				container = container[len(v.ProjectName)+1:]
+			}
+				tbl.Rows = append(tbl.Rows, []string{
+				container,
+				shortenRepository(e.Repository),
+				e.Tag,
+				platform,
+				shortImageID(e.ID),
+				formatBytes(e.Size),
+				relativeTime(e.Created),
+				})
+			}
+			fmt.Fprint(w, tbl.RenderBordered())
+		case TopResult:
+			if len(v.Rows) == 0 {
+				fmt.Fprintf(w, "%s No running containers.\n", tui.BrandS("Docktree"))
+				return
+			}
+			var tbl tui.Table
+			tbl.Headers = []string{"SERVICE", "#", "UID", "PID", "PPID", "C", "STIME", "TTY", "TIME", "CMD"}
+			for _, r := range v.Rows {
+				tbl.Rows = append(tbl.Rows, []string{
+					r.Service, r.Num, r.UID, r.PID, r.PPID,
+					r.CPU, r.STime, r.TTY, r.Time, r.Cmd,
+				})
+			}
+			fmt.Fprint(w, tbl.RenderBordered())
 		case ComposePassthroughResult:
 			// Output already streamed by docker compose; nothing to render in human mode.
 		case ValidateResult:
@@ -150,6 +204,15 @@ func humanRenderer() func(io.Writer, any) {
 				fmt.Fprintf(w, "%s %s\n", tui.BrandS("Docktree"), tui.OKS("config is valid"))
 				fmt.Fprintln(w)
 				fmt.Fprintf(w, "%s  %s\n", tui.DimS("Services:"), strings.Join(v.Services, ", "))
+				if len(v.Profiles) > 0 {
+			fmt.Fprintf(w, "%s  %s\n", tui.DimS("Profiles:"), strings.Join(v.Profiles, ", "))
+				}
+				if len(v.SkippedServices) > 0 {
+			fmt.Fprintf(w, "%s  %s\n", tui.DimS("Skipped:"), strings.Join(v.SkippedServices, ", "))
+				}
+				if len(v.DroppedDependencies) > 0 {
+			fmt.Fprintf(w, "%s  %s\n", tui.DimS("Dropped deps:"), strings.Join(v.DroppedDependencies, ", "))
+				}
 				if len(v.Ports) > 0 {
 					fmt.Fprintln(w)
 					fmt.Fprintf(w, "%s\n", tui.DimS("Ports:"))
@@ -181,6 +244,15 @@ func humanRenderer() func(io.Writer, any) {
 				tui.BrandS("Docktree"), tui.MutedS("dry run for"), tui.AccentS(v.InstanceName))
 			fmt.Fprintln(w)
 			fmt.Fprintf(w, "%s  %s\n", tui.DimS("Services:"), strings.Join(v.Services, ", "))
+			if len(v.Profiles) > 0 {
+			fmt.Fprintf(w, "%s  %s\n", tui.DimS("Profiles:"), strings.Join(v.Profiles, ", "))
+			}
+			if len(v.SkippedServices) > 0 {
+			fmt.Fprintf(w, "%s  %s\n", tui.DimS("Skipped:"), strings.Join(v.SkippedServices, ", "))
+			}
+			if len(v.DroppedDependencies) > 0 {
+			fmt.Fprintf(w, "%s  %s\n", tui.DimS("Dropped deps:"), strings.Join(v.DroppedDependencies, ", "))
+			}
 			fmt.Fprintf(w, "%s\n", tui.DimS("Compose files:"))
 			for _, f := range v.ComposeFiles {
 				fmt.Fprintf(w, "  %s\n", tui.AccentS(f))
@@ -802,4 +874,82 @@ func errorCode(code int) string {
 	default:
 		return "error"
 	}
+}
+func formatBytes(b int64) string {
+	switch {
+	case b >= 1<<30:
+		return fmt.Sprintf("%.1f GB", float64(b)/(1<<30))
+	case b >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(b)/(1<<20))
+	case b >= 1<<10:
+		return fmt.Sprintf("%.1f kB", float64(b)/(1<<10))
+	default:
+		return fmt.Sprintf("%d B", b)
+	}
+}
+
+// shortImageID strips the "sha256:" prefix and returns the first 12 hex chars.
+func shortImageID(id string) string {
+	id = strings.TrimPrefix(id, "sha256:")
+	if len(id) > 12 {
+		id = id[:12]
+	}
+	return id
+}
+
+
+
+// shortenRepository strips the registry/org prefix, keeping just the image name.
+// "docktree/docktree-main-4f19b3/api" → "api"
+// "postgres" → "postgres"
+func shortenRepository(repo string) string {
+	if idx := strings.LastIndex(repo, "/"); idx != -1 {
+		return repo[idx+1:]
+	}
+	return repo
+}
+
+// relativeTime formats a Docker timestamp as a human-readable relative duration
+// (e.g. "4d ago", "2h ago", "just now").
+func relativeTime(ts string) string {
+	t, err := time.Parse(time.RFC3339Nano, ts)
+	if err != nil {
+		// Fallback: try without nanos, then just return the raw string.
+		t, err = time.Parse("2006-01-02T15:04:05Z", ts)
+		if err != nil {
+			if len(ts) > 10 {
+				return ts[:10]
+			}
+			return ts
+		}
+	}
+	d := time.Since(t)
+	switch {
+	case d < 0:
+		return "—"
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	case d < 30*24*time.Hour:
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+	case d < 365*24*time.Hour:
+		return fmt.Sprintf("%dmo ago", int(d.Hours()/(24*30)))
+	default:
+		return fmt.Sprintf("%dy ago", int(d.Hours()/(24*365)))
+	}
+}
+// shortenConfigFiles collapses comma-separated absolute paths into basenames
+// for compact display. "a/b/c.yml,d/e/f.yml" → "c.yml, f.yml".
+func shortenConfigFiles(cfg string) string {
+	if cfg == "" {
+		return "—"
+	}
+	parts := strings.Split(cfg, ",")
+	for i, p := range parts {
+		parts[i] = filepath.Base(strings.TrimSpace(p))
+	}
+	return strings.Join(parts, ", ")
 }

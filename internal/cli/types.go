@@ -22,21 +22,26 @@ type Context struct {
 }
 
 type UpResult struct {
-	Instance        *state.Instance    `json:"instance"`
-	CreatedWorktree string             `json:"created_worktree,omitempty"`
-	ComposeFiles    []string           `json:"compose_files"`
-	OverrideFile    string             `json:"override_file"`
-	ClearFile       string             `json:"clear_file,omitempty"`
-	Ports           []ports.Assignment `json:"ports,omitempty"`
-	Services        []string           `json:"services"`
-	SharedServices  []string           `json:"shared_services,omitempty"`
-	IsolatedVolumes []string           `json:"isolated_volumes,omitempty"`
-	EnvWarnings     []compose.Warning  `json:"env_warnings,omitempty"`
-	Scaffolded      bool               `json:"scaffolded,omitempty"`
-	Synced          bool               `json:"synced,omitempty"`
-	AlreadyRunning  bool               `json:"already_running,omitempty"`
-	StaleCopies     []string           `json:"stale_copies,omitempty"`
-	Hint            string             `json:"hint,omitempty"`
+	Instance            *state.Instance    `json:"instance"`
+	CreatedWorktree     string             `json:"created_worktree,omitempty"`
+	ComposeFiles        []string           `json:"compose_files"`
+	OverrideFile        string             `json:"override_file"`
+	ClearFile           string             `json:"clear_file,omitempty"`
+	Ports               []ports.Assignment `json:"ports,omitempty"`
+	Services            []string           `json:"services"`
+	SharedServices      []string           `json:"shared_services,omitempty"`
+	IsolatedVolumes     []string           `json:"isolated_volumes,omitempty"`
+	EnvWarnings         []compose.Warning  `json:"env_warnings,omitempty"`
+	Scaffolded          bool               `json:"scaffolded,omitempty"`
+	Synced              bool               `json:"synced,omitempty"`
+	AlreadyRunning      bool               `json:"already_running,omitempty"`
+	StaleCopies         []string           `json:"stale_copies,omitempty"`
+	Hint                string             `json:"hint,omitempty"`
+	Profiles            []string           `json:"profiles,omitempty"`
+	SkippedServices     []string           `json:"skipped_services,omitempty"`
+	DroppedDependencies []string           `json:"dropped_dependencies,omitempty"`
+	SavedSkippedServices []string          `json:"saved_skipped_services,omitempty"`
+	SkipClearApplied     bool               `json:"skip_clear_applied,omitempty"`
 }
 
 type ValidateResult struct {
@@ -46,6 +51,9 @@ type ValidateResult struct {
 	IsolatedVolumes []string           `json:"isolated_volumes,omitempty"`
 	EnvWarnings     []compose.Warning  `json:"env_warnings,omitempty"`
 	Errors          []string           `json:"errors,omitempty"`
+	Profiles            []string `json:"profiles,omitempty"`
+	SkippedServices     []string `json:"skipped_services,omitempty"`
+	DroppedDependencies []string `json:"dropped_dependencies,omitempty"`
 }
 
 type DryRunResult struct {
@@ -58,6 +66,9 @@ type DryRunResult struct {
 	EnvWarnings     []compose.Warning  `json:"env_warnings,omitempty"`
 	OverridePreview string             `json:"override_preview,omitempty"`
 	ClearPreview    string             `json:"clear_preview,omitempty"`
+	Profiles            []string `json:"profiles,omitempty"`
+	SkippedServices     []string `json:"skipped_services,omitempty"`
+	DroppedDependencies []string `json:"dropped_dependencies,omitempty"`
 }
 
 type DownResult struct {
@@ -83,6 +94,54 @@ type ComposePassthroughResult struct {
 	ComposeFiles []string `json:"compose_files"`
 	Subcommand   string   `json:"subcommand"`
 	Args         []string `json:"args,omitempty"`
+}
+
+// LsEntry is one row from docker compose ls --format json.
+type LsEntry struct {
+	Name        string `json:"Name"`
+	Status      string `json:"Status"`
+	ConfigFiles string `json:"ConfigFiles"`
+}
+
+// LsResult renders docker compose ls with docktree table formatting.
+type LsResult struct {
+	Entries []LsEntry `json:"entries"`
+}
+
+// ImagesEntry is one row from docker compose images --format json.
+type ImagesEntry struct {
+	ID            string `json:"ID"`
+	ContainerName string `json:"ContainerName"`
+	Repository    string `json:"Repository"`
+	Tag           string `json:"Tag"`
+	Platform      string `json:"Platform,omitempty"`
+	Size          int64  `json:"Size"`
+	Created       string `json:"Created,omitempty"`
+}
+
+// ImagesResult renders docker compose images with docktree table formatting.
+type ImagesResult struct {
+	ProjectName string        `json:"project_name,omitempty"`
+	Entries []ImagesEntry `json:"entries"`
+}
+
+// TopRow is one row from docker compose top (parsed from text).
+type TopRow struct {
+	Service string `json:"service"`
+	Num     string `json:"num"`
+	UID     string `json:"uid"`
+	PID     string `json:"pid"`
+	PPID    string `json:"ppid"`
+	CPU     string `json:"cpu"`
+	STime   string `json:"stime"`
+	TTY     string `json:"tty"`
+	Time    string `json:"time"`
+	Cmd     string `json:"cmd"`
+}
+
+// TopResult renders docker compose top with docktree table formatting.
+type TopResult struct {
+	Rows []TopRow `json:"rows"`
 }
 
 type StatusResult struct {
@@ -206,10 +265,10 @@ type SyncResult struct {
 // InitTodo describes one decision point in a generated docktree.yml.
 // The agent skill uses these to ask the user targeted questions.
 type InitTodo struct {
-	Path     string   `json:"path"`               // YAML path, e.g. "shared.services.db.tenancy"
-	Question string   `json:"question"`           // Human-readable question
-	Kind     string   `json:"kind"`               // "enum", "string_list", "string"
-	Options  []string `json:"options,omitempty"`   // Allowed values when Kind == "enum"
+	Path     string   `json:"path"`              // YAML path, e.g. "shared.services.db.tenancy"
+	Question string   `json:"question"`          // Human-readable question
+	Kind     string   `json:"kind"`              // "enum", "string_list", "string"
+	Options  []string `json:"options,omitempty"` // Allowed values when Kind == "enum"
 }
 
 // InitWarning surfaces a non-blocking concern the agent should show the user.
@@ -220,7 +279,7 @@ type InitWarning struct {
 
 // InitResult is the --json output of `docktree init`.
 type InitResult struct {
-	Written string        `json:"written"`           // path to proposed or final config
-	Todos   []InitTodo    `json:"todos,omitempty"`   // decisions the agent should walk through
+	Written  string        `json:"written"`         // path to proposed or final config
+	Todos    []InitTodo    `json:"todos,omitempty"` // decisions the agent should walk through
 	Warnings []InitWarning `json:"warnings,omitempty"`
 }
