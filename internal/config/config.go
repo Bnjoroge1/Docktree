@@ -172,10 +172,11 @@ func Defaults() Config {
 		Proxy: ProxyConfig{
 			Port: 8320,
 			Host: "127.0.0.1",
+			TLD:  "localhost",
 		},
 		Tunnel: TunnelConfig{
 			Provider: "cloudflare",
-			Port:     8320,
+			Port:     0,
 		},
 	}
 }
