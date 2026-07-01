@@ -258,6 +258,19 @@ type TunnelListResult struct {
 	Entries []TunnelListEntry `json:"entries"`
 }
 
+// TunnelStatusResult is the structured --json result for tunnel status.
+type TunnelStatusResult struct {
+	Instance string `json:"instance"`
+	Provider string `json:"provider"`
+	PID      int    `json:"pid"`
+	URL      string `json:"url,omitempty"`
+	Port     int    `json:"port"`
+	Alive    bool   `json:"alive"`
+	Status   string `json:"status"` // "running", "dead", "unknown"
+	Since    string `json:"since"`
+	LogPath  string `json:"log_path,omitempty"`
+}
+
 // --- Commands ---
 
 func runTunnel(ctx *Context) (any, int, error) {
@@ -533,14 +546,32 @@ func runTunnelStatus(ctx *Context) (any, int, error) {
 	}
 
 	var status string
+	var rawStatus string
 	var alive bool
 
 	if ts.StartTime == "" {
 		status = tui.WarningS("unknown")
+		rawStatus = "unknown"
 	} else if alive = processMatchesStr(ts.PID, ts.StartTime); alive {
 		status = tui.OKS("running")
+		rawStatus = "running"
 	} else {
 		status = tui.ErrorS("dead")
+		rawStatus = "dead"
+	}
+
+	if ctx.Renderer.JSON {
+		return TunnelStatusResult{
+			Instance: inst.Name,
+			Provider: ts.Provider,
+			PID:      ts.PID,
+			URL:      ts.URL,
+			Port:     ts.Port,
+			Alive:    alive,
+			Status:   rawStatus,
+			Since:    ts.StartedAt,
+			LogPath:  ts.LogPath,
+		}, output.ExitOK, nil
 	}
 
 	fmt.Fprintf(ctx.Stdout, "%s %s\n", tui.BrandS("Tunnel"), status)
