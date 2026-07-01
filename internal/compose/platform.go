@@ -91,10 +91,11 @@ func SynthesizePlatform(raw *composetypes.Project, shared config.SharedConfig, r
 	projectName := PlatformProjectName(repoSlug)
 
 	out := &composetypes.Project{
-		Name:     projectName,
-		Services: composetypes.Services{},
-		Networks: composetypes.Networks{},
-		Volumes:  composetypes.Volumes{},
+		Name:       projectName,
+		Services:   composetypes.Services{},
+		Networks:   composetypes.Networks{},
+		Volumes:    composetypes.Volumes{},
+		WorkingDir: raw.WorkingDir,
 	}
 
 	usedVolumes := map[string]bool{}
@@ -162,6 +163,10 @@ type SynthesizeWorktreeOptions struct {
 	// tenant database name. The empty logical database key preserves the legacy
 	// single-database per service model.
 	TenantDBs map[string]map[string]string
+	// RawInput marks projects loaded with SkipInterpolation. Raw projects
+	// already contain the user's compose syntax exactly as written and must not
+	// have dollar signs escaped again before serialization.
+	RawInput bool
 }
 
 func SynthesizeWorktree(raw *composetypes.Project, shared config.SharedConfig, repoSlug string, opts ...SynthesizeWorktreeOptions) (*composetypes.Project, error) {
@@ -200,6 +205,7 @@ func SynthesizeWorktree(raw *composetypes.Project, shared config.SharedConfig, r
 	if len(opts) > 0 {
 		opt = opts[0]
 	}
+	escapeDollars := !opt.RawInput
 
 	netName := PlatformNetworkName(repoSlug)
 	platformSet := map[string]bool{}
@@ -218,17 +224,20 @@ func SynthesizeWorktree(raw *composetypes.Project, shared config.SharedConfig, r
 			clone.Environment = make(map[string]*string, len(svc.Environment))
 			for k, v := range svc.Environment {
 				if v != nil {
-					escaped := escapeDollar(*v)
-					clone.Environment[k] = &escaped
+					value := *v
+					if escapeDollars {
+						value = escapeDollar(value)
+					}
+					clone.Environment[k] = &value
 				} else {
 					clone.Environment[k] = nil
 				}
 			}
 		}
-		if len(clone.Command) > 0 {
+		if escapeDollars && len(clone.Command) > 0 {
 			clone.Command = escapeCommand(clone.Command)
 		}
-		if len(clone.Entrypoint) > 0 {
+		if escapeDollars && len(clone.Entrypoint) > 0 {
 			clone.Entrypoint = escapeCommand(clone.Entrypoint)
 		}
 		// Strip depends_on edges to platform services. Compose would
@@ -270,7 +279,14 @@ func SynthesizeWorktree(raw *composetypes.Project, shared config.SharedConfig, r
 					if tenantDB == "" || len(dbDecl.URLEnvs) == 0 {
 						continue
 					}
-					rewritten, err := RewriteURLEnvs(plain, dbDecl.URLEnvs, tenantDB)
+					urlEnvs := dbDecl.URLEnvs
+					if opt.RawInput {
+						urlEnvs = rewriteableRawURLEnvs(plain, dbDecl.URLEnvs)
+					}
+					if len(urlEnvs) == 0 {
+						continue
+					}
+					rewritten, err := RewriteURLEnvs(plain, urlEnvs, tenantDB)
 					if err != nil {
 						return nil, err
 					}
@@ -339,6 +355,18 @@ func SynthesizeWorktree(raw *composetypes.Project, shared config.SharedConfig, r
 	return out, nil
 }
 
+func rewriteableRawURLEnvs(envs map[string]string, urlEnvs []string) []string {
+	out := make([]string, 0, len(urlEnvs))
+	for _, envName := range urlEnvs {
+		value, ok := envs[envName]
+		if !ok || strings.Contains(value, "$") {
+			continue
+		}
+		out = append(out, envName)
+	}
+	return out
+}
+
 func WriteComposeFile(project *composetypes.Project, path string) error {
 	if project == nil {
 		return fmt.Errorf("nil compose project")
@@ -351,6 +379,97 @@ func WriteComposeFile(project *composetypes.Project, path string) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0o644)
+}
+
+func RebaseEnvFiles(project *composetypes.Project, composeFilePath string) error {
+	if project == nil {
+		return fmt.Errorf("nil compose project")
+	}
+	outputDir := filepath.Dir(composeFilePath)
+	baseDir := project.WorkingDir
+	if baseDir == "" {
+		baseDir = outputDir
+	}
+	for name, svc := range project.Services {
+		if len(svc.EnvFiles) == 0 {
+			continue
+		}
+		clone := svc
+		clone.EnvFiles = make([]composetypes.EnvFile, len(svc.EnvFiles))
+		for i, envFile := range svc.EnvFiles {
+			clone.EnvFiles[i] = envFile
+			if envFile.Path == "" {
+				continue
+			}
+			abs := envFile.Path
+			if !filepath.IsAbs(abs) {
+				abs = filepath.Join(baseDir, envFile.Path)
+			}
+			abs = filepath.Clean(abs)
+			rel, err := filepath.Rel(outputDir, abs)
+			if err != nil {
+				clone.EnvFiles[i].Path = abs
+				continue
+			}
+			clone.EnvFiles[i].Path = filepath.ToSlash(rel)
+		}
+		project.Services[name] = clone
+	}
+	return nil
+}
+
+func RawURLEnvIsolationWarnings(resolved, raw *composetypes.Project, shared config.SharedConfig) []Warning {
+	if resolved == nil || raw == nil || len(shared.Services) == 0 {
+		return nil
+	}
+	platformSet := make(map[string]bool, len(shared.Services))
+	urlEnvSet := map[string]bool{}
+	for svcName, svc := range shared.Services {
+		platformSet[svcName] = true
+		for _, db := range svc.DatabaseTargets() {
+			if db.Tenancy != "per_database" {
+				continue
+			}
+			for _, envName := range db.URLEnvs {
+				urlEnvSet[envName] = true
+			}
+		}
+	}
+	if len(urlEnvSet) == 0 {
+		return nil
+	}
+
+	var warnings []Warning
+	for serviceName, resolvedSvc := range resolved.Services {
+		if platformSet[serviceName] {
+			continue
+		}
+		rawSvc, ok := raw.Services[serviceName]
+		if !ok {
+			continue
+		}
+		for envName := range urlEnvSet {
+			if _, resolvedExists := resolvedSvc.Environment[envName]; !resolvedExists {
+				continue
+			}
+			value, rawExists := rawSvc.Environment[envName]
+			if !rawExists {
+				warnings = append(warnings, rawURLIsolationWarning(serviceName, envName, "is supplied outside explicit environment"))
+				continue
+			}
+			if value == nil || strings.Contains(*value, "$") {
+				warnings = append(warnings, rawURLIsolationWarning(serviceName, envName, "is unresolved"))
+			}
+		}
+	}
+	return warnings
+}
+
+func rawURLIsolationWarning(serviceName, envName, source string) Warning {
+	return Warning{
+		Key:     "shared.url_envs." + serviceName + "." + envName,
+		Message: "per_database url_env " + envName + " for service " + serviceName + " " + source + "; generated compose preserves it to avoid leaking secrets, so Docktree cannot rewrite the tenant database name there. Use db_name_envs or construct the URL at runtime from the injected database name.",
+	}
 }
 
 func mergeLabels(base, additions map[string]string) map[string]string {
