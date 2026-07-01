@@ -100,14 +100,13 @@ func runStatusAll(ctx *Context) (any, int, error) {
 		}
 
 		// Proxy URL for this instance
-		entry.ProxyURL = fmt.Sprintf("http://%s.localhost:%d", inst.Name, proxyPort)
+		entry.ProxyURL = fmt.Sprintf("https://%s.localhost:%d", inst.Name, proxyPort)
 
 		// Tunnel URL if running
 		ts, _ := LoadTunnelState(inst.WorktreeRoot, inst.StateDirectory)
-		if ts != nil && processAlive(ts.PID) && ts.URL != "" {
+		if ts != nil && ts.StartTime != "" && processMatchesStr(ts.PID, ts.StartTime) && ts.URL != "" {
 			entry.TunnelURL = ts.URL
 		}
-
 		out, err := docker.RunCapture(docker.ComposeCommand{
 			ProjectName: inst.ProjectName,
 			Files:       activeComposeFiles(inst.WorktreeRoot, cfg, &inst),
