@@ -91,6 +91,23 @@ func (f ServiceFilter) String() string {
 	return strings.Join(parts, " ")
 }
 
+// FilterProfiles returns a project containing only services without a profile,
+// or with a profile that matches the active list.
+func FilterProfiles(raw *composetypes.Project, activeProfiles []string) *composetypes.Project {
+	if raw == nil {
+		return nil
+	}
+	active := make(map[string]bool, len(activeProfiles))
+	for _, p := range activeProfiles {
+		active[p] = true
+	}
+	err := raw.WithServices(activeProfiles)
+	if err != nil {
+		return raw // fallback
+	}
+	return raw
+}
+
 func sortedSlice(in []string) []string {
 	out := append([]string(nil), in...)
 	sort.Strings(out)

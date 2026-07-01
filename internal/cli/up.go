@@ -71,6 +71,11 @@ func runUp(ctx *Context) (any, int, error) {
 		}
 		repo = dockgit.RepoInfo{RepoRoot: repo.RepoRoot, WorktreeRoot: createdWorktree, Branch: options.create}
 		instanceName = dockgit.InstanceName(dockgit.RepoName(repo.RepoRoot), dockgit.WorktreeName(repo.Branch, repo.WorktreeRoot), repo.RepoRoot, repo.WorktreeRoot)
+
+		cfg, err = loadMergedConfig(repo, repo.WorktreeRoot)
+		if err != nil {
+			return nil, output.ExitConfig, err
+		}
 	}
 	stateDir := state.StatePath(repo.WorktreeRoot, cfg.State.Directory)
 	inst, _ := state.LoadInstance(stateDir)
@@ -124,21 +129,13 @@ func runUp(ctx *Context) (any, int, error) {
 			local.SkipServices = nil
 		} else {
 			local.SkipServices = config.UnionStrings(local.SkipServices, options.skip)
-		}
-		if err := config.WriteLocalOverrides(localPath, local); err != nil {
-			return nil, output.ExitConfig, err
-		}
+
 		// Reload merged config so filtering uses the final skip list.
 		cfg, err = loadMergedConfig(repo, repo.WorktreeRoot)
 		if err != nil {
 			return nil, output.ExitConfig, err
 		}
 		if steps != nil {
-			if options.skipClear {
-				steps.Done("Cleared saved skips")
-			} else {
-				steps.Done("Saved skipped services")
-			}
 		}
 	}
 	var files []string
@@ -220,6 +217,16 @@ func runUp(ctx *Context) (any, int, error) {
 		if lerr != nil {
 			return nil, output.ExitConfig, lerr
 		}
+
+		if len(options.skip) > 0 {
+			// the raw project has all services, verify them before we write to disk
+			for _, s := range options.skip {
+				if _, ok := rawProj.Services[s]; !ok {
+					return nil, output.ExitConfig, fmt.Errorf("skip_services: unknown service %q", s)
+				}
+			}
+		}
+
 		filteredProj, ferr := compose.FilterServices(rawProj, compose.ServiceFilter{
 			Skip:     cfg.Overrides.SkipServices,
 			DropDeps: cfg.Overrides.DropDependencies,
@@ -234,6 +241,19 @@ func runUp(ctx *Context) (any, int, error) {
 		files = []string{filteredPath}
 		if steps != nil {
 			steps.Done("Filtered services")
+		}
+		
+		if len(options.skip) > 0 || options.skipClear {
+			localPath := config.LocalOverridesPath(repo.WorktreeRoot, cfg.State.Directory)
+			local, _ := config.LoadLocalOverrides(localPath) // loaded earlier in block
+			if options.skipClear {
+				local.SkipServices = nil
+			} else {
+				local.SkipServices = config.UnionStrings(local.SkipServices, options.skip)
+			}
+			if err := config.WriteLocalOverrides(localPath, local); err != nil {
+				return nil, output.ExitConfig, err
+			}
 		}
 	}
 	project, err := parseAll(files)
@@ -251,6 +271,10 @@ func runUp(ctx *Context) (any, int, error) {
 			profiles = append(profiles, p)
 		}
 	}
+
+	// Only generate ports for services matching the active profiles
+	project = compose.FilterProfiles(project, profiles)
+
 	if options.validate {
 		return runValidate(project, files, cfg, repo, envWarnings, profiles)
 	}
@@ -272,7 +296,7 @@ func runUp(ctx *Context) (any, int, error) {
 			if err != nil {
 				return nil, output.ExitConfig, err
 			}
-			if currentHash == inst.ComposeFileHash {
+			if currentHash == inst.ComposeFileHash && slices.Equal(inst.Profiles, profiles) {
 				all, _ := ports.NewRegistry().Load()
 				return UpResult{Instance: inst, Synced: synced, AlreadyRunning: true, Ports: all[instanceName]}, output.ExitNoop, nil
 			}
@@ -320,6 +344,7 @@ func runUp(ctx *Context) (any, int, error) {
 	inst.Branch = repo.Branch
 	inst.LastActiveAt = now
 	inst.ComposeFileHash = hash
+	inst.Profiles = profiles
 	inst.ComposeFiles = absComposeFiles(files)
 	dockerStdout := ctx.Stdout
 	if ctx.Renderer.JSON {
