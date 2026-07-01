@@ -135,6 +135,7 @@ type StateConfig struct {
 type ProxyConfig struct {
 	Port int    `yaml:"port,omitempty"`
 	Host string `yaml:"host,omitempty"`
+	TLD  string `yaml:"tld,omitempty"` // e.g. "localhost", "test", "docktree"
 }
 
 // TunnelConfig controls the built-in tunnel for external sharing.
@@ -293,6 +294,9 @@ func merge(base *Config, user Config) {
 	}
 	if user.Proxy.Host != "" {
 		base.Proxy.Host = user.Proxy.Host
+	}
+	if user.Proxy.TLD != "" {
+		base.Proxy.TLD = user.Proxy.TLD
 	}
 	if user.Tunnel.Provider != "" {
 		base.Tunnel.Provider = user.Tunnel.Provider
