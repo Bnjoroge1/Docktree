@@ -23,6 +23,8 @@ type Config struct {
 	Ports      PortsConfig     `yaml:"ports"`
 	Transforms TransformConfig `yaml:"transforms"`
 	State      StateConfig     `yaml:"state"`
+	Proxy      ProxyConfig     `yaml:"proxy,omitempty"`
+	Tunnel     TunnelConfig    `yaml:"tunnel,omitempty"`
 }
 
 type ComposeConfig struct {
@@ -128,6 +130,20 @@ type StateConfig struct {
 	Directory string `yaml:"directory"`
 }
 
+// ProxyConfig controls the built-in reverse proxy that maps hostnames to
+// worktree ports, eliminating the need to remember allocated port numbers.
+type ProxyConfig struct {
+	Port int    `yaml:"port,omitempty"`
+	Host string `yaml:"host,omitempty"`
+	TLD  string `yaml:"tld,omitempty"` // e.g. "localhost", "test", "docktree"
+}
+
+// TunnelConfig controls the built-in tunnel for external sharing.
+type TunnelConfig struct {
+	Provider string `yaml:"provider,omitempty"` // "cloudflare", "ngrok"
+	Port     int    `yaml:"port,omitempty"`
+ }
+
 // Defaults returns the defaults from the project plan.
 func Defaults() Config {
 	return Config{
@@ -153,6 +169,15 @@ func Defaults() Config {
 		},
 		State: StateConfig{
 			Directory: ".docktree",
+		},
+		Proxy: ProxyConfig{
+			Port: 8320,
+			Host: "127.0.0.1",
+			TLD:  "localhost",
+		},
+		Tunnel: TunnelConfig{
+			Provider: "cloudflare",
+			Port:     0,
 		},
 	}
 }
@@ -263,6 +288,21 @@ func merge(base *Config, user Config) {
 	}
 	if user.State.Directory != "" {
 		base.State.Directory = user.State.Directory
+	}
+	if user.Proxy.Port != 0 {
+		base.Proxy.Port = user.Proxy.Port
+	}
+	if user.Proxy.Host != "" {
+		base.Proxy.Host = user.Proxy.Host
+	}
+	if user.Proxy.TLD != "" {
+		base.Proxy.TLD = user.Proxy.TLD
+	}
+	if user.Tunnel.Provider != "" {
+		base.Tunnel.Provider = user.Tunnel.Provider
+	}
+	if user.Tunnel.Port != 0 {
+		base.Tunnel.Port = user.Tunnel.Port
 	}
 }
 

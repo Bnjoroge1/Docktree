@@ -66,6 +66,16 @@ func runStatusAll(ctx *Context) (any, int, error) {
 	sort.Strings(names)
 
 	var entries []StatusAllEntry
+
+	// Load config once for proxy port
+	var proxyPort int
+	if cfg, err := config.Load(""); err == nil {
+		proxyPort = cfg.Proxy.Port
+	}
+	if proxyPort == 0 {
+		proxyPort = 8320
+	}
+
 	for _, name := range names {
 		inst := instances[name]
 		entry := StatusAllEntry{
@@ -89,6 +99,22 @@ func runStatusAll(ctx *Context) (any, int, error) {
 			continue
 		}
 
+		// Proxy URL for this instance — use the instance's own proxy config.
+		instProxyPort := cfg.Proxy.Port
+		instTLD := cfg.Proxy.TLD
+		if instProxyPort == 0 {
+			instProxyPort = 8320
+		}
+		if instTLD == "" {
+			instTLD = "localhost"
+		}
+		entry.ProxyURL = fmt.Sprintf("https://%s.%s:%d", inst.Name, instTLD, instProxyPort)
+
+		// Tunnel URL if running
+		ts, _ := LoadTunnelState(inst.WorktreeRoot, inst.StateDirectory)
+		if ts != nil && ts.StartTime != "" && processMatchesStr(ts.PID, ts.StartTime) && ts.URL != "" {
+			entry.TunnelURL = ts.URL
+		}
 		out, err := docker.RunCapture(docker.ComposeCommand{
 			ProjectName: inst.ProjectName,
 			Files:       activeComposeFiles(inst.WorktreeRoot, cfg, &inst),
