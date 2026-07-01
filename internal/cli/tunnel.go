@@ -171,6 +171,7 @@ type tunnelOptions struct {
 	action   string
 	port     int
 	provider string
+	service  string // compose service name (mutually exclusive with --port)
 }
 
 func parseTunnelOptions(args []string, cfg *config.Config) (tunnelOptions, error) {
@@ -211,8 +212,17 @@ func parseTunnelOptions(args []string, cfg *config.Config) (tunnelOptions, error
 				return tunnelOptions{}, fmt.Errorf("--provider requires a value")
 			}
 			options.provider = args[i]
+
 		case strings.HasPrefix(arg, "--provider="):
 			options.provider = strings.TrimPrefix(arg, "--provider=")
+		case arg == "--service" || arg == "-s":
+			i++
+			if i >= len(args) {
+				return tunnelOptions{}, fmt.Errorf("--service requires a value")
+			}
+			options.service = args[i]
+		case strings.HasPrefix(arg, "--service="):
+			options.service = strings.TrimPrefix(arg, "--service=")
 		default:
 			return tunnelOptions{}, fmt.Errorf("unknown tunnel flag %q", arg)
 		}
@@ -226,6 +236,7 @@ func parseTunnelOptions(args []string, cfg *config.Config) (tunnelOptions, error
 type TunnelStartResult struct {
 	Instance string `json:"instance"`
 	Provider string `json:"provider"`
+	Service  string `json:"service,omitempty"`
 	URL      string `json:"url"`
 	Port     int    `json:"port"`
 	PID      int    `json:"pid"`
@@ -324,12 +335,25 @@ func runTunnelStart(ctx *Context, options tunnelOptions) (any, int, error) {
 	}
 	logPath := filepath.Join(cfgDir, "tunnel-logs", inst.Name+".log")
 
+	// --service and --port are mutually exclusive.
+	if options.service != "" && options.port > 0 {
+		return nil, output.ExitUsage,
+			fmt.Errorf("--service and --port are mutually exclusive")
+	}
+
 	port := options.port
-	if port == 0 {
+	var selectedService string
+	if options.service != "" {
+		port, selectedService, err = serviceHostPort(inst.Name, options.service)
+		if err != nil {
+			return nil, output.ExitConfig, err
+		}
+	} else if port == 0 {
 		port, err = preferredExposedPort(inst.Name)
 		if err != nil {
 			return nil, output.ExitConfig, err
 		}
+		selectedService = serviceNameForPort(inst.Name, port)
 	}
 
 	targetURL := fmt.Sprintf("http://127.0.0.1:%d", port)
@@ -337,7 +361,7 @@ func runTunnelStart(ctx *Context, options tunnelOptions) (any, int, error) {
 	// Verify the target port is reachable before starting the tunnel.
 	if !portReachable(port) {
 		return nil, output.ExitDocker,
-			fmt.Errorf("port %d is not reachable — worktree appears stopped; run `docktree up` first", port)
+			fmt.Errorf("%s port %d is not reachable — worktree appears stopped; run `docktree up` first", selectedService, port)
 	}
 
 	steps := ctx.Steps
@@ -427,7 +451,12 @@ func runTunnelStart(ctx *Context, options tunnelOptions) (any, int, error) {
 		}
 		steps.Sub(fmt.Sprintf("%s %s → %s", tui.MutedS("route:"), tui.TextS(targetURL), tui.MutedS(provider.Name())))
 	} else {
-		fmt.Fprintf(ctx.Stdout, "Tunnel started for %s via %s (PID %d)\n", inst.Name, provider.Name(), cmd.Process.Pid)
+
+	svcLabel := ""
+	if selectedService != "" {
+		svcLabel = fmt.Sprintf(" (%s)", selectedService)
+	}
+	fmt.Fprintf(ctx.Stdout, "Tunnel started for %s%s via %s (PID %d)\n", inst.Name, svcLabel, provider.Name(), cmd.Process.Pid)
 		if capturedURL != "" {
 			fmt.Fprintf(ctx.Stdout, "  URL:    %s\n", capturedURL)
 		}
@@ -437,6 +466,7 @@ func runTunnelStart(ctx *Context, options tunnelOptions) (any, int, error) {
 	return TunnelStartResult{
 		Instance: inst.Name,
 		Provider: provider.Name(),
+		Service:  selectedService,
 		URL:      capturedURL,
 		Port:     port,
 		PID:      cmd.Process.Pid,
@@ -580,6 +610,56 @@ func preferredExposedPort(instanceName string) (int, error) {
 		return fallback, nil
 	}
 	return 0, fmt.Errorf("no exposed ports for instance %s (run `docktree up` first)", instanceName)
+}
+
+// serviceHostPort returns the host port for a named compose service.
+//
+// If the service has multiple ports, prefers 80/8080.  Otherwise returns
+// an error listing the available ports and suggesting --port.
+func serviceHostPort(instanceName, serviceName string) (int, string, error) {
+	registry, err := ports.NewRegistry().Load()
+	if err != nil {
+		return 0, "", err
+	}
+	var candidates []ports.Assignment
+	for _, a := range registry[instanceName] {
+		if a.Service == serviceName && a.HostPort > 0 {
+			candidates = append(candidates, a)
+		}
+	}
+	if len(candidates) == 0 {
+		return 0, "", fmt.Errorf("service %q not found in port registry for %s (run `docktree up` first)", serviceName, instanceName)
+	}
+	// Single port — use it.
+	if len(candidates) == 1 {
+		return candidates[0].HostPort, fmt.Sprintf("%s:%d", candidates[0].Service, candidates[0].ContainerPort), nil
+	}
+	// Multiple ports — prefer HTTP.
+	for _, a := range candidates {
+		if a.ContainerPort == 80 || a.ContainerPort == 8080 {
+			return a.HostPort, fmt.Sprintf("%s:%d", a.Service, a.ContainerPort), nil
+		}
+	}
+	// Multiple non-HTTP ports — fail with a list.
+	var parts []string
+	for _, a := range candidates {
+		parts = append(parts, fmt.Sprintf(":%d → %d", a.ContainerPort, a.HostPort))
+	}
+	return 0, "", fmt.Errorf("service %q has multiple ports (%s); specify one with --port", serviceName, strings.Join(parts, ", "))
+}
+
+// serviceNameForPort returns a human-readable label for a host port.
+func serviceNameForPort(instanceName string, hostPort int) string {
+	registry, err := ports.NewRegistry().Load()
+	if err != nil {
+		return ""
+	}
+	for _, a := range registry[instanceName] {
+		if a.HostPort == hostPort {
+			return fmt.Sprintf("%s:%d", a.Service, a.ContainerPort)
+		}
+	}
+	return ""
 }
 
 // captureTunnelURL polls the log file for a tunnel URL, with a concurrent
@@ -736,12 +816,15 @@ Actions:
 Flags:
   --provider NAME   Tunnel provider (default: cloudflare)
   --port, -p PORT   Local port to tunnel (default: first allocated port)
+ --service, -s SVC Compose service to tunnel (picks HTTP port; use --port for specific ports)
   --help, -h        Show this help
 
 Available providers: %s
 
 Examples:
-  cd myapp.worktrees/feature-a && docktree tunnel start
+  cd myapp.worktrees/feature-a && docktree tunnel start                      # auto-detect first HTTP port
+  docktree tunnel start --service ui                                         # tunnel a specific service
+  docktree tunnel start --port 41006                                         # tunnel an explicit port
   docktree tunnel status
   docktree tunnel stop
   docktree tunnel list
