@@ -177,11 +177,12 @@ type tunnelOptions struct {
 func parseTunnelOptions(args []string, cfg *config.Config) (tunnelOptions, error) {
 	providerDefault := "cloudflare"
 	portDefault := 0
+
 	if cfg != nil {
 		if cfg.Tunnel.Provider != "" {
 			providerDefault = cfg.Tunnel.Provider
 		}
-		if cfg.Tunnel.Port > 0 && cfg.Tunnel.Port != 8320 {
+		if cfg.Tunnel.Port > 0 {
 			portDefault = cfg.Tunnel.Port
 		}
 	}
@@ -315,7 +316,12 @@ func runTunnelStart(ctx *Context, options tunnelOptions) (any, int, error) {
 		return nil, output.ExitConfig, err
 	}
 
-	ts, _ := LoadTunnelState(worktreeRoot, stateDir)
+	var ts *TunnelState
+	ts, err = LoadTunnelState(worktreeRoot, stateDir)
+	if err != nil {
+		return nil, output.ExitConfig, fmt.Errorf("corrupt tunnel state — remove %s and retry: %w",
+			tunnelStatePath(worktreeRoot, stateDir), err)
+	}
 	if ts != nil && processMatchesStr(ts.PID, ts.StartTime) {
 		return nil, output.ExitUsage, fmt.Errorf("tunnel already running for %s (PID %d, %s)", inst.Name, ts.PID, ts.URL)
 	}
@@ -707,16 +713,19 @@ func scanLogForURL(logPath string) string {
 	return ""
 }
 
-// extractTunnelURL extracts a tunnel URL from a provider output line.
+
 func extractTunnelURL(line string) string {
-	if !strings.Contains(line, "https://") {
-		return ""
-	}
+	// Find every https:// URL in the line and return the first one
+	// whose host matches a known provider domain.
 	for _, domain := range []string{"trycloudflare.com", "ngrok-free.app", "ngrok.io"} {
-		idx := strings.Index(line, "https://")
-		if idx >= 0 && strings.Contains(line[idx:], domain) {
-			// Find end of URL. Stop at whitespace, quotes, commas,
-			// JSON closing braces, pipes, angle brackets, or line ends.
+		start := 0
+		for {
+			idx := strings.Index(line[start:], "https://")
+			if idx < 0 {
+					break
+			}
+			idx += start
+			// Find end of URL (delimiter or line end).
 			end := idx
 			for end < len(line) {
 				c := line[end]
@@ -726,7 +735,12 @@ func extractTunnelURL(line string) string {
 				}
 				end++
 			}
-			return line[idx:end]
+			url := line[idx:end]
+			// Only return if the URL's host matches the provider domain.
+			if strings.Contains(url, domain) {
+				return url
+			}
+			start = end
 		}
 	}
 	return ""
