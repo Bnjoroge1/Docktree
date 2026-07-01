@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os/signal"
 	"strconv"
@@ -72,8 +73,7 @@ func runProxy(ctx *Context) (any, int, error) {
 		return nil, output.ExitUsage, err
 	}
 	if options.help {
-		printProxyHelp(ctx.Stdout)
-		return nil, output.ExitOK, nil
+		return proxyHelpDoc(), output.ExitOK, nil
 	}
 
 	cfg := config.Defaults()
@@ -99,7 +99,7 @@ func runProxy(ctx *Context) (any, int, error) {
 	}
 	routes := router.Routes()
 
-	// Print startup banner
+	// Print startup banner (stderr in JSON mode)
 	steps := ctx.Steps
 	if steps != nil {
 		steps.Header("Docktree proxy", addr)
@@ -114,15 +114,21 @@ func runProxy(ctx *Context) (any, int, error) {
 		}
 		steps.Blank()
 		steps.Active(tui.InfoS("listening… (Ctrl+C to stop)"))
-	} else {
-		fmt.Fprintf(ctx.Stdout, "Docktree proxy listening on http://%s\n", addr)
-		if len(routes) == 0 {
-			fmt.Fprintf(ctx.Stdout, "  (no running instances — start with docktree up)\n")
-		} else {
-			for name, backend := range routes {
-				fmt.Fprintf(ctx.Stdout, "  %s.localhost → %s\n", name, backend)
-			}
+	}
+
+	if ctx.Renderer.JSON {
+		// Emit startup JSON once the listener is bound. The ready callback
+		// fires from ListenAndServe after net.Listen succeeds. All subsequent
+		// server output goes to stderr. Return nil to avoid a second render.
+		proxyCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		defer stop()
+		proxyCtx = proxy.WithStdout(proxyCtx, ctx.Stderr)
+		if err := proxy.ListenAndServe(proxyCtx, addr, router, func() {
+			_ = json.NewEncoder(ctx.Stdout).Encode(ProxyResult{Addr: addr, Routes: routes, Running: true})
+		}); err != nil {
+			return nil, output.ExitDocker, err
 		}
+		return nil, output.ExitOK, nil
 	}
 
 	proxyCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -130,7 +136,7 @@ func runProxy(ctx *Context) (any, int, error) {
 
 	proxyCtx = proxy.WithStdout(proxyCtx, ctx.Stdout)
 
-	if err := proxy.ListenAndServe(proxyCtx, addr, router); err != nil {
+	if err := proxy.ListenAndServe(proxyCtx, addr, router, nil); err != nil {
 		return nil, output.ExitDocker, err
 	}
 

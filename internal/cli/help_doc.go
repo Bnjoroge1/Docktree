@@ -57,6 +57,7 @@ var helpTextPrinters = map[string]func(io.Writer){
 	"platform": printPlatformHelp,
 	"ports":    printPortsHelp,
 	"prepare":  printPrepareHelp,
+	"proxy":    func(w io.Writer) { printProxyHelp(w) },
 	"status":   printStatusHelp,
 	"stop":     printStopHelp,
 	"sync":     printSyncHelp,
@@ -132,6 +133,7 @@ func rootHelpDoc() HelpDoc {
 			{Name: "unpause", Description: "Pass through to docker compose unpause"},
 			{Name: "up", Description: "Start the current worktree's Compose project (or --create <branch>)"},
 			{Name: "volumes", Description: "Show Docktree-managed volumes (use --all for all worktrees)"},
+			{Name: "proxy", Description: "Reverse proxy routing by hostname to worktree ports"},
 			{Name: "wait", Description: "Pass through to docker compose wait"},
 			{Name: "watch", Description: "Pass through to docker compose watch"},
 			{Name: "help", Description: "Show this help text"},
@@ -307,6 +309,22 @@ func volumesHelpDoc() HelpDoc {
 		Options: []HelpOption{
 			{Flags: []string{"-a", "--all"}, Description: "Show volumes for all worktree instances"},
 			{Flags: []string{"-h", "--help"}, Description: "Show this help text"},
+		},
+	}
+}
+func proxyHelpDoc() HelpDoc {
+	return HelpDoc{
+		Command:  "proxy",
+		Synopsis: "Start a reverse proxy that routes by hostname to worktree ports.",
+		Usage:    []string{"docktree proxy [--port PORT] [--host HOST]"},
+		Options: []HelpOption{
+			{Flags: []string{"-p", "--port"}, Value: "PORT", Description: "Proxy listen port (default: 8320)"},
+			{Flags: []string{"--host"}, Value: "HOST", Description: "Proxy listen host (default: 127.0.0.1)"},
+			{Flags: []string{"-h", "--help"}, Description: "Show this help text"},
+		},
+		Examples: []string{
+			"docktree proxy",
+			"docktree proxy --port 9000",
 		},
 	}
 }
