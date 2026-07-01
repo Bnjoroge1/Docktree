@@ -259,6 +259,14 @@ type TunnelListResult struct {
 }
 
 // TunnelStatusResult is the structured --json result for tunnel status.
+// TunnelStoppedResult is the structured --json result for tunnel stop.
+type TunnelStoppedResult struct {
+	Instance string `json:"instance"`
+	PID      int    `json:"pid"`
+	Provider string `json:"provider"`
+}
+
+// TunnelStatusResult is the structured --json result for tunnel status.
 type TunnelStatusResult struct {
 	Instance string `json:"instance"`
 	Provider string `json:"provider"`
@@ -284,8 +292,7 @@ func runTunnel(ctx *Context) (any, int, error) {
 		return nil, output.ExitUsage, err
 	}
 	if options.help || options.action == "" {
-		printTunnelHelp(ctx.Stdout)
-		return nil, output.ExitOK, nil
+		return tunnelHelpDoc(), output.ExitOK, nil
 	}
 
 	switch options.action {
@@ -419,7 +426,7 @@ func runTunnelStart(ctx *Context, options tunnelOptions) (any, int, error) {
 					steps.Sub("  " + tui.MutedS(line))
 				}
 			}
-		} else {
+		} else if !ctx.Renderer.JSON {
 			fmt.Fprintf(ctx.Stdout, "Tunnel failed to start for %s via %s (no URL captured).\n", inst.Name, provider.Name())
 			if len(tail) > 0 {
 				fmt.Fprintf(ctx.Stdout, "  Last log lines:\n")
@@ -427,8 +434,8 @@ func runTunnelStart(ctx *Context, options tunnelOptions) (any, int, error) {
 					fmt.Fprintf(ctx.Stdout, "    %s\n", line)
 				}
 			}
+			fmt.Fprintf(ctx.Stderr, "  Log: %s\n", logPath)
 		}
-		fmt.Fprintf(ctx.Stderr, "  Log: %s\n", logPath)
 		return nil, output.ExitDocker, fmt.Errorf("tunnel failed to start (PID %d) — no URL captured; check log: %s", cmd.Process.Pid, logPath)
 	}
 
@@ -438,11 +445,13 @@ func runTunnelStart(ctx *Context, options tunnelOptions) (any, int, error) {
 	startTime, err := processStartTimeStr(cmd.Process.Pid)
 	if err != nil {
 		_ = cmd.Process.Signal(syscall.SIGTERM)
-		tail := tailLogFile(logPath, 4)
-		if len(tail) > 0 {
-			fmt.Fprintf(ctx.Stderr, "  Last log lines:\n")
-			for _, line := range tail {
-				fmt.Fprintf(ctx.Stderr, "    %s\n", line)
+		if !ctx.Renderer.JSON {
+			tail := tailLogFile(logPath, 4)
+			if len(tail) > 0 {
+				fmt.Fprintf(ctx.Stderr, "  Last log lines:\n")
+				for _, line := range tail {
+					fmt.Fprintf(ctx.Stderr, "    %s\n", line)
+				}
 			}
 		}
 		return nil, output.ExitDocker,
@@ -469,6 +478,8 @@ func runTunnelStart(ctx *Context, options tunnelOptions) (any, int, error) {
 			steps.Sub(fmt.Sprintf("%s %s", tui.MutedS("URL:"), tui.URLS(capturedURL)))
 		}
 		steps.Sub(fmt.Sprintf("%s %s → %s", tui.MutedS("route:"), tui.TextS(targetURL), tui.MutedS(provider.Name())))
+	} else if ctx.Renderer.JSON {
+		// JSON mode: result struct rendered by Renderer below.
 	} else {
 
 	svcLabel := ""
@@ -524,6 +535,12 @@ func runTunnelStop(ctx *Context) (any, int, error) {
 
 	if ctx.Steps != nil {
 		ctx.Steps.Done(fmt.Sprintf("tunnel stopped for %s", tui.AccentS(inst.Name)))
+	} else if ctx.Renderer.JSON {
+		return TunnelStoppedResult{
+			Instance: inst.Name,
+			PID:      ts.PID,
+			Provider: ts.Provider,
+		}, output.ExitOK, nil
 	} else {
 		fmt.Fprintf(ctx.Stdout, "Tunnel stopped for %s (PID %d)\n", inst.Name, ts.PID)
 	}
@@ -541,6 +558,12 @@ func runTunnelStatus(ctx *Context) (any, int, error) {
 		return nil, output.ExitConfig, err
 	}
 	if ts == nil {
+		if ctx.Renderer.JSON {
+			return TunnelStatusResult{
+				Instance: inst.Name,
+				Status:   "none",
+			}, output.ExitOK, nil
+		}
 		fmt.Fprintf(ctx.Stdout, "No tunnel running for %s.\n", inst.Name)
 		return nil, output.ExitNoop, nil
 	}
