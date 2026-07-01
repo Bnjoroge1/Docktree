@@ -38,6 +38,10 @@ func LoadFull(files []string) (*composetypes.Project, *ComposeProject, error) {
 	project, err := composeloader.LoadWithContext(context.Background(), *details, func(options *composeloader.Options) {
 		options.SetProjectName(projectName, false)
 		options.SkipConsistencyCheck = true
+		// Load all services, including those with profiles, so the reduced model
+		// is complete. Docker Compose still applies profile selection at runtime
+		// via the --profile flags we forward.
+		options.Profiles = []string{"*"}
 	})
 	if err != nil {
 		return nil, nil, err
@@ -129,6 +133,10 @@ func convertService(svc composetypes.ServiceConfig) Service {
 	}
 	for name := range svc.DependsOn {
 		converted.DependsOn = append(converted.DependsOn, name)
+	}
+	if len(svc.Profiles) > 0 {
+		converted.Profiles = make([]string, len(svc.Profiles))
+		copy(converted.Profiles, svc.Profiles)
 	}
 	return converted
 }

@@ -96,6 +96,9 @@ func printPlatformHelp(w io.Writer) {
 }
 
 func runPlatformUp(ctx *Context) (any, int, error) {
+	if hasHelpFlag(ctx.Args[2:]) {
+		return platformHelpDoc(), output.ExitOK, nil
+	}
 	current, err := dockgit.DetectRepo()
 	if err != nil {
 		return nil, output.ExitConfig, err
@@ -168,6 +171,9 @@ func runPlatformUp(ctx *Context) (any, int, error) {
 // runPlatformDown stops the platform stack but keeps named volumes and the
 // external network owns data deletion.
 func runPlatformDown(ctx *Context) (any, int, error) {
+	if hasHelpFlag(ctx.Args[2:]) {
+		return platformHelpDoc(), output.ExitOK, nil
+	}
 	plan, err := buildPlatformPlan("")
 	if err != nil {
 		return nil, output.ExitConfig, err
@@ -715,6 +721,8 @@ func runPlatformClean(ctx *Context) (any, int, error) {
 	dryRun := false
 	for _, a := range args {
 		switch a {
+		case "-h", "--help":
+			return platformHelpDoc(), output.ExitOK, nil
 		case "-y", "--yes":
 			yes = true
 		case "--dry-run":

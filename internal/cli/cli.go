@@ -32,6 +32,7 @@ var rootCommands = map[string]commandSpec{
 	"logs":     {run: runLogs},
 	"ls":       {run: runLs},
 	"pause":    {run: runPause},
+	"platform": {run: runPlatform},
 	"port":     {run: runPort},
 	"ports":    {run: runPorts},
 	"prepare":  {run: runPrepare},

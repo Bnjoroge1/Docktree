@@ -281,6 +281,9 @@ func upHelpDoc() HelpDoc {
 		Options: []HelpOption{
 			{Flags: []string{"-f", "--file"}, Value: "<path>", Description: "Use a specific Compose file"},
 			{Flags: []string{"--only"}, Value: "<service>", Description: "Start only the named service (repeatable)"},
+			{Flags: []string{"--skip"}, Value: "<service>", Description: "Skip a service and save it for this worktree (repeatable)"},
+			{Flags: []string{"--skip-clear"}, Description: "Clear all saved skipped services for this worktree"},
+			{Flags: []string{"--profile"}, Value: "<name>", Description: "Activate a Compose profile for this run only (repeatable, not saved)"},
 			{Flags: []string{"--build"}, Description: "Force rebuild of images with a build: directive"},
 			{Flags: []string{"--create"}, Value: "<branch>", Description: "Create and prepare a new worktree before starting"},
 			{Flags: []string{"--sync"}, Description: "Run setup copy/symlink/run steps before starting"},

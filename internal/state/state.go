@@ -50,6 +50,7 @@ type Instance struct {
 	CreatedAt       time.Time `json:"created_at"`
 	LastActiveAt    time.Time `json:"last_active_at"`
 	ComposeFileHash string    `json:"compose_file_hash"`
+	Profiles        []string  `json:"profiles,omitempty"`
 	// ComposeFiles records the base compose files this instance was started
 	// with (absolute paths). It is the source of truth for down/status so they
 	// don't re-derive files from docktree.yml, which may differ from a `-f` run.

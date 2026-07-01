@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -24,6 +25,7 @@ import (
 
 func runUp(ctx *Context) (any, int, error) {
 	options, err := parseUpOptions(ctx.Args[1:])
+
 	if err != nil {
 		return nil, output.ExitUsage, err
 	}
@@ -112,6 +114,33 @@ func runUp(ctx *Context) (any, int, error) {
 			steps.Done("Synced setup files")
 		}
 	}
+	if len(options.skip) > 0 || options.skipClear {
+		localPath := config.LocalOverridesPath(repo.WorktreeRoot, cfg.State.Directory)
+		local, err := config.LoadLocalOverrides(localPath)
+		if err != nil {
+			return nil, output.ExitConfig, err
+		}
+		if options.skipClear {
+			local.SkipServices = nil
+		} else {
+			local.SkipServices = config.UnionStrings(local.SkipServices, options.skip)
+		}
+		if err := config.WriteLocalOverrides(localPath, local); err != nil {
+			return nil, output.ExitConfig, err
+		}
+		// Reload merged config so filtering uses the final skip list.
+		cfg, err = loadMergedConfig(repo, repo.WorktreeRoot)
+		if err != nil {
+			return nil, output.ExitConfig, err
+		}
+		if steps != nil {
+			if options.skipClear {
+				steps.Done("Cleared saved skips")
+			} else {
+				steps.Done("Saved skipped services")
+			}
+		}
+	}
 	var files []string
 	if options.file != "" {
 		path := options.file
@@ -183,6 +212,30 @@ func runUp(ctx *Context) (any, int, error) {
 			steps.Done("Generated worktree compose")
 		}
 	}
+	if len(cfg.Overrides.SkipServices) > 0 || len(cfg.Overrides.DropDependencies) > 0 {
+		if err := state.EnsureStateDir(repo.WorktreeRoot, cfg.State.Directory); err != nil {
+			return nil, output.ExitConfig, err
+		}
+		rawProj, _, lerr := compose.LoadFull(files)
+		if lerr != nil {
+			return nil, output.ExitConfig, lerr
+		}
+		filteredProj, ferr := compose.FilterServices(rawProj, compose.ServiceFilter{
+			Skip:     cfg.Overrides.SkipServices,
+			DropDeps: cfg.Overrides.DropDependencies,
+		})
+		if ferr != nil {
+			return nil, output.ExitConfig, ferr
+		}
+		filteredPath := filepath.Join(stateDir, "generated", instanceName+"-filtered.yml")
+		if werr := compose.WriteComposeFile(filteredProj, filteredPath); werr != nil {
+			return nil, output.ExitConfig, werr
+		}
+		files = []string{filteredPath}
+		if steps != nil {
+			steps.Done("Filtered services")
+		}
+	}
 	project, err := parseAll(files)
 	if err != nil {
 		return nil, output.ExitConfig, err
@@ -192,11 +245,17 @@ func runUp(ctx *Context) (any, int, error) {
 	if firstTime && len(cfg.Shared.Services) == 0 {
 		hint = setup.HintLine(setup.DetectShareable(project))
 	}
+	profiles := append([]string{}, cfg.Overrides.Profiles...)
+	for _, p := range options.profiles {
+		if !slices.Contains(profiles, p) {
+			profiles = append(profiles, p)
+		}
+	}
 	if options.validate {
-		return runValidate(project, files, cfg, repo, envWarnings)
+		return runValidate(project, files, cfg, repo, envWarnings, profiles)
 	}
 	if options.dryRun {
-		return runDryRun(project, files, cfg, repo, instanceName, envWarnings)
+		return runDryRun(project, files, cfg, repo, instanceName, envWarnings, profiles)
 	}
 	projectNeedsBuild := projectHasBuild(project)
 	reuseRunningPorts := false
@@ -284,7 +343,7 @@ func runUp(ctx *Context) (any, int, error) {
 		upArgs = append(upArgs, "--build")
 	}
 	upArgs = append(upArgs, options.services...)
-	cmd := docker.ComposeCommand{ProjectName: instanceName, Files: composeFiles, CommandArgs: upArgs}
+	cmd := docker.ComposeCommand{ProjectName: instanceName, Files: composeFiles, Profiles: profiles, CommandArgs: upArgs}
 	requests := portRequests(project, cfg.Ports.BindHost)
 	for attempt := 0; attempt < 10; attempt++ {
 		if reuseRunningPorts {
@@ -372,10 +431,14 @@ func runUp(ctx *Context) (any, int, error) {
 		sharedSvcNames = append(sharedSvcNames, name)
 	}
 	sort.Strings(sharedSvcNames)
-	return UpResult{Instance: inst, CreatedWorktree: createdWorktree, ComposeFiles: files, OverrideFile: overrideFile, ClearFile: clearFile, Ports: assignments, Services: serviceNames(project), SharedServices: sharedSvcNames, IsolatedVolumes: isolatedVolumes(project, repoRootVolumesShare()), EnvWarnings: envWarnings, Scaffolded: scaffolded, Synced: synced, StaleCopies: staleCopies, Hint: hint}, output.ExitOK, nil
+	var savedSkips []string
+	if len(options.skip) > 0 {
+		savedSkips = options.skip
+	}
+	return UpResult{Instance: inst, CreatedWorktree: createdWorktree, ComposeFiles: files, OverrideFile: overrideFile, ClearFile: clearFile, Ports: assignments, Services: serviceNames(project), SharedServices: sharedSvcNames, IsolatedVolumes: isolatedVolumes(project, repoRootVolumesShare()), EnvWarnings: envWarnings, Scaffolded: scaffolded, Synced: synced, StaleCopies: staleCopies, Hint: hint, Profiles: profiles, SkippedServices: cfg.Overrides.SkipServices, DroppedDependencies: cfg.Overrides.DropDependencies, SavedSkippedServices: savedSkips, SkipClearApplied: options.skipClear}, output.ExitOK, nil
 }
 
-func runValidate(project *compose.ComposeProject, files []string, cfg *config.Config, repo dockgit.RepoInfo, envWarnings []compose.Warning) (any, int, error) {
+func runValidate(project *compose.ComposeProject, files []string, cfg *config.Config, repo dockgit.RepoInfo, envWarnings []compose.Warning, profiles []string) (any, int, error) {
 	var errs []string
 	if len(project.Services) == 0 {
 		errs = append(errs, "no services defined in compose file")
@@ -395,12 +458,12 @@ func runValidate(project *compose.ComposeProject, files []string, cfg *config.Co
 	portRange, err := ports.ParseRange(cfg.Ports.Range)
 	if err != nil {
 		errs = append(errs, fmt.Sprintf("invalid port range %q: %v", cfg.Ports.Range, err))
-		return ValidateResult{Valid: false, Services: serviceNames(project), Errors: errs}, output.ExitOK, nil
+		return ValidateResult{Valid: false, Services: serviceNames(project), Errors: errs, Profiles: profiles, SkippedServices: cfg.Overrides.SkipServices, DroppedDependencies: cfg.Overrides.DropDependencies}, output.ExitOK, nil
 	}
 	registry := ports.NewRegistry()
 	if err := registry.Lock(); err != nil {
 		errs = append(errs, fmt.Sprintf("cannot acquire port registry lock: %v", err))
-		return ValidateResult{Valid: false, Services: serviceNames(project), Errors: errs}, output.ExitOK, nil
+		return ValidateResult{Valid: false, Services: serviceNames(project), Errors: errs, Profiles: profiles, SkippedServices: cfg.Overrides.SkipServices, DroppedDependencies: cfg.Overrides.DropDependencies}, output.ExitOK, nil
 	}
 	existing, _ := registry.Load()
 	hadAllocation := len(existing[instanceName]) > 0
@@ -421,7 +484,7 @@ func runValidate(project *compose.ComposeProject, files []string, cfg *config.Co
 	if clear == nil && len(portRequests(project, cfg.Ports.BindHost)) > 0 {
 		errs = append(errs, "port clear generation returned nil despite having published ports")
 	}
-	return ValidateResult{Valid: len(errs) == 0, Services: serviceNames(project), Ports: assignments, IsolatedVolumes: isolated, EnvWarnings: envWarnings, Errors: errs}, output.ExitOK, nil
+	return ValidateResult{Valid: len(errs) == 0, Services: serviceNames(project), Ports: assignments, IsolatedVolumes: isolated, EnvWarnings: envWarnings, Errors: errs, Profiles: profiles, SkippedServices: cfg.Overrides.SkipServices, DroppedDependencies: cfg.Overrides.DropDependencies}, output.ExitOK, nil
 }
 func networkIsolationWarnings(project *compose.ComposeProject) []compose.Warning {
 	if project == nil {
@@ -451,7 +514,7 @@ func projectHasBuild(project *compose.ComposeProject) bool {
 	return false
 }
 
-func runDryRun(project *compose.ComposeProject, files []string, cfg *config.Config, repo dockgit.RepoInfo, instanceName string, envWarnings []compose.Warning) (any, int, error) {
+func runDryRun(project *compose.ComposeProject, files []string, cfg *config.Config, repo dockgit.RepoInfo, instanceName string, envWarnings []compose.Warning, profiles []string) (any, int, error) {
 	portRange, err := ports.ParseRange(cfg.Ports.Range)
 	if err != nil {
 		return nil, output.ExitConfig, err
@@ -491,5 +554,5 @@ func runDryRun(project *compose.ComposeProject, files []string, cfg *config.Conf
 		}
 		clearPreview = string(clearYAML)
 	}
-	return DryRunResult{DryRun: true, InstanceName: instanceName, ComposeFiles: files, Services: serviceNames(project), Ports: assignments, IsolatedVolumes: isolatedVolumes(project, repoRootVolumesShare()), EnvWarnings: envWarnings, OverridePreview: string(overrideYAML), ClearPreview: clearPreview}, output.ExitOK, nil
+	return DryRunResult{DryRun: true, InstanceName: instanceName, ComposeFiles: files, Services: serviceNames(project), Ports: assignments, IsolatedVolumes: isolatedVolumes(project, repoRootVolumesShare()), EnvWarnings: envWarnings, OverridePreview: string(overrideYAML), ClearPreview: clearPreview, Profiles: profiles, SkippedServices: cfg.Overrides.SkipServices, DroppedDependencies: cfg.Overrides.DropDependencies}, output.ExitOK, nil
 }

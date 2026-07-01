@@ -163,14 +163,17 @@ func parseStopOptions(args []string) (stopOptions, error) {
 }
 
 type upOptions struct {
-	help     bool
-	file     string
-	create   string
-	sync     bool
-	validate bool
-	dryRun   bool
-	build    bool
-	services []string
+	help      bool
+	file      string
+	create    string
+	sync      bool
+	validate  bool
+	dryRun    bool
+	build     bool
+	skipClear bool
+	services  []string
+	profiles  []string
+	skip      []string
 }
 
 type createOptions struct {
@@ -225,12 +228,53 @@ func parseUpOptions(args []string) (upOptions, error) {
 				return upOptions{}, fmt.Errorf("--only requires a service name")
 			}
 			options.services = append(options.services, service)
+		case arg == "--profile":
+			if i+1 >= len(args) {
+				return upOptions{}, fmt.Errorf("%s requires a profile name", arg)
+			}
+			if args[i+1] == "" || strings.HasPrefix(args[i+1], "-") {
+				return upOptions{}, fmt.Errorf("%s requires a profile name", arg)
+			}
+			options.profiles = append(options.profiles, args[i+1])
+			i++
+		case strings.HasPrefix(arg, "--profile="):
+			profile := strings.TrimPrefix(arg, "--profile=")
+			if profile == "" {
+				return upOptions{}, fmt.Errorf("--profile requires a profile name")
+			}
+			options.profiles = append(options.profiles, profile)
+		case arg == "--skip" || arg == "--skip-service":
+			if i+1 >= len(args) {
+				return upOptions{}, fmt.Errorf("%s requires a service name", arg)
+			}
+			if args[i+1] == "" || strings.HasPrefix(args[i+1], "-") {
+				return upOptions{}, fmt.Errorf("%s requires a service name", arg)
+			}
+			options.skip = append(options.skip, args[i+1])
+			i++
+		case strings.HasPrefix(arg, "--skip="):
+			service := strings.TrimPrefix(arg, "--skip=")
+			if service == "" {
+				return upOptions{}, fmt.Errorf("--skip requires a service name")
+			}
+			options.skip = append(options.skip, service)
+		case strings.HasPrefix(arg, "--skip-service="):
+			service := strings.TrimPrefix(arg, "--skip-service=")
+			if service == "" {
+				return upOptions{}, fmt.Errorf("--skip-service requires a service name")
+			}
+			options.skip = append(options.skip, service)
+		case arg == "--skip-clear":
+			options.skipClear = true
 		default:
 			if strings.HasPrefix(arg, "-") {
 				return upOptions{}, fmt.Errorf("unknown up flag %q", arg)
 			}
 			options.services = append(options.services, arg)
 		}
+	}
+	if len(options.skip) > 0 && options.skipClear {
+		return upOptions{}, fmt.Errorf("--skip and --skip-clear are mutually exclusive")
 	}
 	return options, nil
 }
