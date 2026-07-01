@@ -93,7 +93,7 @@ func (f ServiceFilter) String() string {
 
 // FilterProfiles returns a project containing only services without a profile,
 // or with a profile that matches the active list.
-func FilterProfiles(raw *composetypes.Project, activeProfiles []string) *composetypes.Project {
+func FilterProfiles(raw *ComposeProject, activeProfiles []string) *ComposeProject {
 	if raw == nil {
 		return nil
 	}
@@ -101,11 +101,42 @@ func FilterProfiles(raw *composetypes.Project, activeProfiles []string) *compose
 	for _, p := range activeProfiles {
 		active[p] = true
 	}
-	err := raw.WithServices(activeProfiles)
-	if err != nil {
-		return raw // fallback
+
+	out := &ComposeProject{
+		Services:    make(map[string]Service, len(raw.Services)),
+		Networks:    raw.Networks,
+		Volumes:     raw.Volumes,
 	}
-	return raw
+
+	for name, svc := range raw.Services {
+		if len(svc.Profiles) == 0 {
+			out.Services[name] = svc
+			continue
+		}
+		for _, p := range svc.Profiles {
+			if active[p] {
+				out.Services[name] = svc
+				break
+			}
+		}
+	}
+
+	// prune depends_on
+	for name, svc := range out.Services {
+		if len(svc.DependsOn) > 0 {
+			clone := svc
+			var pruned []string
+			for _, depName := range clone.DependsOn {
+				if _, ok := out.Services[depName]; ok {
+					pruned = append(pruned, depName)
+				}
+			}
+			clone.DependsOn = pruned
+			out.Services[name] = clone
+		}
+	}
+
+	return out
 }
 
 func sortedSlice(in []string) []string {
