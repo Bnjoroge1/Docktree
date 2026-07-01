@@ -51,6 +51,7 @@ var rootCommands = map[string]commandSpec{
 	"up":       {run: runUp, progress: true},
 	"tunnel":   {run: runTunnel},
 	"volumes":  {run: runVolumes},
+	"wait":     {run: runWait},
 	"watch":    {run: runWatch},
 }
 

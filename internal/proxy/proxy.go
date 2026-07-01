@@ -44,20 +44,34 @@ func (r *Router) Refresh() error {
 	newRoutes := make(map[string]route, len(instances))
 	for name, inst := range instances {
 		assignments := registry[name]
+		// Prefer HTTP ports (80, 8080) over HTTPS (443), over arbitrary ports.
+		var best *ports.Assignment
 		for _, a := range assignments {
+			a := a // capture loop variable
 			if a.HostPort > 0 {
-				host := a.HostIP
+				if best == nil {
+					best = &a
+					continue
+				}
+				isHTTP := a.ContainerPort == 80 || a.ContainerPort == 8080
+				bestIsHTTP := best.ContainerPort == 80 || best.ContainerPort == 8080
+				if isHTTP && !bestIsHTTP {
+					best = &a
+				}
+			}
+		}
+		if best != nil {
+			host := best.HostIP
 				if host == "" {
 					host = "127.0.0.1"
-				}
+			}
 				newRoutes[name] = route{
-					backend: fmt.Sprintf("%s:%d", host, a.HostPort),
+				backend: fmt.Sprintf("%s:%d", host, best.HostPort),
 					branch:  inst.Branch,
-				}
-				break // use first exposed port
 			}
 		}
 	}
+
 
 	r.mu.Lock()
 	r.routes = newRoutes
