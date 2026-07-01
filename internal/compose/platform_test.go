@@ -269,6 +269,270 @@ services:
 	}
 }
 
+func TestGeneratedWorktreeComposePreservesRawSecretsAndEnvFiles(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "sk-live-secret")
+	path := loadRaw(t, `
+services:
+  api:
+    image: app
+    env_file:
+      - .env
+    command: bash -c 'echo ${OPENAI_API_KEY} $$POSTGRES_DB'
+    entrypoint: sh -c 'echo ${OPENAI_API_KEY}'
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      POSTGRES_DB: app
+    depends_on:
+      - db
+  db:
+    image: postgres
+`)
+	if err := os.WriteFile(filepath.Join(filepath.Dir(path), ".env"), []byte("OPENAI_API_KEY=sk-live-secret\nENV_FILE_ONLY_SECRET=env-file-only-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	clean, err := LoadFullClean([]string{path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shared := config.SharedConfig{Services: map[string]config.SharedService{
+		"db": {Kind: "postgres", Tenancy: "per_database", DBNameEnvs: []string{"POSTGRES_DB"}},
+	}}
+	wt, err := SynthesizeWorktree(clean, shared, "demo", SynthesizeWorktreeOptions{
+		TenantDBs: map[string]map[string]string{"db": {"": "demo_feature_app"}},
+		RawInput:  true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(filepath.Dir(path), ".docktree", "generated", "demo-worktree-compose.yml")
+	if err := RebaseEnvFiles(wt, out); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteComposeFile(wt, out); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, secret := range []string{"sk-live-secret", "env-file-only-secret"} {
+		if strings.Contains(text, secret) {
+			t.Fatalf("generated compose leaked resolved secret %q:\n%s", secret, text)
+		}
+	}
+	if strings.Contains(text, "ENV_FILE_ONLY_SECRET") {
+		t.Fatalf("generated compose leaked resolved secret:\n%s", text)
+	}
+	for _, want := range []string{"${OPENAI_API_KEY}", "$$POSTGRES_DB", "../../.env", "POSTGRES_DB: demo_feature_app"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("generated compose missing %q:\n%s", want, text)
+		}
+	}
+	for _, bad := range []string{"$${OPENAI_API_KEY}", "$$$$POSTGRES_DB"} {
+		if strings.Contains(text, bad) {
+			t.Fatalf("generated compose over-escaped %q:\n%s", bad, text)
+		}
+	}
+}
+
+func TestGeneratedPlatformComposePreservesRawSecretsAndEnvFiles(t *testing.T) {
+	t.Setenv("INFISICAL_TOKEN", "live-infisical-token")
+	path := loadRaw(t, `
+services:
+  db:
+    image: postgres
+    env_file:
+      - .env
+    command: infisical run -- bash -c 'echo ${INFISICAL_TOKEN}'
+    environment:
+      INFISICAL_TOKEN: ${INFISICAL_TOKEN}
+`)
+	if err := os.WriteFile(filepath.Join(filepath.Dir(path), ".env"), []byte("INFISICAL_TOKEN=live-infisical-token\nENV_FILE_ONLY_SECRET=platform-env-file-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	clean, err := LoadFullClean([]string{path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shared := config.SharedConfig{Services: map[string]config.SharedService{
+		"db": {Kind: "postgres", Tenancy: "per_database"},
+	}}
+	platform, err := SynthesizePlatform(clean, shared, "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(filepath.Dir(path), ".docktree", "generated", "platform-compose.yml")
+	if err := RebaseEnvFiles(platform, out); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteComposeFile(platform, out); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, secret := range []string{"live-infisical-token", "platform-env-file-secret"} {
+		if strings.Contains(text, secret) {
+			t.Fatalf("generated platform compose leaked resolved secret %q:\n%s", secret, text)
+		}
+	}
+	if strings.Contains(text, "ENV_FILE_ONLY_SECRET") {
+		t.Fatalf("generated platform compose materialized env_file-only key:\n%s", text)
+	}
+	for _, want := range []string{"${INFISICAL_TOKEN}", "../../.env"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("generated platform compose missing %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "$${INFISICAL_TOKEN}") {
+		t.Fatalf("generated platform compose over-escaped placeholder:\n%s", text)
+	}
+}
+
+func TestGeneratedFilteredComposePreservesRawSecretsAndEnvFiles(t *testing.T) {
+	t.Setenv("AUTH_PASSWORD", "resolved-auth-secret")
+	path := loadRaw(t, `
+services:
+  api:
+    image: app
+    env_file:
+      - .env
+    command: bash -c 'echo ${AUTH_PASSWORD}'
+    environment:
+      AUTH_PASSWORD: ${AUTH_PASSWORD}
+    depends_on:
+      - worker
+  worker:
+    image: worker
+`)
+	if err := os.WriteFile(filepath.Join(filepath.Dir(path), ".env"), []byte("AUTH_PASSWORD=resolved-auth-secret\nENV_FILE_ONLY_SECRET=filtered-env-file-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	clean, err := LoadFullClean([]string{path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	filtered, err := FilterServices(clean, ServiceFilter{Skip: []string{"worker"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(filepath.Dir(path), ".docktree", "generated", "demo-filtered.yml")
+	if err := RebaseEnvFiles(filtered, out); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteComposeFile(filtered, out); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, secret := range []string{"resolved-auth-secret", "filtered-env-file-secret"} {
+		if strings.Contains(text, secret) {
+			t.Fatalf("generated filtered compose leaked resolved secret %q:\n%s", secret, text)
+		}
+	}
+	if strings.Contains(text, "ENV_FILE_ONLY_SECRET") {
+		t.Fatalf("generated filtered compose materialized env_file-only key:\n%s", text)
+	}
+	for _, want := range []string{"${AUTH_PASSWORD}", "../../.env"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("generated filtered compose missing %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "$${AUTH_PASSWORD}") {
+		t.Fatalf("generated filtered compose over-escaped placeholder:\n%s", text)
+	}
+}
+
+func TestRawURLEnvIsolationWarningsOnlyForResolvedURL(t *testing.T) {
+	path := loadRaw(t, `
+services:
+  api:
+    image: app
+    env_file:
+      - .env
+  worker:
+    image: worker
+    env_file:
+      - worker.env
+`)
+	if err := os.WriteFile(filepath.Join(filepath.Dir(path), ".env"), []byte("DATABASE_URL=postgres://user:pass@db:5432/app\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(filepath.Dir(path), "worker.env"), []byte("OTHER=value\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	resolved, _, err := LoadFull([]string{path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	clean, err := LoadFullClean([]string{path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shared := config.SharedConfig{Services: map[string]config.SharedService{
+		"db": {Kind: "postgres", Tenancy: "per_database", URLEnvs: []string{"DATABASE_URL"}},
+	}}
+	warnings := RawURLEnvIsolationWarnings(resolved, clean, shared)
+	if len(warnings) != 1 {
+		t.Fatalf("warnings = %#v, want exactly one warning for api", warnings)
+	}
+	if warnings[0].Key != "shared.url_envs.api.DATABASE_URL" {
+		t.Fatalf("warning key = %q, want api DATABASE_URL", warnings[0].Key)
+	}
+}
+
+func TestRawInputSkipsURLRewriteWhenURLContainsPlaceholders(t *testing.T) {
+	path := loadRaw(t, `
+services:
+  api:
+    image: app
+    environment:
+      DATABASE_URL: postgres://${DB_USER}:${DB_PASS}@db:5432/app
+    depends_on:
+      - db
+  db:
+    image: postgres
+`)
+	clean, err := LoadFullClean([]string{path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shared := config.SharedConfig{Services: map[string]config.SharedService{
+		"db": {Kind: "postgres", Tenancy: "per_database", URLEnvs: []string{"DATABASE_URL"}},
+	}}
+	wt, err := SynthesizeWorktree(clean, shared, "demo", SynthesizeWorktreeOptions{
+		TenantDBs: map[string]map[string]string{"db": {"": "demo_feature_app"}},
+		RawInput:  true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(filepath.Dir(path), ".docktree", "generated", "demo-worktree-compose.yml")
+	if err := WriteComposeFile(wt, out); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	want := `DATABASE_URL: postgres://${DB_USER}:${DB_PASS}@db:5432/app`
+	if !strings.Contains(text, want) {
+		t.Fatalf("generated compose missing unchanged placeholder URL %q:\n%s", want, text)
+	}
+	for _, bad := range []string{"demo_feature_app", "%24%7BDB_USER%7D", "%24%7BDB_PASS%7D"} {
+		if strings.Contains(text, bad) {
+			t.Fatalf("generated compose unexpectedly contains %q:\n%s", bad, text)
+		}
+	}
+}
+
 func TestEscapeDollar(t *testing.T) {
 	tests := []struct {
 		input, want string
