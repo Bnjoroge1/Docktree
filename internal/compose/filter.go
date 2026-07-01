@@ -103,9 +103,9 @@ func FilterProfiles(raw *ComposeProject, activeProfiles []string) *ComposeProjec
 	}
 
 	out := &ComposeProject{
-		Services:    make(map[string]Service, len(raw.Services)),
-		Networks:    raw.Networks,
-		Volumes:     raw.Volumes,
+		Services: make(map[string]Service, len(raw.Services)),
+		Networks: raw.Networks,
+		Volumes:  raw.Volumes,
 	}
 
 	for name, svc := range raw.Services {
@@ -121,18 +121,16 @@ func FilterProfiles(raw *ComposeProject, activeProfiles []string) *ComposeProjec
 		}
 	}
 
-	// prune depends_on
 	for name, svc := range out.Services {
 		if len(svc.DependsOn) > 0 {
-			clone := svc
 			var pruned []string
-			for _, depName := range clone.DependsOn {
+			for _, depName := range svc.DependsOn {
 				if _, ok := out.Services[depName]; ok {
 					pruned = append(pruned, depName)
 				}
 			}
-			clone.DependsOn = pruned
-			out.Services[name] = clone
+			svc.DependsOn = pruned
+			out.Services[name] = svc
 		}
 	}
 
