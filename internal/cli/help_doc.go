@@ -10,9 +10,9 @@ import (
 // HelpDoc is the structured form of a command's help text. It is rendered as
 // JSON under `--json` and as the legacy text under the human renderer.
 type HelpDoc struct {
-	Command     string       `json:"command"`               // "" for root, "platform" for the platform group, etc.
-	Synopsis    string       `json:"synopsis,omitempty"`    // one-line description
-	Usage       []string     `json:"usage,omitempty"`       // each entry is a usage line
+	Command     string       `json:"command"`            // "" for root, "platform" for the platform group, etc.
+	Synopsis    string       `json:"synopsis,omitempty"` // one-line description
+	Usage       []string     `json:"usage,omitempty"`    // each entry is a usage line
 	Options     []HelpOption `json:"options,omitempty"`
 	Arguments   []HelpArg    `json:"arguments,omitempty"`
 	Subcommands []HelpCmd    `json:"subcommands,omitempty"` // root / platform group
@@ -24,8 +24,8 @@ type HelpDoc struct {
 }
 
 type HelpOption struct {
-	Flags       []string `json:"flags"`             // e.g. ["-a", "--all"]
-	Value       string   `json:"value,omitempty"`   // e.g. "<path>"
+	Flags       []string `json:"flags"`           // e.g. ["-a", "--all"]
+	Value       string   `json:"value,omitempty"` // e.g. "<path>"
 	Description string   `json:"description"`
 }
 
@@ -293,6 +293,7 @@ func upHelpDoc() HelpDoc {
 			{Flags: []string{"--sync"}, Description: "Run setup copy/symlink/run steps before starting"},
 			{Flags: []string{"--validate"}, Description: "Check config, ports, and compose validity without starting"},
 			{Flags: []string{"--dry-run"}, Description: "Show what would happen without making changes"},
+			{Flags: []string{"--prune-networks"}, Description: "Prune unused Docker networks before starting"},
 			{Flags: []string{"-h", "--help"}, Description: "Show this help text"},
 		},
 		Examples: []string{

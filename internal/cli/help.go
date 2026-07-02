@@ -331,6 +331,7 @@ Options:
   --sync                Run setup copy/symlink/run steps before starting
   --validate            Check config, ports, and compose validity without starting
   --dry-run             Show what would happen without making changes
+  --prune-networks     Prune unused Docker networks before starting
   -h, --help            Show this help text
 
 Examples:

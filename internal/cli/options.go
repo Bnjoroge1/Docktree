@@ -163,17 +163,18 @@ func parseStopOptions(args []string) (stopOptions, error) {
 }
 
 type upOptions struct {
-	help      bool
-	file      string
-	create    string
-	sync      bool
-	validate  bool
-	dryRun    bool
-	build     bool
-	skipClear bool
-	services  []string
-	profiles  []string
-	skip      []string
+	help          bool
+	file          string
+	create        string
+	sync          bool
+	validate      bool
+	dryRun        bool
+	build         bool
+	pruneNetworks bool
+	skipClear     bool
+	services      []string
+	profiles      []string
+	skip          []string
 }
 
 type createOptions struct {
@@ -213,6 +214,8 @@ func parseUpOptions(args []string) (upOptions, error) {
 			options.dryRun = true
 		case arg == "--build":
 			options.build = true
+		case arg == "--prune-networks":
+			options.pruneNetworks = true
 		case arg == "--only":
 			if i+1 >= len(args) {
 				return upOptions{}, fmt.Errorf("%s requires a service name", arg)
