@@ -313,6 +313,10 @@ func runUp(ctx *Context) (any, int, error) {
 			}
 		}
 	}
+	networkCount, networkPruned, err := preflightDockerNetworks(ctx, options.pruneNetworks)
+	if err != nil {
+		return nil, output.ExitDocker, err
+	}
 	if len(cfg.Shared.Services) > 0 {
 		if _, _, platErr := ensurePlatformUp(ctx, repo.RepoRoot); platErr != nil {
 			return nil, output.ExitDocker, platErr
@@ -471,7 +475,31 @@ func runUp(ctx *Context) (any, int, error) {
 	if len(options.skip) > 0 {
 		savedSkips = options.skip
 	}
-	return UpResult{Instance: inst, CreatedWorktree: createdWorktree, ComposeFiles: files, OverrideFile: overrideFile, ClearFile: clearFile, Ports: assignments, Services: serviceNames(project), SharedServices: sharedSvcNames, IsolatedVolumes: isolatedVolumes(project, repoRootVolumesShare()), EnvWarnings: envWarnings, Scaffolded: scaffolded, Synced: synced, StaleCopies: staleCopies, Hint: hint, Profiles: profiles, SkippedServices: cfg.Overrides.SkipServices, DroppedDependencies: cfg.Overrides.DropDependencies, SavedSkippedServices: savedSkips, SkipClearApplied: options.skipClear}, output.ExitOK, nil
+	return UpResult{Instance: inst, CreatedWorktree: createdWorktree, ComposeFiles: files, OverrideFile: overrideFile, ClearFile: clearFile, Ports: assignments, Services: serviceNames(project), SharedServices: sharedSvcNames, IsolatedVolumes: isolatedVolumes(project, repoRootVolumesShare()), EnvWarnings: envWarnings, Scaffolded: scaffolded, Synced: synced, StaleCopies: staleCopies, Hint: hint, Profiles: profiles, SkippedServices: cfg.Overrides.SkipServices, DroppedDependencies: cfg.Overrides.DropDependencies, SavedSkippedServices: savedSkips, SkipClearApplied: options.skipClear, NetworkPruned: networkPruned, NetworkCount: networkCount}, output.ExitOK, nil
+}
+
+const networkPoolWarningThreshold = 24
+
+func preflightDockerNetworks(ctx *Context, prune bool) (int, bool, error) {
+	count, err := docker.CountBridgeNetworks()
+	if err != nil {
+		return 0, false, fmt.Errorf("check docker networks: %w", err)
+	}
+	if prune {
+		if err := docker.PruneUnusedNetworks(); err != nil {
+			return count, false, fmt.Errorf("prune unused docker networks: %w", err)
+		}
+		if ctx.Steps != nil {
+			ctx.Steps.Done("Pruned unused Docker networks")
+		} else {
+			fmt.Fprintln(ctx.Stderr, "Pruned unused Docker networks")
+		}
+		return count, true, nil
+	}
+	if count >= networkPoolWarningThreshold {
+		fmt.Fprintf(ctx.Stderr, "warning: Docker has %d bridge networks; if subnet pools are exhausted, rerun with --prune-networks or run docker network prune --force\n", count)
+	}
+	return count, false, nil
 }
 
 func runValidate(project *compose.ComposeProject, files []string, cfg *config.Config, repo dockgit.RepoInfo, envWarnings []compose.Warning, profiles []string) (any, int, error) {
