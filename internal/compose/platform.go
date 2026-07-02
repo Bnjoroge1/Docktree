@@ -398,7 +398,7 @@ func RebaseEnvFiles(project *composetypes.Project, composeFilePath string) error
 		clone.EnvFiles = make([]composetypes.EnvFile, len(svc.EnvFiles))
 		for i, envFile := range svc.EnvFiles {
 			clone.EnvFiles[i] = envFile
-			if envFile.Path == "" {
+			if envFile.Path == "" || strings.Contains(envFile.Path, "$") {
 				continue
 			}
 			abs := envFile.Path
