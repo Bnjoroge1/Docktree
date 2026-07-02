@@ -1,7 +1,8 @@
-# Docktree — drop-in Docker Compose for git worktrees
+# drop-in docker compose for git worktrees
 
 ![Docktree Demo](demo/out/docktree-demo.gif)
-Running Docker Compose across multiple git worktrees collides on three things: project name, host ports, and container names. Docktree gives every worktree its own isolated Compose project — unique ports (auto-allocated), unique container names, unique volumes — by generating override files on top of your existing `docker-compose.yml`. Zero config to start, but you can customize it as you want.
+
+Running Docker Compose across multiple git worktrees collides on project name, host ports, and container names. Docktree gives every worktree its own isolated Compose project — unique ports (auto-allocated), unique container names, unique volumes — by generating override files on top of your existing `docker-compose.yml`. Zero config to start, but you can customize it as you want.
 
 It exists because agents work better when they can spin up their own isolated stack to test end-to-end, without stepping on a sibling worktree or your own running services.
 
@@ -11,7 +12,7 @@ Docktree is agent-native: every command speaks `--json` (see [For AI agents](#fo
 
 ```bash
 # macOS / Linux
-curl -fsSL https://raw.githubusercontent.com/Bnjoroge1/docktree/main/install.sh | sh
+curl -fsSL docktree.dev/install.sh | sh
 
 # Homebrew
 brew tap Bnjoroge1/tap
@@ -36,7 +37,9 @@ INSTALL_DIR=~/.local/bin curl -fsSL https://raw.githubusercontent.com/Bnjoroge1/
 3. In the worktree, run `docktree up`.
 
 Docktree discovers your compose files, allocates unique ports from `41000–49999`,
+
 writes a generated override with isolated names and ports, and runs
+
 `docker compose up -d`. Worktrees never collide.
 
 ## Commands
@@ -54,17 +57,23 @@ docktree platform up  # start the repo-scoped shared-services tier (when configu
 ```
 
 Docker Compose passthroughs (`build`, `config`, `logs`, `exec`, `run`, `ls`,
+
 …) work too, with this worktree's project context pre-filled. Run
+
 `docktree help` or `docktree <cmd> --help` for the authoritative reference.
 
 Global flag: `--json` (before the subcommand) emits machine-readable JSON for
+
 every native command, including `help` and `version`.
 
 ## For AI agents
 
 Docktree ships agent skills that teach coding agents (Claude Code, Codex,
+
 Cursor, OpenCode, and 60+ others) how to drive the CLI: which commands honor
+
 `--json`, the error envelope, and the stderr/stdout split. A second skill
+
 walks the agent through `docktree init` to generate `docktree.yml`.
 
 Install via [`npx skills`](https://github.com/vercel-labs/skills):
@@ -80,6 +89,7 @@ See [`skills/`](./skills/) for the skill source.
 ## Configuration
 
 Docktree works without configuration. To customize, create `docktree.yml` (or
+
 run `docktree init` to generate one from your compose files):
 
 ```yaml
@@ -111,11 +121,13 @@ With `shared.services` and `tenancy: per_database`, Docktree rewrites database U
 ## Windows
 
 On Windows, use it through WSL2 with Docker Desktop WSL integration enabled.
+
 Use through WSL2 with Docker Desktop's WSL integration enabled.
 
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). `main` is protected; merges are gated
+
 on code-owner review.
 
 ## License
