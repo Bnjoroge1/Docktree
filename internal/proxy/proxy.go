@@ -53,9 +53,17 @@ func (r *Router) Refresh() error {
 					best = &a
 					continue
 				}
-				isHTTP := a.ContainerPort == 80 || a.ContainerPort == 8080
-				bestIsHTTP := best.ContainerPort == 80 || best.ContainerPort == 8080
-				if isHTTP && !bestIsHTTP {
+				// Rank ports: 80/8080 (rank 2), 443 (rank 1), any other (rank 0)
+				rank := func(p int) int {
+					if p == 80 || p == 8080 {
+						return 2
+					}
+					if p == 443 {
+						return 1
+					}
+					return 0
+				}
+				if rank(a.ContainerPort) > rank(best.ContainerPort) {
 					best = &a
 				}
 			}
