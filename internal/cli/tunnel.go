@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -838,7 +839,7 @@ func portReachable(port int) bool {
 	return true
 }
 
-func printTunnelHelp(w interface{ Write([]byte) (int, error) }) {
+func printTunnelHelp(w io.Writer) {
 	providers := make([]string, 0, len(tunnelProviders))
 	for k := range tunnelProviders {
 		providers = append(providers, k)

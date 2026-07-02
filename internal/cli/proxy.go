@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"os/signal"
 	"strconv"
 	"strings"
@@ -149,7 +150,7 @@ func loadRepoConfig() *config.Config {
 	return cfg
 }
 
-func printProxyHelp(w interface{ Write([]byte) (int, error) }) {
+func printProxyHelp(w io.Writer) {
 	fmt.Fprint(w, `Usage: docktree proxy [--port PORT] [--host HOST]
 
 Start a reverse proxy that routes by hostname to worktree ports.
