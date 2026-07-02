@@ -520,7 +520,7 @@ func runTunnelStop(ctx *Context) (any, int, error) {
 
 
 	if ts.StartTime == "" || !processMatchesStr(ts.PID, ts.StartTime) {
-		removeTunnelState(worktreeRoot, stateDir)
+		_ = removeTunnelState(worktreeRoot, stateDir)
 		return nil, output.ExitNoop, fmt.Errorf("tunnel process (PID %d) already exited", ts.PID)
 	}
 
@@ -531,7 +531,7 @@ func runTunnelStop(ctx *Context) (any, int, error) {
 	if err := p.Signal(syscall.SIGTERM); err != nil {
 		return nil, output.ExitDocker, err
 	}
-	removeTunnelState(worktreeRoot, stateDir)
+	_ = removeTunnelState(worktreeRoot, stateDir)
 
 	if ctx.Steps != nil {
 		ctx.Steps.Done(fmt.Sprintf("tunnel stopped for %s", tui.AccentS(inst.Name)))
@@ -857,8 +857,7 @@ func portReachable(port int) bool {
 	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 500*time.Millisecond)
 	if err != nil {
 		return false
-	}
-	conn.Close()
+	_ = conn.Close()
 	return true
 }
 
