@@ -115,11 +115,25 @@ func humanRenderer() func(io.Writer, any) {
 				return
 			}
 			if v.DryRun {
+				if v.Instance == nil {
+					fmt.Fprintln(w, "Docktree dry run - would stop all matching instances")
+					if len(v.Services) > 0 {
+						fmt.Fprintf(w, "  Instances: %s\n", strings.Join(v.Services, ", "))
+					}
+					return
+				}
 				fmt.Fprintf(w, "Docktree dry run - would stop %s\n", v.Instance.ProjectName)
 				fmt.Fprintf(w, "  Services: %s\n", strings.Join(v.Services, ", "))
 				fmt.Fprintf(w, "  Compose files:\n")
 				for _, f := range v.ComposeFiles {
 					fmt.Fprintf(w, "    %s\n", f)
+				}
+				return
+			}
+			if v.Instance == nil {
+				fmt.Fprintln(w, "Docktree stopped all matching instances")
+				if len(v.Services) > 0 {
+					fmt.Fprintf(w, "  Instances: %s\n", strings.Join(v.Services, ", "))
 				}
 				return
 			}

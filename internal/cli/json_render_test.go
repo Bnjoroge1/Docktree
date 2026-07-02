@@ -108,6 +108,30 @@ func contains(haystack, needle string) bool {
 	return bytes.Contains([]byte(haystack), []byte(needle))
 }
 
+func TestDownAllHumanRendererHandlesNilInstance(t *testing.T) {
+	var buf bytes.Buffer
+	output.New(&buf, false).Render(DownResult{
+		Services: []string{"demo-main", "demo-feature"},
+	}, humanRenderer())
+	out := buf.String()
+	if !contains(out, "Docktree stopped all matching instances") {
+		t.Fatalf("human render missing aggregate stop message:\n%s", out)
+	}
+	if !contains(out, "demo-main, demo-feature") {
+		t.Fatalf("human render missing stopped instance names:\n%s", out)
+	}
+
+	buf.Reset()
+	output.New(&buf, false).Render(DownResult{
+		DryRun:   true,
+		Services: []string{"demo-main", "demo-feature"},
+	}, humanRenderer())
+	out = buf.String()
+	if !contains(out, "Docktree dry run - would stop all matching instances") {
+		t.Fatalf("human render missing aggregate dry-run message:\n%s", out)
+	}
+}
+
 func TestPortsResultJSONRendering(t *testing.T) {
 	got := renderJSONForTest(t, PortsResult{
 		All: true,

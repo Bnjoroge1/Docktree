@@ -1,5 +1,6 @@
 # Docktree — drop-in Docker Compose for git worktrees
 
+![Docktree Demo](demo/out/docktree-demo.gif)
 Running Docker Compose across multiple git worktrees collides on three things: project name, host ports, and container names. Docktree gives every worktree its own isolated Compose project — unique ports (auto-allocated), unique container names, unique volumes — by generating override files on top of your existing `docker-compose.yml`. Zero config to start, but you can customize it as you want.
 
 It exists because agents work better when they can spin up their own isolated stack to test end-to-end, without stepping on a sibling worktree or your own running services.
