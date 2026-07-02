@@ -87,6 +87,10 @@ Exit codes: `0` ok, `1` general, `2` usage, `3` config, `4` docker,
   only command that creates them.
 - **Cleanup**: `docktree --json clean --dry-run` first, then
   `docktree --json clean --yes` (add `--volumes` to drop volumes too).
+- **Docker network pool pressure**: if `up` reports exhausted Docker address
+  pools, rerun `docktree --json up --prune-networks 2>/dev/null` (or manually
+  `docker network prune --force`) after checking the user is comfortable pruning
+  unused Docker networks. `up` now cleans partial resources after this failure.
 - **Propagate setup files** (`.env`, etc.) to every worktree:
   `docktree --json sync`.
 - **First-time hint**: when `docktree up` starts services in a worktree that

@@ -332,6 +332,16 @@ func TestParseUpOptionsDryRun(t *testing.T) {
 	}
 }
 
+func TestParseUpOptionsPruneNetworks(t *testing.T) {
+	opts, err := parseUpOptions([]string{"--prune-networks"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opts.pruneNetworks {
+		t.Fatal("expected pruneNetworks=true")
+	}
+}
+
 func TestParseUpOptionsDryRunValidateNotMutuallyExclusiveInParser(t *testing.T) {
 	opts, err := parseUpOptions([]string{"--dry-run", "--validate"})
 	if err != nil {

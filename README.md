@@ -56,6 +56,11 @@ docktree sync         # propagate setup.copy files to every worktree
 docktree platform up  # start the repo-scoped shared-services tier (when configured)
 ```
 
+If Docker has many stale bridge networks, `docktree up --prune-networks`
+removes unused Docker networks before starting. Docktree also detects Docker
+address-pool exhaustion during `up`, cleans partial resources, and suggests
+rerunning with `--prune-networks` (or `docker network prune --force`).
+
 Docker Compose passthroughs (`build`, `config`, `logs`, `exec`, `run`, `ls`,
 
 …) work too, with this worktree's project context pre-filled. Run
