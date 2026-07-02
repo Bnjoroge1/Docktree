@@ -108,7 +108,7 @@ func runStatusAll(ctx *Context) (any, int, error) {
 		if instTLD == "" {
 			instTLD = "localhost"
 		}
-		entry.ProxyURL = fmt.Sprintf("https://%s.%s:%d", inst.Name, instTLD, instProxyPort)
+		entry.ProxyURL = fmt.Sprintf("http://%s.%s:%d", inst.Name, instTLD, instProxyPort)
 
 		// Tunnel URL if running
 		ts, _ := LoadTunnelState(inst.WorktreeRoot, inst.StateDirectory)
