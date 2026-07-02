@@ -57,7 +57,9 @@ var helpTextPrinters = map[string]func(io.Writer){
 	"platform": printPlatformHelp,
 	"ports":    printPortsHelp,
 	"prepare":  printPrepareHelp,
+	"proxy":    func(w io.Writer) { printProxyHelp(w) },
 	"status":   printStatusHelp,
+	"tunnel":   func(w io.Writer) { printTunnelHelp(w) },
 	"stop":     printStopHelp,
 	"sync":     printSyncHelp,
 	"up":       printUpHelp,
@@ -132,6 +134,8 @@ func rootHelpDoc() HelpDoc {
 			{Name: "unpause", Description: "Pass through to docker compose unpause"},
 			{Name: "up", Description: "Start the current worktree's Compose project (or --create <branch>)"},
 			{Name: "volumes", Description: "Show Docktree-managed volumes (use --all for all worktrees)"},
+			{Name: "proxy", Description: "Reverse proxy routing by hostname to worktree ports"},
+			{Name: "tunnel", Description: "Expose worktrees externally via Cloudflare Tunnel or ngrok"},
 			{Name: "wait", Description: "Pass through to docker compose wait"},
 			{Name: "watch", Description: "Pass through to docker compose watch"},
 			{Name: "help", Description: "Show this help text"},
@@ -307,6 +311,49 @@ func volumesHelpDoc() HelpDoc {
 		Options: []HelpOption{
 			{Flags: []string{"-a", "--all"}, Description: "Show volumes for all worktree instances"},
 			{Flags: []string{"-h", "--help"}, Description: "Show this help text"},
+		},
+	}
+}
+func proxyHelpDoc() HelpDoc {
+	return HelpDoc{
+		Command:  "proxy",
+		Synopsis: "Start a reverse proxy that routes by hostname to worktree ports.",
+		Usage:    []string{"docktree proxy [--port PORT] [--host HOST]"},
+		Options: []HelpOption{
+			{Flags: []string{"-p", "--port"}, Value: "PORT", Description: "Proxy listen port (default: 8320)"},
+			{Flags: []string{"--host"}, Value: "HOST", Description: "Proxy listen host (default: 127.0.0.1)"},
+			{Flags: []string{"-h", "--help"}, Description: "Show this help text"},
+		},
+		Examples: []string{
+			"docktree proxy",
+			"docktree proxy --port 9000",
+		},
+	}
+}
+func tunnelHelpDoc() HelpDoc {
+	return HelpDoc{
+		Command:  "tunnel",
+		Synopsis: "Expose a worktree externally via a tunnel provider.",
+		Usage:    []string{"docktree tunnel <action> [flags]"},
+		Subcommands: []HelpCmd{
+			{Name: "start", Description: "Start a tunnel for the current worktree"},
+			{Name: "stop", Description: "Stop the current worktree's tunnel"},
+			{Name: "status", Description: "Show current worktree's tunnel status"},
+			{Name: "list", Description: "Show all running tunnels across worktrees"},
+		},
+		Options: []HelpOption{
+			{Flags: []string{"--provider"}, Value: "NAME", Description: "Tunnel provider (default: cloudflare)"},
+			{Flags: []string{"-p", "--port"}, Value: "PORT", Description: "Local port to tunnel (default: first allocated port)"},
+			{Flags: []string{"-s", "--service"}, Value: "SVC", Description: "Compose service to tunnel"},
+			{Flags: []string{"-h", "--help"}, Description: "Show this help text"},
+		},
+		Examples: []string{
+			"docktree tunnel start",
+			"docktree tunnel start --service ui",
+			"docktree tunnel start --port 41006",
+			"docktree tunnel status",
+			"docktree tunnel stop",
+			"docktree tunnel list",
 		},
 	}
 }

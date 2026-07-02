@@ -140,6 +140,10 @@ func runUp(ctx *Context) (any, int, error) {
 		if lerr != nil {
 			return nil, output.ExitConfig, lerr
 		}
+		cleanProj, lerr := compose.LoadFullClean(files)
+		if lerr != nil {
+			return nil, output.ExitConfig, lerr
+		}
 		mainRoot, err := dockgit.MainRepoRoot()
 		if err != nil {
 			return nil, output.ExitConfig, err
@@ -177,11 +181,15 @@ func runUp(ctx *Context) (any, int, error) {
 				envWarnings = append(envWarnings, compose.Warning{Key: "shared." + svcName + ".url_envs", Message: "service " + svcName + " uses tenancy: per_database but url_envs is not declared. DATABASE_URL will NOT be rewritten — all worktrees will hit the same database. Add url_envs: [DATABASE_URL] (or your connection env name) to docktree.yml to fix isolation."})
 			}
 		}
-		wtProj, serr := compose.SynthesizeWorktree(rawProj, cfg.Shared, repoSlug, compose.SynthesizeWorktreeOptions{TenantDBs: tenantDBs})
+		envWarnings = append(envWarnings, compose.RawURLEnvIsolationWarnings(rawProj, cleanProj, cfg.Shared)...)
+		wtProj, serr := compose.SynthesizeWorktree(cleanProj, cfg.Shared, repoSlug, compose.SynthesizeWorktreeOptions{TenantDBs: tenantDBs, RawInput: true})
 		if serr != nil {
 			return nil, output.ExitConfig, serr
 		}
 		wtComposePath := filepath.Join(stateDir, "generated", instanceName+"-worktree-compose.yml")
+		if rerr := compose.RebaseEnvFiles(wtProj, wtComposePath); rerr != nil {
+			return nil, output.ExitConfig, rerr
+		}
 		if werr := compose.WriteComposeFile(wtProj, wtComposePath); werr != nil {
 			return nil, output.ExitConfig, werr
 		}
@@ -212,6 +220,10 @@ func runUp(ctx *Context) (any, int, error) {
 		if lerr != nil {
 			return nil, output.ExitConfig, lerr
 		}
+		cleanProj, lerr := compose.LoadFullClean(files)
+		if lerr != nil {
+			return nil, output.ExitConfig, lerr
+		}
 
 		for _, s := range options.skip {
 			if _, ok := rawProj.Services[s]; !ok {
@@ -219,7 +231,7 @@ func runUp(ctx *Context) (any, int, error) {
 			}
 		}
 
-		filteredProj, ferr := compose.FilterServices(rawProj, compose.ServiceFilter{
+		filteredProj, ferr := compose.FilterServices(cleanProj, compose.ServiceFilter{
 			Skip:     activeSkips,
 			DropDeps: activeDrops,
 		})
@@ -227,6 +239,9 @@ func runUp(ctx *Context) (any, int, error) {
 			return nil, output.ExitConfig, ferr
 		}
 		filteredPath := filepath.Join(stateDir, "generated", instanceName+"-filtered.yml")
+		if rerr := compose.RebaseEnvFiles(filteredProj, filteredPath); rerr != nil {
+			return nil, output.ExitConfig, rerr
+		}
 		if werr := compose.WriteComposeFile(filteredProj, filteredPath); werr != nil {
 			return nil, output.ExitConfig, werr
 		}

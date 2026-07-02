@@ -23,19 +23,19 @@ import (
 )
 
 type PlatformResult struct {
-	Action            string   `json:"action"`
-	Project           string   `json:"project"`
-	Network           string   `json:"network"`
-	Services          []string `json:"services,omitempty"`
-	ComposeFile       string   `json:"compose_file,omitempty"`
-	Running           bool     `json:"running"`
-	AlreadyState      bool     `json:"already_state,omitempty"`
-	Skipped           bool     `json:"skipped,omitempty"`
-	Reason            string   `json:"reason,omitempty"`
-	DroppedDatabases  []string `json:"dropped_databases,omitempty"`
-	DryRun            bool     `json:"dry_run,omitempty"`
-	WouldDrop         []string `json:"would_drop,omitempty"`
-	WarningMessage    string   `json:"warning_message,omitempty"`
+	Action           string   `json:"action"`
+	Project          string   `json:"project"`
+	Network          string   `json:"network"`
+	Services         []string `json:"services,omitempty"`
+	ComposeFile      string   `json:"compose_file,omitempty"`
+	Running          bool     `json:"running"`
+	AlreadyState     bool     `json:"already_state,omitempty"`
+	Skipped          bool     `json:"skipped,omitempty"`
+	Reason           string   `json:"reason,omitempty"`
+	DroppedDatabases []string `json:"dropped_databases,omitempty"`
+	DryRun           bool     `json:"dry_run,omitempty"`
+	WouldDrop        []string `json:"would_drop,omitempty"`
+	WarningMessage   string   `json:"warning_message,omitempty"`
 }
 
 // TenantEntry describes one per-worktree tenant namespace inside a shared service.
@@ -127,7 +127,7 @@ func runPlatformUp(ctx *Context) (any, int, error) {
 	if steps != nil {
 		steps.Done("Platform network ready")
 	}
-	if err := compose.WriteComposeFile(plan.PlatformProject, plan.ComposeFile); err != nil {
+	if err := compose.WriteComposeFile(plan.GeneratedProject, plan.ComposeFile); err != nil {
 		return nil, output.ExitConfig, err
 	}
 	if steps != nil {
@@ -235,14 +235,15 @@ func runPlatformStatus(ctx *Context) (any, int, error) {
 // would act on: project name, network, generated compose file path, and the
 // synthesized compose project itself.
 type platformPlan struct {
-	Project         string
-	Network         string
-	RepoSlug        string
-	ComposeFile     string
-	PlatformProject *compose.PlatformComposeProject
-	Shared          config.SharedConfig
-	Skipped         bool
-	SkipReason      string
+	Project          string
+	Network          string
+	RepoSlug         string
+	ComposeFile      string
+	PlatformProject  *compose.PlatformComposeProject
+	GeneratedProject *compose.PlatformComposeProject
+	Shared           config.SharedConfig
+	Skipped          bool
+	SkipReason       string
 }
 
 func platformRepoMatches(instRepoRoot, repoSlug string) bool {
@@ -499,19 +500,32 @@ func buildPlatformPlan(rootOverride string) (*platformPlan, error) {
 	if err != nil {
 		return nil, err
 	}
+	clean, err := compose.LoadFullClean(files)
+	if err != nil {
+		return nil, err
+	}
 	repoSlug := dockgit.RepoName(identityRoot)
 	platformProj, err := compose.SynthesizePlatform(raw, cfg.Shared, repoSlug)
 	if err != nil {
 		return nil, err
 	}
+	generatedProj, err := compose.SynthesizePlatform(clean, cfg.Shared, repoSlug)
+	if err != nil {
+		return nil, err
+	}
 	generatedDir := filepath.Join(identityRoot, cfg.State.Directory, "generated")
+	composeFile := filepath.Join(generatedDir, "platform-compose.yml")
+	if err := compose.RebaseEnvFiles(generatedProj, composeFile); err != nil {
+		return nil, err
+	}
 	return &platformPlan{
-		Project:         compose.PlatformProjectName(repoSlug),
-		Network:         compose.PlatformNetworkName(repoSlug),
-		RepoSlug:        repoSlug,
-		ComposeFile:     filepath.Join(generatedDir, "platform-compose.yml"),
-		PlatformProject: platformProj,
-		Shared:          cfg.Shared,
+		Project:          compose.PlatformProjectName(repoSlug),
+		Network:          compose.PlatformNetworkName(repoSlug),
+		RepoSlug:         repoSlug,
+		ComposeFile:      composeFile,
+		PlatformProject:  platformProj,
+		GeneratedProject: generatedProj,
+		Shared:           cfg.Shared,
 	}, nil
 }
 
@@ -591,7 +605,7 @@ func ensurePlatformUp(ctx *Context, repoRoot string) (string, string, error) {
 	if err := ensurePlatformNetwork(plan.Network, plan.RepoSlug); err != nil {
 		return "", "", err
 	}
-	if err := compose.WriteComposeFile(plan.PlatformProject, plan.ComposeFile); err != nil {
+	if err := compose.WriteComposeFile(plan.GeneratedProject, plan.ComposeFile); err != nil {
 		return "", "", err
 	}
 	running, err := platformIsRunning(plan.Project)
@@ -787,11 +801,11 @@ func runPlatformClean(ctx *Context) (any, int, error) {
 			steps.Done(fmt.Sprintf("Would stop %s, remove %s, drop %d database(s)", plan.Project, plan.Network, len(wouldDrop)))
 		}
 		return PlatformResult{
-			Action:       "clean",
-			Project:      plan.Project,
-			Network:      plan.Network,
-			DryRun:       true,
-			WouldDrop:    wouldDrop,
+			Action:    "clean",
+			Project:   plan.Project,
+			Network:   plan.Network,
+			DryRun:    true,
+			WouldDrop: wouldDrop,
 		}, output.ExitOK, nil
 	}
 

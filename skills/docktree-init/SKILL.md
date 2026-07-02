@@ -79,12 +79,12 @@ This builds the config from the canonical model (no string manipulation), valida
 ### 5. Validate
 
 ```bash
-docktree --json prepare --dry-run 2>/dev/null | tail -n1
+docktree --json up --validate 2>/dev/null | jq .
 ```
 
-If this errors, the generated config is invalid — show the error and offer to fix. Otherwise, tell the user the config is ready and they can run
+This runs structural validation: checks for missing build contexts, invalid port ranges, and port allocation conflicts — without starting any containers. Returns a `ValidateResult` with `valid: true` or `valid: false` plus an `errors` array.
 
-`docktree up`.
+If this errors or `valid` is false, the generated config is invalid — show the error and offer to fix. Otherwise, tell the user the config is ready and they can run `docktree up`.
 
 ## What this skill does NOT do
 
@@ -92,4 +92,3 @@ If this errors, the generated config is invalid — show the error and offer to 
 - Guess tenancy or url_envs. Every decision goes through the user.
 
 Handle repos with no compose files. If `docktree init --json --dry-run` returns an error about missing compose files, tell the user.
-

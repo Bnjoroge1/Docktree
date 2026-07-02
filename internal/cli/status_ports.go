@@ -67,14 +67,6 @@ func runStatusAll(ctx *Context) (any, int, error) {
 
 	var entries []StatusAllEntry
 
-	// Load config once for proxy port
-	var proxyPort int
-	if cfg, err := config.Load(""); err == nil {
-		proxyPort = cfg.Proxy.Port
-	}
-	if proxyPort == 0 {
-		proxyPort = 8320
-	}
 
 	for _, name := range names {
 		inst := instances[name]
@@ -108,7 +100,7 @@ func runStatusAll(ctx *Context) (any, int, error) {
 		if instTLD == "" {
 			instTLD = "localhost"
 		}
-		entry.ProxyURL = fmt.Sprintf("https://%s.%s:%d", inst.Name, instTLD, instProxyPort)
+		entry.ProxyURL = fmt.Sprintf("http://%s.%s:%d", inst.Name, instTLD, instProxyPort)
 
 		// Tunnel URL if running
 		ts, _ := LoadTunnelState(inst.WorktreeRoot, inst.StateDirectory)

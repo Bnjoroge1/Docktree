@@ -53,9 +53,17 @@ func (r *Router) Refresh() error {
 					best = &a
 					continue
 				}
-				isHTTP := a.ContainerPort == 80 || a.ContainerPort == 8080
-				bestIsHTTP := best.ContainerPort == 80 || best.ContainerPort == 8080
-				if isHTTP && !bestIsHTTP {
+				// Rank ports: 80/8080 (rank 2), 443 (rank 1), any other (rank 0)
+				rank := func(p int) int {
+					if p == 80 || p == 8080 {
+						return 2
+					}
+					if p == 443 {
+						return 1
+					}
+					return 0
+				}
+				if rank(a.ContainerPort) > rank(best.ContainerPort) {
 					best = &a
 				}
 			}
@@ -102,6 +110,13 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		Host:   rt.backend,
 	}
 	proxy := httputil.NewSingleHostReverseProxy(target)
+	// Rewrite req.Host to match the backend destination host, preventing host-sensitive
+	// dev servers (Next.js, Vite, etc.) from rejecting or misrouting requests.
+	originalDirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		originalDirector(req)
+		req.Host = target.Host
+	}
 	proxy.ServeHTTP(w, req)
 }
 
@@ -126,7 +141,7 @@ func (r *Router) writeAvailable(w http.ResponseWriter, requested string) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusNotFound)
-	json.NewEncoder(w).Encode(map[string]any{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"error":     fmt.Sprintf("no instance %q", requested),
 		"available": entries,
 	})
