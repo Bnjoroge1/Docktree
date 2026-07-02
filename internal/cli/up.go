@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -450,6 +451,13 @@ func runUp(ctx *Context) (any, int, error) {
 				locked = false
 				continue
 			}
+			if docker.IsNetworkPoolError(runErr) {
+				cleanupErr := cleanupFailedNetworkPoolUp(ctx, registry, instanceName, createdWorktree, repo.RepoRoot, options.create)
+				if cleanupErr != nil {
+					return nil, output.ExitDocker, fmt.Errorf("%w; cleanup failed: %v", runErr, cleanupErr)
+				}
+				return nil, output.ExitDocker, fmt.Errorf("%w; cleaned up partial resources; rerun with --prune-networks or run docker network prune --force", runErr)
+			}
 			return nil, output.ExitDocker, runErr
 		}
 		break
@@ -500,6 +508,32 @@ func preflightDockerNetworks(ctx *Context, prune bool) (int, bool, error) {
 		fmt.Fprintf(ctx.Stderr, "warning: Docker has %d bridge networks; if subnet pools are exhausted, rerun with --prune-networks or run docker network prune --force\n", count)
 	}
 	return count, false, nil
+}
+
+func cleanupFailedNetworkPoolUp(ctx *Context, registry *ports.Registry, instanceName, createdWorktree, repoRoot, branch string) error {
+	var errs []error
+	if _, err := docker.RemoveProjectResources(instanceName, false); err != nil {
+		errs = append(errs, fmt.Errorf("remove Docker resources for %s: %w", instanceName, err))
+	}
+	if err := registry.Lock(); err != nil {
+		errs = append(errs, fmt.Errorf("lock port registry: %w", err))
+	} else {
+		if err := registry.Release(instanceName); err != nil {
+			errs = append(errs, fmt.Errorf("release allocated ports: %w", err))
+		}
+		if err := registry.Unlock(); err != nil {
+			errs = append(errs, fmt.Errorf("unlock port registry: %w", err))
+		}
+	}
+	if createdWorktree != "" {
+		if err := removeCreatedWorktree(repoRoot, createdWorktree, branch, ctx.Stderr); err != nil {
+			errs = append(errs, fmt.Errorf("remove created worktree: %w", err))
+		}
+	}
+	if ctx.Steps != nil {
+		ctx.Steps.Done("Cleaned up partial Docker resources after network pool failure")
+	}
+	return errors.Join(errs...)
 }
 
 func runValidate(project *compose.ComposeProject, files []string, cfg *config.Config, repo dockgit.RepoInfo, envWarnings []compose.Warning, profiles []string) (any, int, error) {

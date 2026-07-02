@@ -109,6 +109,25 @@ func createPreparedWorktree(repoRoot string, cfg *config.Config, branch string, 
 	return worktreeRoot, nil
 }
 
+func removeCreatedWorktree(repoRoot, worktreeRoot, branch string, stderr io.Writer) error {
+	var errs []error
+	remove := exec.Command("git", "worktree", "remove", "--force", worktreeRoot)
+	remove.Dir = repoRoot
+	remove.Stderr = stderr
+	if err := remove.Run(); err != nil {
+		errs = append(errs, err)
+	}
+	if branch != "" {
+		deleteBranch := exec.Command("git", "branch", "-D", branch)
+		deleteBranch.Dir = repoRoot
+		deleteBranch.Stderr = stderr
+		if err := deleteBranch.Run(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
 func worktreePath(repoRoot string, cfg *config.Config, branch string) (string, error) {
 	repoName := dockgit.RepoName(repoRoot)
 	branchSlug := slugWorktreeBranch(branch)
@@ -223,8 +242,6 @@ func loadMergedConfig(repo dockgit.RepoInfo, worktreeRoot string) (*config.Confi
 	}
 	return cfg, nil
 }
-
-
 
 func commonIdentity() (dockgit.RepoInfo, *config.Config, string, error) {
 	repo, err := dockgit.DetectRepo()
