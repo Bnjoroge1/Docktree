@@ -77,6 +77,7 @@ type DownResult struct {
 	Instance       *state.Instance `json:"instance,omitempty"`
 	AlreadyStopped bool            `json:"already_stopped,omitempty"`
 	DryRun         bool            `json:"dry_run,omitempty"`
+	Instances      []string        `json:"instances,omitempty"`
 	Services       []string        `json:"services,omitempty"`
 	ComposeFiles   []string        `json:"compose_files,omitempty"`
 	DroppedTenants []string        `json:"dropped_tenants,omitempty"`

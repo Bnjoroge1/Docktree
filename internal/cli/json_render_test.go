@@ -111,7 +111,7 @@ func contains(haystack, needle string) bool {
 func TestDownAllHumanRendererHandlesNilInstance(t *testing.T) {
 	var buf bytes.Buffer
 	output.New(&buf, false).Render(DownResult{
-		Services: []string{"demo-main", "demo-feature"},
+		Instances: []string{"demo-main", "demo-feature"},
 	}, humanRenderer())
 	out := buf.String()
 	if !contains(out, "Docktree stopped all matching instances") {
@@ -123,8 +123,8 @@ func TestDownAllHumanRendererHandlesNilInstance(t *testing.T) {
 
 	buf.Reset()
 	output.New(&buf, false).Render(DownResult{
-		DryRun:   true,
-		Services: []string{"demo-main", "demo-feature"},
+		DryRun:    true,
+		Instances: []string{"demo-main", "demo-feature"},
 	}, humanRenderer())
 	out = buf.String()
 	if !contains(out, "Docktree dry run - would stop all matching instances") {

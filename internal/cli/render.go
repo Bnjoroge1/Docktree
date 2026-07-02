@@ -117,8 +117,8 @@ func humanRenderer() func(io.Writer, any) {
 			if v.DryRun {
 				if v.Instance == nil {
 					fmt.Fprintln(w, "Docktree dry run - would stop all matching instances")
-					if len(v.Services) > 0 {
-						fmt.Fprintf(w, "  Instances: %s\n", strings.Join(v.Services, ", "))
+					if len(v.Instances) > 0 {
+						fmt.Fprintf(w, "  Instances: %s\n", strings.Join(v.Instances, ", "))
 					}
 					return
 				}
@@ -132,8 +132,8 @@ func humanRenderer() func(io.Writer, any) {
 			}
 			if v.Instance == nil {
 				fmt.Fprintln(w, "Docktree stopped all matching instances")
-				if len(v.Services) > 0 {
-					fmt.Fprintf(w, "  Instances: %s\n", strings.Join(v.Services, ", "))
+				if len(v.Instances) > 0 {
+					fmt.Fprintf(w, "  Instances: %s\n", strings.Join(v.Instances, ", "))
 				}
 				return
 			}

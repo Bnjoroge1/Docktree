@@ -140,7 +140,7 @@ func runDownAll(ctx *Context, options downOptions, repo *dockgit.RepoInfo) (any,
 		for _, inst := range repoInstances {
 			names = append(names, inst.ProjectName)
 		}
-		return DownResult{DryRun: true, Services: names}, output.ExitOK, nil
+		return DownResult{DryRun: true, Instances: names, Services: options.services}, output.ExitOK, nil
 	}
 	steps := ctx.Steps
 	dockerStdout := ctx.Stdout
@@ -149,6 +149,7 @@ func runDownAll(ctx *Context, options downOptions, repo *dockgit.RepoInfo) (any,
 	}
 	var allDroppedTenants []string
 	var allDroppedVolumes []string
+	var stoppedInstances []string
 	for _, inst := range repoInstances {
 		cfg, err := config.Load(inst.RepoRoot)
 		if err != nil {
@@ -199,6 +200,7 @@ func runDownAll(ctx *Context, options downOptions, repo *dockgit.RepoInfo) (any,
 			fmt.Fprintf(ctx.Stderr, "warning: failed to stop %s: %v\n", inst.Name, err)
 			continue
 		}
+		stoppedInstances = append(stoppedInstances, inst.ProjectName)
 		if spin != nil {
 			spin.Stop()
 		}
@@ -223,7 +225,7 @@ func runDownAll(ctx *Context, options downOptions, repo *dockgit.RepoInfo) (any,
 	if len(services) == 0 {
 		services = []string{"all"}
 	}
-	return DownResult{Services: services, DroppedTenants: allDroppedTenants, DroppedVolumes: allDroppedVolumes}, output.ExitOK, nil
+	return DownResult{Instances: stoppedInstances, Services: services, DroppedTenants: allDroppedTenants, DroppedVolumes: allDroppedVolumes}, output.ExitOK, nil
 }
 
 func runStop(ctx *Context) (any, int, error) {
