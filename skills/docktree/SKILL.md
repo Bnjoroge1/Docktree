@@ -43,7 +43,7 @@ Two categories — know which you're calling before parsing:
 ```bash
 docktree --json help                  # HelpDoc for root, lists every subcommand
 docktree --json <cmd> --help          # HelpDoc for any native command (including proxy/tunnel)
-docktree --json version               # {"name":"docktree","version":"0.4.0"}
+docktree --json version               # {"name":"docktree","version":"0.5.0"}
 ```
 
 `HelpDoc` fields: `command`, `synopsis`, `usage[]`, `options[]` (each
