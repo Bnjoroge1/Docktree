@@ -54,6 +54,8 @@ state:
 DTCFG
 
 git init -q "$DEMO_REPO"
+git -C "$DEMO_REPO" config user.name "Docktree Demo"
+git -C "$DEMO_REPO" config user.email "demo@docktree.local"
 git -C "$DEMO_REPO" checkout -b main 2>/dev/null || true
 git -C "$DEMO_REPO" add -A
 git -C "$DEMO_REPO" commit -q -m "demo: initial sample app" --no-verify
