@@ -126,7 +126,7 @@ func (r *Router) writeAvailable(w http.ResponseWriter, requested string) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusNotFound)
-	json.NewEncoder(w).Encode(map[string]any{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"error":     fmt.Sprintf("no instance %q", requested),
 		"available": entries,
 	})
