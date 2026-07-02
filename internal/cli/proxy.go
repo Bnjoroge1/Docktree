@@ -72,8 +72,7 @@ func runProxy(ctx *Context) (any, int, error) {
 		return nil, output.ExitUsage, err
 	}
 	if options.help {
-		printProxyHelp(ctx.Stdout)
-		return nil, output.ExitOK, nil
+		return proxyHelpDoc(), output.ExitOK, nil
 	}
 
 	cfg := config.Defaults()

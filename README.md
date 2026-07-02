@@ -47,6 +47,8 @@ docktree stop         # stop without removing
 docktree status       # show running services
 docktree ports        # show this worktree's allocated host ports (--all for every worktree)
 docktree volumes      # show managed volumes (--all for every worktree)
+docktree proxy        # reverse proxy routing by hostname to worktree ports
+docktree tunnel start # expose worktree externally via Cloudflare Tunnel or ngrok
 docktree clean        # remove stale resources from missing worktrees (--dry-run first)
 docktree sync         # propagate setup.copy files to every worktree
 docktree platform up  # start the repo-scoped shared-services tier (when configured)
@@ -99,6 +101,15 @@ ports:
 volumes:
   share:
     - cache-data   # share this volume across worktrees
+
+proxy:
+  port: 8320       # reverse proxy listen port
+  host: 127.0.0.1  # reverse proxy listen host
+  tld: localhost   # top-level domain for instance routing
+
+tunnel:
+  provider: cloudflare  # "cloudflare" or "ngrok"
+  port: 0               # 0 = auto-detect HTTP port (80/8080)
 ```
 
 ### Shared databases and secret wrappers

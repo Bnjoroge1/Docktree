@@ -284,8 +284,7 @@ func runTunnel(ctx *Context) (any, int, error) {
 		return nil, output.ExitUsage, err
 	}
 	if options.help || options.action == "" {
-		printTunnelHelp(ctx.Stdout)
-		return nil, output.ExitOK, nil
+		return tunnelHelpDoc(), output.ExitOK, nil
 	}
 
 	switch options.action {

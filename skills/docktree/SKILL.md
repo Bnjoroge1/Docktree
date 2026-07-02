@@ -34,8 +34,8 @@ Two categories — know which you're calling before parsing:
 
 | Category | Commands | `--json` |
 |---|---|---|
-| Native (one JSON object on stdout) | `status`, `ports [--all]`, `volumes [--all]`, `clean [--dry-run]`, `sync`, `create`, `prepare`, `up`, `down`, `stop`, `platform <sub>`, `help`, `version`, `<cmd> --help` | ✅ |
-| Docker Compose passthrough (raw docker output) | `build`, `config`, `cp`, `docker`, `exec`, `images`, `kill`, `logs`, `ls`, `pause`, `port`, `pull`, `push`, `restart`, `rm`, `run`, `start`, `top`, `unpause`, `wait`, `watch` | ❌ — pass docker's own flags (e.g. `docktree ls --format json`, `docktree ps --format json`); per-command `--help` is also text-only |
+| Native (one JSON object on stdout) | `status`, `ports [--all]`, `volumes [--all]`, `clean [--dry-run]`, `sync`, `create`, `prepare`, `up`, `down`, `stop`, `proxy`, `tunnel <action>`, `platform <sub>`, `help`, `version`, `<cmd> --help` | ✅ |
+| Docker Compose passthrough (raw docker output) | `build`, `config`, `cp`, `docker`, `exec`, `images`, `kill`, `logs`, `ls`, `pause`, `port`, `pull`, `push`, `restart`, `rm`, `run`, `start`, `top`, `unpause`, `wait` | ❌ — pass docker's own flags (e.g. `docktree ls --format json`, `docktree ps --format json`); per-command `--help` is also text-only |
 
 ### Help / version JSON shape
 

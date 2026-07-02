@@ -57,9 +57,11 @@ var helpTextPrinters = map[string]func(io.Writer){
 	"platform": printPlatformHelp,
 	"ports":    printPortsHelp,
 	"prepare":  printPrepareHelp,
+	"proxy":    printProxyHelp,
 	"status":   printStatusHelp,
 	"stop":     printStopHelp,
 	"sync":     printSyncHelp,
+	"tunnel":   printTunnelHelp,
 	"up":       printUpHelp,
 	"volumes":  printVolumesHelp,
 }
@@ -132,8 +134,9 @@ func rootHelpDoc() HelpDoc {
 			{Name: "unpause", Description: "Pass through to docker compose unpause"},
 			{Name: "up", Description: "Start the current worktree's Compose project (or --create <branch>)"},
 			{Name: "volumes", Description: "Show Docktree-managed volumes (use --all for all worktrees)"},
+			{Name: "proxy", Description: "Reverse proxy routing by hostname to worktree ports"},
+			{Name: "tunnel", Description: "Expose worktrees externally via Cloudflare Tunnel or ngrok"},
 			{Name: "wait", Description: "Pass through to docker compose wait"},
-			{Name: "watch", Description: "Pass through to docker compose watch"},
 			{Name: "help", Description: "Show this help text"},
 			{Name: "version", Description: "Print the docktree version"},
 		},
@@ -306,6 +309,42 @@ func volumesHelpDoc() HelpDoc {
 		Usage:    []string{"docktree volumes [options]"},
 		Options: []HelpOption{
 			{Flags: []string{"-a", "--all"}, Description: "Show volumes for all worktree instances"},
+			{Flags: []string{"-h", "--help"}, Description: "Show this help text"},
+		},
+	}
+}
+
+func proxyHelpDoc() HelpDoc {
+	return HelpDoc{
+		Command:  "proxy",
+		Synopsis: "Start a reverse proxy that routes by hostname to worktree ports.",
+		Usage:    []string{"docktree proxy [options]"},
+		Options: []HelpOption{
+			{Flags: []string{"-p", "--port"}, Value: "<PORT>", Description: "Proxy listen port (default: 8320)"},
+			{Flags: []string{"--host"}, Value: "<HOST>", Description: "Proxy listen host (default: 127.0.0.1)"},
+			{Flags: []string{"-h", "--help"}, Description: "Show this help text"},
+		},
+		Notes: []string{
+			"Access worktrees as http://<instance>.localhost instead of remembering port numbers.",
+		},
+	}
+}
+
+func tunnelHelpDoc() HelpDoc {
+	return HelpDoc{
+		Command:  "tunnel",
+		Synopsis: "Expose worktrees externally via a tunnel provider.",
+		Usage:    []string{"docktree tunnel <action> [options]"},
+		Subcommands: []HelpCmd{
+			{Name: "start", Description: "Start a tunnel for the current worktree"},
+			{Name: "stop", Description: "Stop the current worktree's tunnel"},
+			{Name: "status", Description: "Show current worktree's tunnel status"},
+			{Name: "list", Description: "Show all running tunnels across worktrees"},
+		},
+		Options: []HelpOption{
+			{Flags: []string{"--provider"}, Value: "<NAME>", Description: "Tunnel provider (default: cloudflare, also: ngrok)"},
+			{Flags: []string{"-p", "--port"}, Value: "<PORT>", Description: "Local port to tunnel (default: auto-detect HTTP port)"},
+			{Flags: []string{"-s", "--service"}, Value: "<SVC>", Description: "Compose service to tunnel (picks HTTP port)"},
 			{Flags: []string{"-h", "--help"}, Description: "Show this help text"},
 		},
 	}
