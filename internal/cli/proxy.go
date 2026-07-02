@@ -134,8 +134,8 @@ func runProxy(ctx *Context) (any, int, error) {
 	proxyCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	proxyCtx = proxy.WithStdout(proxyCtx, ctx.Stdout)
-
+	// We already printed a rich banner above. Let ListenAndServe write startup messages to a no-op writer
+	// so they don't duplicate on stdout.
 	if err := proxy.ListenAndServe(proxyCtx, addr, router, nil); err != nil {
 		return nil, output.ExitDocker, err
 	}
