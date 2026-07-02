@@ -102,6 +102,13 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		Host:   rt.backend,
 	}
 	proxy := httputil.NewSingleHostReverseProxy(target)
+	// Rewrite req.Host to match the backend destination host, preventing host-sensitive
+	// dev servers (Next.js, Vite, etc.) from rejecting or misrouting requests.
+	originalDirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		originalDirector(req)
+		req.Host = target.Host
+	}
 	proxy.ServeHTTP(w, req)
 }
 
