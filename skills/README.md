@@ -8,16 +8,16 @@ Works with Claude Code, Codex, Cursor, OpenCode, OMP/Pi and 60+ other agents.
 
 ```bash
 # install all docktree skills into the current project (./.claude/skills/, etc.)
-npx skills add Bnjoroge1/Docktree
+npx skills add Bnjoroge1/docktree
 
 # install globally, for one specific agent
-npx skills add Bnjoroge1/Docktree -g -a claude-code
+npx skills add Bnjoroge1/docktree -g -a claude-code
 
 # list what's in here without installing
-npx skills add Bnjoroge1/Docktree --list
+npx skills add Bnjoroge1/docktree --list
 
 # install one skill
-npx skills add Bnjoroge1/Docktree --skill docktree
+npx skills add Bnjoroge1/docktree --skill docktree
 ```
 
 ## Skills in this repo

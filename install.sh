@@ -2,13 +2,13 @@
 set -euo pipefail
 
 # Docktree installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/Bnjoroge1/Docktree/main/install.sh | sh
+# Usage: curl -fsSL https://raw.githubusercontent.com/Bnjoroge1/docktree/main/install.sh | sh
 #
 # Options:
 #   VERSION=v0.1.0  — override version (default: latest)
 #   INSTALL_DIR     — override install directory (default: /usr/local/bin)
 
-REPO="Bnjoroge1/Docktree"
+REPO="Bnjoroge1/docktree"
 BINARY="docktree"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 VERSION="${VERSION:-latest}"

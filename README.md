@@ -79,9 +79,9 @@ walks the agent through `docktree init` to generate `docktree.yml`.
 Install via [`npx skills`](https://github.com/vercel-labs/skills):
 
 ```bash
-npx skills add Bnjoroge1/Docktree              # current project
-npx skills add Bnjoroge1/Docktree -g           # globally
-npx skills add Bnjoroge1/Docktree --list       # preview without installing
+npx skills add Bnjoroge1/docktree              # current project
+npx skills add Bnjoroge1/docktree -g           # globally
+npx skills add Bnjoroge1/docktree --list       # preview without installing
 ```
 
 See [`skills/`](./skills/) for the skill source.
