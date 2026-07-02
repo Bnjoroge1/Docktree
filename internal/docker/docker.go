@@ -75,6 +75,17 @@ func IsPortBindError(err error) bool {
 	return strings.Contains(msg, "bind") && (strings.Contains(msg, "address already in use") || strings.Contains(msg, "port is already allocated"))
 }
 
+func IsNetworkPoolError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "available, non-overlapping ipv4 address pool") ||
+		strings.Contains(msg, "all predefined address pools") ||
+		strings.Contains(msg, "address pools have been fully subnetted") ||
+		(strings.Contains(msg, "address pool") && strings.Contains(msg, "exhaust"))
+}
+
 type CommandError struct {
 	Err    error
 	Stderr string

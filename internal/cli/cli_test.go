@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -329,6 +331,16 @@ func TestParseUpOptionsDryRun(t *testing.T) {
 	}
 	if opts.validate || opts.sync || opts.help || opts.create != "" || opts.file != "" {
 		t.Fatal("expected other flags to be zero")
+	}
+}
+
+func TestParseUpOptionsPruneNetworks(t *testing.T) {
+	opts, err := parseUpOptions([]string{"--prune-networks"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opts.pruneNetworks {
+		t.Fatal("expected pruneNetworks=true")
 	}
 }
 
@@ -672,5 +684,65 @@ func TestConfigComposeArgsJSONDoesNotMaskMissingFormatValue(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("arg %d = %q, want %q; all %#v", i, got[i], want[i], got)
 		}
+	}
+}
+
+func TestEnsureCreateComposeInputsCommittedRejectsUntrackedFile(t *testing.T) {
+	repo := initGitRepo(t)
+	if err := os.MkdirAll(filepath.Join(repo, "infra"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	composePath := filepath.Join(repo, "infra", "compose.tokenizer-test.yml")
+	if err := os.WriteFile(composePath, []byte("services:\n  tokenizer:\n    image: alpine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Defaults()
+	cfg.Compose.Files = []string{"infra/compose.tokenizer-test.yml"}
+
+	err := ensureCreateComposeInputsCommitted(repo, repo, &cfg, "", false)
+	if err == nil {
+		t.Fatal("expected untracked compose file to fail")
+	}
+	if !strings.Contains(err.Error(), "not committed in HEAD") {
+		t.Fatalf("expected not committed message, got %v", err)
+	}
+}
+
+func TestEnsureCreateComposeInputsCommittedAllowsCommittedFile(t *testing.T) {
+	repo := initGitRepo(t)
+	composePath := filepath.Join(repo, "compose.yml")
+	if err := os.WriteFile(composePath, []byte("services:\n  web:\n    image: alpine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCmd(t, repo, "add", "compose.yml")
+	gitCmd(t, repo, "commit", "-m", "add compose")
+	cfg := config.Defaults()
+	cfg.Compose.Files = []string{"compose.yml"}
+
+	if err := ensureCreateComposeInputsCommitted(repo, repo, &cfg, "", false); err != nil {
+		t.Fatalf("expected committed compose file to pass: %v", err)
+	}
+}
+
+func initGitRepo(t *testing.T) string {
+	t.Helper()
+	repo := t.TempDir()
+	gitCmd(t, repo, "init")
+	gitCmd(t, repo, "config", "user.email", "test@example.com")
+	gitCmd(t, repo, "config", "user.name", "Test User")
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("test\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCmd(t, repo, "add", "README.md")
+	gitCmd(t, repo, "commit", "-m", "initial")
+	return repo
+}
+
+func gitCmd(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, string(out))
 	}
 }

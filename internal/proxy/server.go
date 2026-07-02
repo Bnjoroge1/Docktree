@@ -11,7 +11,8 @@ import (
 // ListenAndServe starts the reverse proxy on addr (e.g. "127.0.0.1:8320").
 // It refreshes routes on startup and every 10 seconds while running.
 // Blocks until ctx is cancelled, then gracefully shuts down.
-func ListenAndServe(ctx context.Context, addr string, router *Router) error {
+// ready, if non-nil, is called after the listener is bound successfully.
+func ListenAndServe(ctx context.Context, addr string, router *Router, ready func()) error {
 	if err := router.Refresh(); err != nil {
 		return fmt.Errorf("initial route refresh: %w", err)
 	}
@@ -48,6 +49,9 @@ func ListenAndServe(ctx context.Context, addr string, router *Router) error {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
+	}
+	if ready != nil {
+		ready()
 	}
 
 	routes := router.Routes()

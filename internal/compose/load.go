@@ -175,3 +175,29 @@ func splitEnv(value string) (string, string, bool) {
 	}
 	return "", "", false
 }
+
+func LoadFullClean(files []string) (*composetypes.Project, error) {
+	if len(files) == 0 {
+		return nil, fmt.Errorf("no compose files provided")
+	}
+	workingDir := filepath.Dir(files[0])
+	details, err := composeloader.LoadConfigFiles(context.Background(), files, workingDir)
+	if err != nil {
+		return nil, err
+	}
+	projectName := filepath.Base(filepath.Clean(workingDir))
+	if projectName == "." || projectName == string(os.PathSeparator) || projectName == "" {
+		projectName = "docktree"
+	}
+	project, err := composeloader.LoadWithContext(context.Background(), *details, func(options *composeloader.Options) {
+		options.SetProjectName(projectName, false)
+		options.SkipConsistencyCheck = true
+		options.SkipInterpolation = true
+		options.SkipResolveEnvironment = true
+		options.Profiles = []string{"*"}
+	})
+	if err != nil {
+		return nil, err
+	}
+	return project, nil
+}

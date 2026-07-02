@@ -67,6 +67,47 @@ esac
 	}
 }
 
+func TestNetworkPruneHelpers(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "docker.log")
+	script := filepath.Join(dir, "docker")
+	if err := os.WriteFile(script, []byte(`#!/bin/sh
+case "$1 $2" in
+  "network ls")
+    printf 'n1\nn2\nn3\n'
+    ;;
+  "network prune")
+    printf '%s\n' "$*" >> "$DOCKER_TEST_LOG"
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+`), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("DOCKER_TEST_LOG", logPath)
+
+	count, err := CountBridgeNetworks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 3 {
+		t.Fatalf("CountBridgeNetworks() = %d, want 3", count)
+	}
+	if err := PruneUnusedNetworks(); err != nil {
+		t.Fatal(err)
+	}
+	logData, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsLine(string(logData), "network prune --force") {
+		t.Fatalf("missing network prune command in log:\n%s", string(logData))
+	}
+}
+
 func TestListDocktreeProjects(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "docker")

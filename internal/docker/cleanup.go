@@ -117,6 +117,18 @@ func listResources(args ...string) ([]Resource, error) {
 	return resources, nil
 }
 
+func CountBridgeNetworks() (int, error) {
+	lines, err := dockerLines("network", "ls", "--filter", "driver=bridge", "--format", "{{.ID}}")
+	if err != nil {
+		return 0, err
+	}
+	return len(lines), nil
+}
+
+func PruneUnusedNetworks() error {
+	return dockerRun("network", "prune", "--force")
+}
+
 func dockerLines(args ...string) ([]string, error) {
 	cmd := exec.Command("docker", args...)
 	var stdout, stderr bytes.Buffer

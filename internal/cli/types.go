@@ -22,53 +22,55 @@ type Context struct {
 }
 
 type UpResult struct {
-	Instance            *state.Instance    `json:"instance"`
-	CreatedWorktree     string             `json:"created_worktree,omitempty"`
-	ComposeFiles        []string           `json:"compose_files"`
-	OverrideFile        string             `json:"override_file"`
-	ClearFile           string             `json:"clear_file,omitempty"`
-	Ports               []ports.Assignment `json:"ports,omitempty"`
-	Services            []string           `json:"services"`
-	SharedServices      []string           `json:"shared_services,omitempty"`
-	IsolatedVolumes     []string           `json:"isolated_volumes,omitempty"`
-	EnvWarnings         []compose.Warning  `json:"env_warnings,omitempty"`
-	Scaffolded          bool               `json:"scaffolded,omitempty"`
-	Synced              bool               `json:"synced,omitempty"`
-	AlreadyRunning      bool               `json:"already_running,omitempty"`
-	StaleCopies         []string           `json:"stale_copies,omitempty"`
-	Hint                string             `json:"hint,omitempty"`
-	Profiles            []string           `json:"profiles,omitempty"`
-	SkippedServices     []string           `json:"skipped_services,omitempty"`
-	DroppedDependencies []string           `json:"dropped_dependencies,omitempty"`
-	SavedSkippedServices []string          `json:"saved_skipped_services,omitempty"`
+	Instance             *state.Instance    `json:"instance"`
+	CreatedWorktree      string             `json:"created_worktree,omitempty"`
+	ComposeFiles         []string           `json:"compose_files"`
+	OverrideFile         string             `json:"override_file"`
+	ClearFile            string             `json:"clear_file,omitempty"`
+	Ports                []ports.Assignment `json:"ports,omitempty"`
+	Services             []string           `json:"services"`
+	SharedServices       []string           `json:"shared_services,omitempty"`
+	IsolatedVolumes      []string           `json:"isolated_volumes,omitempty"`
+	EnvWarnings          []compose.Warning  `json:"env_warnings,omitempty"`
+	Scaffolded           bool               `json:"scaffolded,omitempty"`
+	Synced               bool               `json:"synced,omitempty"`
+	AlreadyRunning       bool               `json:"already_running,omitempty"`
+	StaleCopies          []string           `json:"stale_copies,omitempty"`
+	Hint                 string             `json:"hint,omitempty"`
+	Profiles             []string           `json:"profiles,omitempty"`
+	SkippedServices      []string           `json:"skipped_services,omitempty"`
+	DroppedDependencies  []string           `json:"dropped_dependencies,omitempty"`
+	SavedSkippedServices []string           `json:"saved_skipped_services,omitempty"`
 	SkipClearApplied     bool               `json:"skip_clear_applied,omitempty"`
+	NetworkPruned        bool               `json:"network_pruned,omitempty"`
+	NetworkCount         int                `json:"network_count,omitempty"`
 }
 
 type ValidateResult struct {
-	Valid           bool               `json:"valid"`
-	Services        []string           `json:"services"`
-	Ports           []ports.Assignment `json:"ports,omitempty"`
-	IsolatedVolumes []string           `json:"isolated_volumes,omitempty"`
-	EnvWarnings     []compose.Warning  `json:"env_warnings,omitempty"`
-	Errors          []string           `json:"errors,omitempty"`
-	Profiles            []string `json:"profiles,omitempty"`
-	SkippedServices     []string `json:"skipped_services,omitempty"`
-	DroppedDependencies []string `json:"dropped_dependencies,omitempty"`
+	Valid               bool               `json:"valid"`
+	Services            []string           `json:"services"`
+	Ports               []ports.Assignment `json:"ports,omitempty"`
+	IsolatedVolumes     []string           `json:"isolated_volumes,omitempty"`
+	EnvWarnings         []compose.Warning  `json:"env_warnings,omitempty"`
+	Errors              []string           `json:"errors,omitempty"`
+	Profiles            []string           `json:"profiles,omitempty"`
+	SkippedServices     []string           `json:"skipped_services,omitempty"`
+	DroppedDependencies []string           `json:"dropped_dependencies,omitempty"`
 }
 
 type DryRunResult struct {
-	DryRun          bool               `json:"dry_run"`
-	InstanceName    string             `json:"instance_name"`
-	ComposeFiles    []string           `json:"compose_files"`
-	Services        []string           `json:"services"`
-	Ports           []ports.Assignment `json:"ports,omitempty"`
-	IsolatedVolumes []string           `json:"isolated_volumes,omitempty"`
-	EnvWarnings     []compose.Warning  `json:"env_warnings,omitempty"`
-	OverridePreview string             `json:"override_preview,omitempty"`
-	ClearPreview    string             `json:"clear_preview,omitempty"`
-	Profiles            []string `json:"profiles,omitempty"`
-	SkippedServices     []string `json:"skipped_services,omitempty"`
-	DroppedDependencies []string `json:"dropped_dependencies,omitempty"`
+	DryRun              bool               `json:"dry_run"`
+	InstanceName        string             `json:"instance_name"`
+	ComposeFiles        []string           `json:"compose_files"`
+	Services            []string           `json:"services"`
+	Ports               []ports.Assignment `json:"ports,omitempty"`
+	IsolatedVolumes     []string           `json:"isolated_volumes,omitempty"`
+	EnvWarnings         []compose.Warning  `json:"env_warnings,omitempty"`
+	OverridePreview     string             `json:"override_preview,omitempty"`
+	ClearPreview        string             `json:"clear_preview,omitempty"`
+	Profiles            []string           `json:"profiles,omitempty"`
+	SkippedServices     []string           `json:"skipped_services,omitempty"`
+	DroppedDependencies []string           `json:"dropped_dependencies,omitempty"`
 }
 
 type DownResult struct {
@@ -122,7 +124,7 @@ type ImagesEntry struct {
 // ImagesResult renders docker compose images with docktree table formatting.
 type ImagesResult struct {
 	ProjectName string        `json:"project_name,omitempty"`
-	Entries []ImagesEntry `json:"entries"`
+	Entries     []ImagesEntry `json:"entries"`
 }
 
 // TopRow is one row from docker compose top (parsed from text).

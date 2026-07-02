@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -49,6 +50,7 @@ func runUp(ctx *Context) (any, int, error) {
 	var createdWorktree string
 	var synced bool
 	if options.create != "" {
+		_, hadDocktreeConfig := os.Stat(filepath.Join(canonicalConfigRoot(repo), "docktree.yml"))
 		scaffolded, err = config.Scaffold(canonicalConfigRoot(repo), cfg)
 		if err != nil {
 			return nil, output.ExitConfig, err
@@ -61,6 +63,9 @@ func runUp(ctx *Context) (any, int, error) {
 			if steps != nil {
 				steps.Done("Scaffolded docktree.yml")
 			}
+		}
+		if err := ensureCreateComposeInputsCommitted(repo.RepoRoot, repo.WorktreeRoot, cfg, options.file, hadDocktreeConfig == nil); err != nil {
+			return nil, output.ExitConfig, err
 		}
 		createdWorktree, err = createPreparedWorktree(repo.RepoRoot, cfg, options.create, ctx.Stdout, ctx.Stderr)
 		if err != nil {
@@ -140,6 +145,10 @@ func runUp(ctx *Context) (any, int, error) {
 		if lerr != nil {
 			return nil, output.ExitConfig, lerr
 		}
+		cleanProj, lerr := compose.LoadFullClean(files)
+		if lerr != nil {
+			return nil, output.ExitConfig, lerr
+		}
 		mainRoot, err := dockgit.MainRepoRoot()
 		if err != nil {
 			return nil, output.ExitConfig, err
@@ -177,11 +186,15 @@ func runUp(ctx *Context) (any, int, error) {
 				envWarnings = append(envWarnings, compose.Warning{Key: "shared." + svcName + ".url_envs", Message: "service " + svcName + " uses tenancy: per_database but url_envs is not declared. DATABASE_URL will NOT be rewritten — all worktrees will hit the same database. Add url_envs: [DATABASE_URL] (or your connection env name) to docktree.yml to fix isolation."})
 			}
 		}
-		wtProj, serr := compose.SynthesizeWorktree(rawProj, cfg.Shared, repoSlug, compose.SynthesizeWorktreeOptions{TenantDBs: tenantDBs})
+		envWarnings = append(envWarnings, compose.RawURLEnvIsolationWarnings(rawProj, cleanProj, cfg.Shared)...)
+		wtProj, serr := compose.SynthesizeWorktree(cleanProj, cfg.Shared, repoSlug, compose.SynthesizeWorktreeOptions{TenantDBs: tenantDBs, RawInput: true})
 		if serr != nil {
 			return nil, output.ExitConfig, serr
 		}
 		wtComposePath := filepath.Join(stateDir, "generated", instanceName+"-worktree-compose.yml")
+		if rerr := compose.RebaseEnvFiles(wtProj, wtComposePath); rerr != nil {
+			return nil, output.ExitConfig, rerr
+		}
 		if werr := compose.WriteComposeFile(wtProj, wtComposePath); werr != nil {
 			return nil, output.ExitConfig, werr
 		}
@@ -212,6 +225,10 @@ func runUp(ctx *Context) (any, int, error) {
 		if lerr != nil {
 			return nil, output.ExitConfig, lerr
 		}
+		cleanProj, lerr := compose.LoadFullClean(files)
+		if lerr != nil {
+			return nil, output.ExitConfig, lerr
+		}
 
 		for _, s := range options.skip {
 			if _, ok := rawProj.Services[s]; !ok {
@@ -219,7 +236,7 @@ func runUp(ctx *Context) (any, int, error) {
 			}
 		}
 
-		filteredProj, ferr := compose.FilterServices(rawProj, compose.ServiceFilter{
+		filteredProj, ferr := compose.FilterServices(cleanProj, compose.ServiceFilter{
 			Skip:     activeSkips,
 			DropDeps: activeDrops,
 		})
@@ -227,6 +244,9 @@ func runUp(ctx *Context) (any, int, error) {
 			return nil, output.ExitConfig, ferr
 		}
 		filteredPath := filepath.Join(stateDir, "generated", instanceName+"-filtered.yml")
+		if rerr := compose.RebaseEnvFiles(filteredProj, filteredPath); rerr != nil {
+			return nil, output.ExitConfig, rerr
+		}
 		if werr := compose.WriteComposeFile(filteredProj, filteredPath); werr != nil {
 			return nil, output.ExitConfig, werr
 		}
@@ -297,6 +317,10 @@ func runUp(ctx *Context) (any, int, error) {
 				return UpResult{Instance: inst, Synced: synced, AlreadyRunning: true, Ports: all[instanceName]}, output.ExitNoop, nil
 			}
 		}
+	}
+	networkCount, networkPruned, err := preflightDockerNetworks(ctx, options.pruneNetworks)
+	if err != nil {
+		return nil, output.ExitDocker, err
 	}
 	if len(cfg.Shared.Services) > 0 {
 		if _, _, platErr := ensurePlatformUp(ctx, repo.RepoRoot); platErr != nil {
@@ -431,6 +455,13 @@ func runUp(ctx *Context) (any, int, error) {
 				locked = false
 				continue
 			}
+			if docker.IsNetworkPoolError(runErr) {
+				cleanupErr := cleanupFailedNetworkPoolUp(ctx, registry, instanceName, createdWorktree, repo.RepoRoot, options.create)
+				if cleanupErr != nil {
+					return nil, output.ExitDocker, fmt.Errorf("%w; cleanup failed: %v", runErr, cleanupErr)
+				}
+				return nil, output.ExitDocker, fmt.Errorf("%w; cleaned up partial resources; rerun with --prune-networks or run docker network prune --force", runErr)
+			}
 			return nil, output.ExitDocker, runErr
 		}
 		break
@@ -456,7 +487,57 @@ func runUp(ctx *Context) (any, int, error) {
 	if len(options.skip) > 0 {
 		savedSkips = options.skip
 	}
-	return UpResult{Instance: inst, CreatedWorktree: createdWorktree, ComposeFiles: files, OverrideFile: overrideFile, ClearFile: clearFile, Ports: assignments, Services: serviceNames(project), SharedServices: sharedSvcNames, IsolatedVolumes: isolatedVolumes(project, repoRootVolumesShare()), EnvWarnings: envWarnings, Scaffolded: scaffolded, Synced: synced, StaleCopies: staleCopies, Hint: hint, Profiles: profiles, SkippedServices: cfg.Overrides.SkipServices, DroppedDependencies: cfg.Overrides.DropDependencies, SavedSkippedServices: savedSkips, SkipClearApplied: options.skipClear}, output.ExitOK, nil
+	return UpResult{Instance: inst, CreatedWorktree: createdWorktree, ComposeFiles: files, OverrideFile: overrideFile, ClearFile: clearFile, Ports: assignments, Services: serviceNames(project), SharedServices: sharedSvcNames, IsolatedVolumes: isolatedVolumes(project, repoRootVolumesShare()), EnvWarnings: envWarnings, Scaffolded: scaffolded, Synced: synced, StaleCopies: staleCopies, Hint: hint, Profiles: profiles, SkippedServices: cfg.Overrides.SkipServices, DroppedDependencies: cfg.Overrides.DropDependencies, SavedSkippedServices: savedSkips, SkipClearApplied: options.skipClear, NetworkPruned: networkPruned, NetworkCount: networkCount}, output.ExitOK, nil
+}
+
+const networkPoolWarningThreshold = 24
+
+func preflightDockerNetworks(ctx *Context, prune bool) (int, bool, error) {
+	count, err := docker.CountBridgeNetworks()
+	if err != nil {
+		return 0, false, fmt.Errorf("check docker networks: %w", err)
+	}
+	if prune {
+		if err := docker.PruneUnusedNetworks(); err != nil {
+			return count, false, fmt.Errorf("prune unused docker networks: %w", err)
+		}
+		if ctx.Steps != nil {
+			ctx.Steps.Done("Pruned unused Docker networks")
+		} else {
+			fmt.Fprintln(ctx.Stderr, "Pruned unused Docker networks")
+		}
+		return count, true, nil
+	}
+	if count >= networkPoolWarningThreshold {
+		fmt.Fprintf(ctx.Stderr, "warning: Docker has %d bridge networks; if subnet pools are exhausted, rerun with --prune-networks or run docker network prune --force\n", count)
+	}
+	return count, false, nil
+}
+
+func cleanupFailedNetworkPoolUp(ctx *Context, registry *ports.Registry, instanceName, createdWorktree, repoRoot, branch string) error {
+	var errs []error
+	if _, err := docker.RemoveProjectResources(instanceName, false); err != nil {
+		errs = append(errs, fmt.Errorf("remove Docker resources for %s: %w", instanceName, err))
+	}
+	if err := registry.Lock(); err != nil {
+		errs = append(errs, fmt.Errorf("lock port registry: %w", err))
+	} else {
+		if err := registry.Release(instanceName); err != nil {
+			errs = append(errs, fmt.Errorf("release allocated ports: %w", err))
+		}
+		if err := registry.Unlock(); err != nil {
+			errs = append(errs, fmt.Errorf("unlock port registry: %w", err))
+		}
+	}
+	if createdWorktree != "" {
+		if err := removeCreatedWorktree(repoRoot, createdWorktree, branch, ctx.Stderr); err != nil {
+			errs = append(errs, fmt.Errorf("remove created worktree: %w", err))
+		}
+	}
+	if ctx.Steps != nil {
+		ctx.Steps.Done("Cleaned up partial Docker resources after network pool failure")
+	}
+	return errors.Join(errs...)
 }
 
 func runValidate(project *compose.ComposeProject, files []string, cfg *config.Config, repo dockgit.RepoInfo, envWarnings []compose.Warning, profiles []string) (any, int, error) {
