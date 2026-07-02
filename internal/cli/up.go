@@ -50,6 +50,7 @@ func runUp(ctx *Context) (any, int, error) {
 	var createdWorktree string
 	var synced bool
 	if options.create != "" {
+		_, hadDocktreeConfig := os.Stat(filepath.Join(canonicalConfigRoot(repo), "docktree.yml"))
 		scaffolded, err = config.Scaffold(canonicalConfigRoot(repo), cfg)
 		if err != nil {
 			return nil, output.ExitConfig, err
@@ -62,6 +63,9 @@ func runUp(ctx *Context) (any, int, error) {
 			if steps != nil {
 				steps.Done("Scaffolded docktree.yml")
 			}
+		}
+		if err := ensureCreateComposeInputsCommitted(repo.RepoRoot, repo.WorktreeRoot, cfg, options.file, hadDocktreeConfig == nil); err != nil {
+			return nil, output.ExitConfig, err
 		}
 		createdWorktree, err = createPreparedWorktree(repo.RepoRoot, cfg, options.create, ctx.Stdout, ctx.Stderr)
 		if err != nil {

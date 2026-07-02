@@ -109,6 +109,59 @@ func createPreparedWorktree(repoRoot string, cfg *config.Config, branch string, 
 	return worktreeRoot, nil
 }
 
+func ensureCreateComposeInputsCommitted(repoRoot, worktreeRoot string, cfg *config.Config, fileOverride string, includeDocktreeConfig bool) error {
+	var files []string
+	if fileOverride != "" {
+		if filepath.IsAbs(fileOverride) {
+			files = []string{fileOverride}
+		} else {
+			files = []string{filepath.Join(worktreeRoot, fileOverride)}
+		}
+	} else {
+		resolved, err := composeFiles(worktreeRoot, cfg)
+		if err != nil {
+			return err
+		}
+		files = resolved
+	}
+	if includeDocktreeConfig {
+		files = append(files, filepath.Join(repoRoot, "docktree.yml"))
+	}
+
+	var issues []string
+	for _, file := range files {
+		if issue, ok := committedInputIssue(repoRoot, file); ok {
+			issues = append(issues, issue)
+		}
+	}
+	if len(issues) == 0 {
+		return nil
+	}
+	return fmt.Errorf("docktree up --create requires referenced compose/config files to be committed before creating a worktree:\n  - %s\ncommit these files, then rerun docktree up --create", strings.Join(issues, "\n  - "))
+}
+
+func committedInputIssue(repoRoot, path string) (string, bool) {
+	if _, err := os.Stat(path); err != nil {
+		return fmt.Sprintf("%s (does not exist)", path), true
+	}
+	rel, err := filepath.Rel(repoRoot, path)
+	if err != nil || rel == "." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || filepath.IsAbs(rel) {
+		return "", false
+	}
+	rel = filepath.ToSlash(rel)
+	inHead := exec.Command("git", "cat-file", "-e", "HEAD:"+rel)
+	inHead.Dir = repoRoot
+	if err := inHead.Run(); err != nil {
+		return fmt.Sprintf("%s (not committed in HEAD)", rel), true
+	}
+	clean := exec.Command("git", "diff", "--quiet", "HEAD", "--", rel)
+	clean.Dir = repoRoot
+	if err := clean.Run(); err != nil {
+		return fmt.Sprintf("%s (has uncommitted changes)", rel), true
+	}
+	return "", false
+}
+
 func removeCreatedWorktree(repoRoot, worktreeRoot, branch string, stderr io.Writer) error {
 	var errs []error
 	remove := exec.Command("git", "worktree", "remove", "--force", worktreeRoot)
