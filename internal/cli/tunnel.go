@@ -481,16 +481,21 @@ func runTunnelStart(ctx *Context, options tunnelOptions) (any, int, error) {
 	} else if ctx.Renderer.JSON {
 		// JSON mode: result struct rendered by Renderer below.
 	} else {
-
-	svcLabel := ""
-	if selectedService != "" {
-		svcLabel = fmt.Sprintf(" (%s)", selectedService)
-	}
-	fmt.Fprintf(ctx.Stdout, "Tunnel started for %s%s via %s (PID %d)\n", inst.Name, svcLabel, provider.Name(), cmd.Process.Pid)
-		if capturedURL != "" {
-			fmt.Fprintf(ctx.Stdout, "  URL:    %s\n", capturedURL)
+		svcLabel := ""
+		if selectedService != "" {
+			svcLabel = fmt.Sprintf(" (%s)", selectedService)
 		}
-		fmt.Fprintf(ctx.Stdout, "  Target: %s\n", targetURL)
+		fmt.Fprintf(ctx.Stdout, "%s Tunnel started for %s%s via %s (PID %d)\n",
+			tui.OKS("✓"),
+			tui.AccentS(inst.Name),
+			tui.MutedS(svcLabel),
+			tui.MutedS(provider.Name()),
+			cmd.Process.Pid,
+		)
+		if capturedURL != "" {
+			fmt.Fprintf(ctx.Stdout, "  URL:    %s\n", tui.URLS(capturedURL))
+		}
+		fmt.Fprintf(ctx.Stdout, "  Target: %s\n", tui.URLS(targetURL))
 	}
 
 	return TunnelStartResult{
@@ -542,7 +547,7 @@ func runTunnelStop(ctx *Context) (any, int, error) {
 			Provider: ts.Provider,
 		}, output.ExitOK, nil
 	} else {
-		fmt.Fprintf(ctx.Stdout, "Tunnel stopped for %s (PID %d)\n", inst.Name, ts.PID)
+		fmt.Fprintf(ctx.Stdout, "%s Tunnel stopped for %s (PID %d)\n", tui.OKS("✓"), tui.AccentS(inst.Name), ts.PID)
 	}
 	return nil, output.ExitOK, nil
 }

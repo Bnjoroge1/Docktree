@@ -114,7 +114,18 @@ func runProxy(ctx *Context) (any, int, error) {
 		}
 		steps.Blank()
 		steps.Active(tui.InfoS("listening… (Ctrl+C to stop)"))
-	}
+	} else if !ctx.Renderer.JSON {
+		fmt.Fprintf(ctx.Stdout, "%s proxy listening on %s\n", tui.BrandS("Docktree"), tui.URLS("http://"+addr))
+		if len(routes) == 0 {
+			fmt.Fprintf(ctx.Stdout, "  %s\n", tui.MutedS("(no running instances — start with docktree up)"))
+		} else {
+			for name, backend := range routes {
+				fmt.Fprintf(ctx.Stdout, "  %s → %s\n",
+					tui.URLS(fmt.Sprintf("http://%s.localhost", name)),
+					tui.MutedS(backend))
+				}
+			}
+		}
 
 	if ctx.Renderer.JSON {
 		// Emit startup JSON once the listener is bound. The ready callback
