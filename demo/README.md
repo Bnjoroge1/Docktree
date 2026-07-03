@@ -157,6 +157,7 @@ Stops both docktree instances, cleans orphaned resources, and removes the demo w
 ```
 demo/
 ├── README.md                      ← this file
+├── docktree-demo.gif              ← committed demo GIF (referenced in root README)
 ├── .gitignore
 ├── package.json                   ← Playwright + tsx deps
 ├── playwright.config.ts           ← Playwright test config
