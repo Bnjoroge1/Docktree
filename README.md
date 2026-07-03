@@ -58,6 +58,8 @@ docktree volumes      # show managed volumes (--all for every worktree)
 docktree clean        # remove stale resources from missing worktrees (--dry-run first)
 docktree sync         # propagate setup.copy files to every worktree
 docktree platform up  # start the repo-scoped shared-services tier (when configured)
+docktree proxy        # reverse proxy routing by hostname to worktree ports
+docktree tunnel start # expose current worktree externally via Cloudflare Tunnel
 ```
 
 If Docker has many stale bridge networks, `docktree up --prune-networks`
