@@ -2,16 +2,22 @@
 
 ![Docktree Demo](demo/docktree-demo.gif)
 
-Running Docker Compose across multiple git worktrees collides on project name, host ports, and container names. Docktree gives every worktree its own isolated Compose project — unique ports (auto-allocated), unique container names, unique volumes — by generating override files on top of your existing `docker-compose.yml`. Zero config to start, but you can customize it as you want.
+If you wanna run multiple Docker Compose across multiple git worktrees collides, especially for your agents, you will inevitably face collisions on project name, host ports, and container names. Docktree gives every worktree its own isolated Compose project, unique ports (auto-allocated), container names,  and volumes by generating override files on top of your existing `docker-compose.yml`. Unlike other solutions where you either have to run the dock er compose projects in docker(DiND is imo unnecessary) or youy have to rewrite your docker compose yaml files, Docktree doesnt touch your docker compose files. You can run it with zero config to start, but you can customize it as you want.
 
-It exists because agents work better when they can spin up their own isolated stack to test end-to-end, without stepping on a sibling worktree or your own running services.
+Docktree works great for use cases such as:
+
+1. **Parallel AI Agents.**
+  1. **** Running parallel ai agents independently. Each agent gets its own docker compose stack(database etc), they can do some work and send you a link of their completed work for review.
+2. **Review Multiple PRs Locally**
+
+  Check out several pull requests as worktrees and run them side by side. Compare UI, API behavior, and database changes without constantly tearing stacks down.
 
 Docktree is agent-native: every command speaks `--json` (see [For AI agents](#for-ai-agents)).
 
 ## Install
 
 ```bash
-# macOS / Linux
+# macOS / Linux/ Wsl2
 curl -fsSL docktree.dev/install.sh | sh
 
 # Homebrew
@@ -33,14 +39,12 @@ INSTALL_DIR=~/.local/bin curl -fsSL https://docktree.dev/install.sh | sh
 ## How it works
 
 1. You have a Compose project in a git repo.
-2. Create a worktree: `git worktree add ../feature-x feature-x`.
+2. Create a worktree: `git worktree add ../feature-x feature-x` or use an existing one.
 3. In the worktree, run `docktree up`.
 
-Docktree discovers your compose files, allocates unique ports from `41000–49999`,
 
-writes a generated override with isolated names and ports, and runs
 
-`docker compose up -d`. Worktrees never collide.
+See: docktree.dev/docs for full docs and reference
 
 ## Commands
 
@@ -61,15 +65,9 @@ removes unused Docker networks before starting. Docktree also detects Docker
 address-pool exhaustion during `up`, cleans partial resources, and suggests
 rerunning with `--prune-networks` (or `docker network prune --force`).
 
-Docker Compose passthroughs (`build`, `config`, `logs`, `exec`, `run`, `ls`,
+Docker Compose passthroughs (`build`, `config`, `logs`, `exec`, `run`, `ls`,…) work too, with this worktree's project context pre-filled. Run `docktree help` or `docktree <cmd> --help` for the authoritative reference.
 
-…) work too, with this worktree's project context pre-filled. Run
-
-`docktree help` or `docktree <cmd> --help` for the authoritative reference.
-
-Global flag: `--json` (before the subcommand) emits machine-readable JSON for
-
-every native command, including `help` and `version`.
+Global flag: `--json` (before the subcommand) emits machine-readable JSON for every native command, including `help` and `version`.
 
 ## For AI agents
 
@@ -123,17 +121,11 @@ With `shared.services` and `tenancy: per_database`, Docktree rewrites database U
 
 ## Windows
 
-## Windows
-
-On Windows, use it through WSL2 with Docker Desktop WSL integration enabled.
-
 Use through WSL2 with Docker Desktop's WSL integration enabled.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). `main` is protected; merges are gated
-
-on code-owner review.
+See [CONTRIBUTING.md](CONTRIBUTING.md). 
 
 ## License
 
