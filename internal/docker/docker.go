@@ -31,8 +31,9 @@ func (cmd ComposeCommand) Args() []string {
 	return args
 }
 
-func Run(cmd ComposeCommand, stdout, stderr io.Writer) error {
+func Run(cmd ComposeCommand, stdin io.Reader, stdout, stderr io.Writer) error {
 	execCmd := exec.Command("docker", cmd.Args()...)
+	execCmd.Stdin = stdin
 	var stderrBuf bytes.Buffer
 	execCmd.Stdout = stdout
 	if stderr != nil {

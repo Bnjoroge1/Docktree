@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/bnjoroge/docktree/internal/config"
@@ -52,7 +53,12 @@ func runComposePassthrough(ctx *Context, subcommand string, args []string, allow
 		Files:       composeFiles,
 		CommandArgs: composeArgs,
 	}
-	if err := docker.Run(cmd, ctx.Stdout, ctx.Stderr); err != nil {
+	var stdin io.Reader
+	switch subcommand {
+	case "exec", "run":
+		stdin = os.Stdin
+	}
+	if err := docker.Run(cmd, stdin, ctx.Stdout, ctx.Stderr); err != nil {
 		return ComposePassthroughResult{
 			Project:      inst.ProjectName,
 			ComposeFiles: composeFiles,
@@ -73,7 +79,7 @@ func runLogs(ctx *Context) (any, int, error) {
 }
 
 func runExec(ctx *Context) (any, int, error) {
-	return runComposePassthrough(ctx, "exec", ctx.Args[1:], false, printExecHelp)
+	return runComposePassthrough(ctx, "exec", stripRunSeparator(ctx.Args[1:]), false, printExecHelp)
 }
 
 func runComposeRun(ctx *Context) (any, int, error) {
@@ -103,7 +109,7 @@ func runComposeRun(ctx *Context) (any, int, error) {
 		Files:       composeFiles,
 		CommandArgs: composeArgs,
 	}
-	if err := docker.Run(cmd, ctx.Stdout, ctx.Stderr); err != nil {
+	if err := docker.Run(cmd, os.Stdin, ctx.Stdout, ctx.Stderr); err != nil {
 		return ComposePassthroughResult{
 			Project:      inst.ProjectName,
 			ComposeFiles: composeFiles,
@@ -188,7 +194,7 @@ func runDocker(ctx *Context) (any, int, error) {
 		Files:       composeFiles,
 		CommandArgs: args,
 	}
-	if err := docker.Run(cmd, ctx.Stdout, ctx.Stderr); err != nil {
+	if err := docker.Run(cmd, nil, ctx.Stdout, ctx.Stderr); err != nil {
 		return ComposePassthroughResult{
 			Project:      inst.ProjectName,
 			ComposeFiles: composeFiles,
