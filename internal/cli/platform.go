@@ -146,7 +146,7 @@ func runPlatformUp(ctx *Context) (any, int, error) {
 	if steps != nil {
 		spin = steps.StartSpin("docker compose up -d (platform)")
 	}
-	if err := docker.Run(cmd, dockerStdout, ctx.Stderr); err != nil {
+	if err := docker.Run(cmd, nil, dockerStdout, ctx.Stderr); err != nil {
 		if spin != nil {
 			spin.Stop()
 		}
@@ -197,7 +197,7 @@ func runPlatformDown(ctx *Context) (any, int, error) {
 		Files:       []string{plan.ComposeFile},
 		CommandArgs: []string{"down"},
 	}
-	if err := docker.Run(cmd, dockerStdout, ctx.Stderr); err != nil {
+	if err := docker.Run(cmd, nil, dockerStdout, ctx.Stderr); err != nil {
 		return nil, output.ExitDocker, err
 	}
 	return PlatformResult{
@@ -618,7 +618,7 @@ func ensurePlatformUp(ctx *Context, repoRoot string) (string, string, error) {
 			Files:       []string{plan.ComposeFile},
 			CommandArgs: []string{"up", "-d"},
 		}
-		if err := docker.Run(cmd, io.Discard, ctx.Stderr); err != nil {
+		if err := docker.Run(cmd, nil, io.Discard, ctx.Stderr); err != nil {
 			return plan.Project, plan.ComposeFile, err
 		}
 	}
@@ -720,7 +720,7 @@ func runPlatformLogs(ctx *Context) (any, int, error) {
 		Files:       []string{plan.ComposeFile},
 		CommandArgs: logsArgs,
 	}
-	if err := docker.Run(cmd, ctx.Stdout, ctx.Stderr); err != nil {
+	if err := docker.Run(cmd, nil, ctx.Stdout, ctx.Stderr); err != nil {
 		return nil, output.ExitDocker, err
 	}
 	return nil, output.ExitOK, nil
@@ -864,7 +864,7 @@ func runPlatformClean(ctx *Context) (any, int, error) {
 			Files:       []string{plan.ComposeFile},
 			CommandArgs: []string{"down", "-v"},
 		}
-		_ = docker.Run(cmd, io.Discard, ctx.Stderr)
+		_ = docker.Run(cmd, nil, io.Discard, ctx.Stderr)
 	}
 	if spin != nil {
 		spin.Stop()

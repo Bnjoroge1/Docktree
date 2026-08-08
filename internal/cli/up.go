@@ -434,7 +434,7 @@ func runUp(ctx *Context) (any, int, error) {
 		if steps != nil {
 			spin = steps.StartSpin("docker compose up -d")
 		}
-		runErr := docker.Run(cmd, dockerStdout, ctx.Stderr)
+		runErr := docker.Run(cmd, nil, dockerStdout, ctx.Stderr)
 		if spin != nil {
 			spin.Stop()
 		}

@@ -83,6 +83,14 @@ func TestStripRunSeparatorKeepsArgsWithoutSeparator(t *testing.T) {
 	}
 }
 
+func TestStripRunSeparatorExecArgs(t *testing.T) {
+	got := stripRunSeparator([]string{"db", "--", "psql", "-U", "postgres"})
+	want := []string{"db", "psql", "-U", "postgres"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("stripRunSeparator() = %#v, want %#v", got, want)
+	}
+}
+
 func TestWorktreePathDefaultRoot(t *testing.T) {
 	repoRoot := filepath.Join(string(filepath.Separator), "tmp", "Docktree")
 	cfg := config.Defaults()

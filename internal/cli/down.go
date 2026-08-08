@@ -100,7 +100,7 @@ func runDown(ctx *Context) (any, int, error) {
 	if steps != nil {
 		spin = steps.StartSpin("docker compose down")
 	}
-	if err := docker.Run(cmd, dockerStdout, ctx.Stderr); err != nil {
+	if err := docker.Run(cmd, nil, dockerStdout, ctx.Stderr); err != nil {
 		if spin != nil {
 			spin.Stop()
 		}
@@ -193,7 +193,7 @@ func runDownAll(ctx *Context, options downOptions, repo *dockgit.RepoInfo) (any,
 		if steps != nil {
 			spin = steps.StartSpin("docker compose down")
 		}
-		if err := docker.Run(cmd, dockerStdout, ctx.Stderr); err != nil {
+		if err := docker.Run(cmd, nil, dockerStdout, ctx.Stderr); err != nil {
 			if spin != nil {
 				spin.Stop()
 			}
@@ -283,7 +283,7 @@ func runStop(ctx *Context) (any, int, error) {
 		dockerStdout = io.Discard
 	}
 	cmd := docker.ComposeCommand{ProjectName: inst.ProjectName, Files: composeFiles, CommandArgs: stopArgs}
-	if err := docker.Run(cmd, dockerStdout, ctx.Stderr); err != nil {
+	if err := docker.Run(cmd, nil, dockerStdout, ctx.Stderr); err != nil {
 		return nil, output.ExitDocker, err
 	}
 	inst.LastActiveAt = time.Now().UTC()

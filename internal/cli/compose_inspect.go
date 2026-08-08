@@ -36,7 +36,7 @@ func runConfig(ctx *Context) (any, int, error) {
 	var cmd docker.ComposeCommand
 	cmd.Files = files
 	cmd.CommandArgs = composeArgs
-	if err := docker.Run(cmd, ctx.Stdout, ctx.Stderr); err != nil {
+	if err := docker.Run(cmd, nil, ctx.Stdout, ctx.Stderr); err != nil {
 		return nil, output.ExitDocker, err
 	}
 	return nil, output.ExitOK, nil
@@ -141,7 +141,7 @@ func runLs(ctx *Context) (any, int, error) {
 	if hasOutputShapingFlags(args) {
 		composeArgs := append([]string{"ls"}, args...)
 		cmd := docker.ComposeCommand{CommandArgs: composeArgs}
-		if err := docker.Run(cmd, ctx.Stdout, ctx.Stderr); err != nil {
+		if err := docker.Run(cmd, nil, ctx.Stdout, ctx.Stderr); err != nil {
 			return nil, output.ExitDocker, err
 		}
 		return nil, output.ExitOK, nil
