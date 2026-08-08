@@ -54,6 +54,7 @@ var helpTextPrinters = map[string]func(io.Writer){
 	"clean":    printCleanHelp,
 	"create":   printCreateHelp,
 	"down":     printDownHelp,
+	"env":      printEnvHelp,
 	"platform": printPlatformHelp,
 	"ports":    printPortsHelp,
 	"prepare":  printPrepareHelp,
@@ -111,6 +112,7 @@ func rootHelpDoc() HelpDoc {
 			{Name: "create", Description: "Create a worktree and prepare its local Docker setup"},
 			{Name: "docker", Description: "Run any docker compose subcommand with worktree context pre-filled"},
 			{Name: "down", Description: "Stop the current worktree's Compose project (or specific services)"},
+			{Name: "env", Description: "Swap runtime environment variables and regenerate the override"},
 			{Name: "exec", Description: "Pass through to docker compose exec"},
 			{Name: "images", Description: "Pass through to docker compose images"},
 			{Name: "init", Description: "Generate a docktree.yml from your compose files"},
@@ -273,6 +275,34 @@ func syncHelpDoc() HelpDoc {
 			{Flags: []string{"--dry-run"}, Description: "Show what would be synced without copying"},
 			{Flags: []string{"--force"}, Description: "Sync without confirmation prompt"},
 			{Flags: []string{"-h", "--help"}, Description: "Show this help text"},
+		},
+	}
+}
+
+func envHelpDoc() HelpDoc {
+	return HelpDoc{
+		Command:  "env",
+		Synopsis: "Swap runtime environment variables for the current worktree's Compose services without editing compose files. Changes are stored in .docktree/overrides.yml and merged into the generated compose override.",
+		Usage: []string{
+			"docktree env set KEY=VALUE [--service <svc>]... [--restart <svc>]...",
+			"docktree env unset KEY... [--service <svc>]... [--restart <svc>]...",
+			"docktree env list",
+		},
+		Options: []HelpOption{
+			{Flags: []string{"--service"}, Value: "<svc>", Description: "Scope set/unset to one service (repeatable; default: all services)"},
+			{Flags: []string{"--restart"}, Value: "<svc>", Description: "Recreate this service after regenerating via docker compose up -d --no-deps (repeatable)"},
+			{Flags: []string{"-h", "--help"}, Description: "Show this help text"},
+		},
+		Examples: []string{
+			"docktree env set CHAT_TOKENIZER_MODEL=Qwen/Qwen3.6-35B-A3B",
+			"docktree env set CHAT_TOKENIZER_MODEL=none --restart api-zone-b",
+			"docktree env set LOG_LEVEL=debug --service api",
+			"docktree env unset CHAT_TOKENIZER_MODEL",
+			"docktree env list",
+		},
+		Notes: []string{
+			".env and your compose files are never modified; overrides live in .docktree/overrides.yml and survive `docktree up`.",
+			"Ports are reused from the running instance and never reallocated, so the stack must have been started with `docktree up` first.",
 		},
 	}
 }

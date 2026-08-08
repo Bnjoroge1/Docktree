@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -69,6 +70,44 @@ func MergeLocalOverrides(base *Config, local OverridesConfig) {
 	if len(local.Profiles) > 0 {
 		base.Overrides.Profiles = local.Profiles
 	}
+	if len(local.Environment) > 0 {
+		base.Overrides.Environment = MergeEnvironment(base.Overrides.Environment, local.Environment)
+	}
+}
+
+// MergeEnvironment merges per-service environment overrides. Values in local
+// win per (service, variable) key. The result has no empty service maps.
+func MergeEnvironment(base, local map[string]map[string]string) map[string]map[string]string {
+	if len(local) == 0 {
+		return base
+	}
+	if len(base) == 0 {
+		return local
+	}
+	out := make(map[string]map[string]string, len(base)+len(local))
+	for service, vars := range base {
+		if len(vars) == 0 {
+			continue
+		}
+		merged := make(map[string]string, len(vars))
+		maps.Copy(merged, vars)
+		out[service] = merged
+	}
+	for service, vars := range local {
+		if len(vars) == 0 {
+			continue
+		}
+		merged := out[service]
+		if merged == nil {
+			merged = make(map[string]string, len(vars))
+			out[service] = merged
+		}
+		maps.Copy(merged, vars)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func UnionStrings(a, b []string) []string {

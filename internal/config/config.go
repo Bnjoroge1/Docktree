@@ -57,6 +57,11 @@ type OverridesConfig struct {
 	SkipServices     []string `yaml:"skip_services,omitempty"`
 	DropDependencies []string `yaml:"drop_dependencies,omitempty"`
 	Profiles         []string `yaml:"profiles,omitempty"`
+	// Environment holds per-service env var overrides: service -> var -> value.
+	// Docktree merges these into the generated compose override so values can
+	// be swapped at runtime (see `docktree env`) without editing user compose
+	// files.
+	Environment map[string]map[string]string `yaml:"environment,omitempty"`
 }
 
 type SharedDatabase struct {
@@ -258,6 +263,9 @@ func merge(base *Config, user Config) {
 	}
 	if user.Overrides.Profiles != nil {
 		base.Overrides.Profiles = user.Overrides.Profiles
+	}
+	if user.Overrides.Environment != nil {
+		base.Overrides.Environment = MergeEnvironment(base.Overrides.Environment, user.Overrides.Environment)
 	}
 	if user.Volumes.Share != nil {
 		base.Volumes.Share = user.Volumes.Share

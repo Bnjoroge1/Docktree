@@ -21,6 +21,7 @@ func printHelp(w io.Writer) {
 	printHelpCmd(w, maxCmd, "create", "Create a worktree and prepare its local Docker setup")
 	printHelpCmd(w, maxCmd, "docker", "Run any docker compose subcommand with worktree context pre-filled")
 	printHelpCmd(w, maxCmd, "down", "Stop the current worktree's Compose project (or specific services)")
+	printHelpCmd(w, maxCmd, "env", "Swap runtime environment variables and regenerate the override")
 	printHelpCmd(w, maxCmd, "exec", "Pass through to docker compose exec")
 	printHelpCmd(w, maxCmd, "images", "Pass through to docker compose images")
 	printHelpCmd(w, maxCmd, "init", "Generate a docktree.yml from your compose files")
@@ -150,6 +151,36 @@ Options:
 
 Arguments:
   service        One or more service names to stop (default: all services)`)
+}
+
+func printEnvHelp(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
+  docktree env set KEY=VALUE [--service <svc>]... [--restart <svc>]...
+  docktree env unset KEY... [--service <svc>]... [--restart <svc>]...
+  docktree env list
+
+Swap runtime environment variables for the current worktree's Compose
+services without editing compose files. Changes are stored in
+.docktree/overrides.yml and merged into the generated compose override, so
+they survive "docktree up".
+
+Options:
+  --service <svc>  Scope set/unset to one service (repeatable; default: all services)
+  --restart <svc>  Recreate this service after regenerating via
+                   docker compose up -d --no-deps (repeatable)
+  -h, --help       Show this help text
+
+Examples:
+  docktree env set CHAT_TOKENIZER_MODEL=Qwen/Qwen3.6-35B-A3B
+  docktree env set CHAT_TOKENIZER_MODEL=none --restart api-zone-b
+  docktree env set LOG_LEVEL=debug --service api
+  docktree env unset CHAT_TOKENIZER_MODEL
+  docktree env list
+
+Notes:
+  .env and your compose files are never modified. Ports are reused from the
+  running instance and never reallocated, so the stack must have been
+  started with "docktree up" first.`)
 }
 
 func printStopHelp(w io.Writer) {

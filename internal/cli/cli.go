@@ -26,6 +26,7 @@ var rootCommands = map[string]commandSpec{
 	"docker":   {run: runDocker},
 	"down":     {run: runDown, progress: true},
 	"exec":     {run: runExec},
+	"env":      {run: runEnv},
 	"images":   {run: runImages},
 	"init":     {run: runInit},
 	"kill":     {run: runKill},

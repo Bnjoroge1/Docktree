@@ -424,6 +424,9 @@ func runUp(ctx *Context) (any, int, error) {
 		if err != nil {
 			return nil, output.ExitConfig, err
 		}
+		// Re-apply persisted `docktree env` overrides so a subsequent up does
+		// not silently lose runtime env swaps.
+		compose.ApplyEnvOverrides(override, cfg.Overrides.Environment)
 		if err := compose.WriteOverride(override, overrideFile); err != nil {
 			return nil, output.ExitConfig, err
 		}
