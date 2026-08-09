@@ -303,6 +303,8 @@ func envHelpDoc() HelpDoc {
 		Notes: []string{
 			".env and your compose files are never modified; overrides live in .docktree/overrides.yml and survive `docktree up`.",
 			"Ports are reused from the running instance and never reallocated, so the stack must have been started with `docktree up` first.",
+			"`env list` shows worktree-local runtime overrides. Project-level `overrides.environment` values remain managed by docktree.yml and return when a local override is unset.",
+			"Environment values are never printed by env commands, including `--json`.",
 		},
 	}
 }

@@ -1,8 +1,12 @@
 package cli
 
 import (
+	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
+
+	"github.com/bnjoroge/docktree/internal/config"
 )
 
 func TestParseEnvOptions(t *testing.T) {
@@ -41,6 +45,11 @@ func TestParseEnvOptions(t *testing.T) {
 			name: "set with service and restart",
 			args: []string{"set", "A=1", "--service", "api", "--service=web", "--restart", "api-zone-b", "--restart=api"},
 			want: envOptions{action: "set", pairs: []envPair{{key: "A", value: "1"}}, services: []string{"api", "web"}, restarts: []string{"api-zone-b", "api"}},
+		},
+		{
+			name: "deduplicates repeated targets",
+			args: []string{"set", "A=1", "--service", "api", "--service=api", "--restart", "api", "--restart=api"},
+			want: envOptions{action: "set", pairs: []envPair{{key: "A", value: "1"}}, services: []string{"api"}, restarts: []string{"api"}},
 		},
 		{
 			name:    "set missing pair",
@@ -236,6 +245,65 @@ func TestPruneEnvServices(t *testing.T) {
 	}
 }
 
+func TestCloneEnvOverridesAndPrune(t *testing.T) {
+	env := map[string]map[string]string{
+		"api":  {"K": "1"},
+		"gone": {"K": "2"},
+	}
+	filtered := cloneEnvOverrides(env)
+	pruneEnvServices(filtered, []string{"api"})
+	if _, ok := filtered["gone"]; ok {
+		t.Fatalf("stale service kept in filtered copy: %#v", filtered)
+	}
+	if _, ok := env["gone"]; !ok {
+		t.Fatalf("source environment mutated: %#v", env)
+	}
+}
+
+func TestPruneLocalEnvOverrides(t *testing.T) {
+	root := t.TempDir()
+	stateDir := ".docktree"
+	path := config.LocalOverridesPath(root, stateDir)
+	input := config.OverridesConfig{
+		SkipServices: []string{"ui"},
+		Environment: map[string]map[string]string{
+			"api":  {"K": "1"},
+			"gone": {"K": "2"},
+		},
+	}
+	if err := config.WriteLocalOverrides(path, input); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	changed, err := pruneLocalEnvOverrides(root, stateDir, []string{"api"})
+	if err != nil {
+		t.Fatalf("prune failed: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected stale environment to be pruned")
+	}
+
+	got, err := config.LoadLocalOverrides(path)
+	if err != nil {
+		t.Fatalf("load failed: %v", err)
+	}
+	want := map[string]map[string]string{"api": {"K": "1"}}
+	if !reflect.DeepEqual(got.Environment, want) {
+		t.Fatalf("environment = %#v, want %#v", got.Environment, want)
+	}
+	if !reflect.DeepEqual(got.SkipServices, input.SkipServices) {
+		t.Fatalf("skip services = %#v, want %#v", got.SkipServices, input.SkipServices)
+	}
+
+	changed, err = pruneLocalEnvOverrides(root, stateDir, []string{"api"})
+	if err != nil {
+		t.Fatalf("second prune failed: %v", err)
+	}
+	if changed {
+		t.Fatal("second prune should be a no-op")
+	}
+}
+
 func TestEnvEntriesDeterministic(t *testing.T) {
 	env := map[string]map[string]string{
 		"web": {"B": "2", "A": "1"},
@@ -253,5 +321,20 @@ func TestEnvEntriesDeterministic(t *testing.T) {
 	// Empty store renders as a non-nil empty list (JSON [], not null).
 	if got := envEntries(nil); got == nil || len(got) != 0 {
 		t.Fatalf("got %#v", got)
+	}
+}
+
+func TestEnvEntryJSONRedactsValue(t *testing.T) {
+	data, err := json.Marshal(EnvResult{
+		Action:    "set",
+		Changed:   []EnvEntry{{Service: "api", Key: "TOKEN", Value: "super-secret"}},
+		Overrides: []EnvEntry{{Service: "api", Key: "TOKEN", Value: "super-secret"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if strings.Contains(text, "super-secret") || strings.Contains(text, `"value"`) {
+		t.Fatalf("environment value leaked in JSON: %s", text)
 	}
 }

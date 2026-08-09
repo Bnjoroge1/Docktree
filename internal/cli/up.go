@@ -297,6 +297,14 @@ func runUp(ctx *Context) (any, int, error) {
 	if options.dryRun {
 		return runDryRun(project, files, cfg, repo, instanceName, envWarnings, profiles)
 	}
+	knownEnvServices := serviceNames(project)
+	if _, err := pruneLocalEnvOverrides(repo.WorktreeRoot, cfg.State.Directory, knownEnvServices); err != nil {
+		return nil, output.ExitConfig, err
+	}
+	// Keep the in-memory merged view consistent with the persisted local
+	// store before generating the override file. Project-level entries for
+	// services omitted from the active project are also inert for this run.
+	pruneEnvServices(cfg.Overrides.Environment, knownEnvServices)
 	projectNeedsBuild := projectHasBuild(project)
 	reuseRunningPorts := false
 	if inst != nil {

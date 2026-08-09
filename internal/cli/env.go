@@ -50,11 +50,37 @@ func runEnv(ctx *Context) (any, int, error) {
 		return nil, output.ExitConfig, err
 	}
 
-	if options.action == "list" {
-		return EnvResult{Action: "list", Instance: instanceName, Overrides: envEntries(cfg.Overrides.Environment)}, output.ExitOK, nil
+	stateDir := state.StatePath(repo.WorktreeRoot, cfg.State.Directory)
+	overridesPath := config.LocalOverridesPath(repo.WorktreeRoot, cfg.State.Directory)
+	local, err := config.LoadLocalOverrides(overridesPath)
+	if err != nil {
+		return nil, output.ExitConfig, err
 	}
 
-	stateDir := state.StatePath(repo.WorktreeRoot, cfg.State.Directory)
+	if options.action == "list" {
+		env := cloneEnvOverrides(local.Environment)
+		if inst, instErr := state.LoadInstance(stateDir); instErr == nil {
+			files := inst.ComposeFiles
+			if len(files) == 0 {
+				if files, err = composeFiles(repo.WorktreeRoot, cfg); err != nil {
+					return nil, output.ExitConfig, err
+				}
+			}
+			project, projectErr := parseAll(files)
+			if projectErr != nil {
+				return nil, output.ExitConfig, projectErr
+			}
+			project = compose.FilterProfiles(project, inst.Profiles)
+			if project == nil {
+				return nil, output.ExitConfig, fmt.Errorf("failed to filter project profiles")
+			}
+			pruneEnvServices(env, serviceNames(project))
+		} else if !errors.Is(instErr, os.ErrNotExist) {
+			return nil, output.ExitConfig, instErr
+		}
+		return EnvResult{Action: "list", Instance: instanceName, Overrides: envEntries(env)}, output.ExitOK, nil
+	}
+
 	inst, err := state.LoadInstance(stateDir)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, output.ExitConfig, fmt.Errorf("no Docktree instance found for this worktree; run `docktree up` first — docktree env regenerates the existing override without reallocating ports")
@@ -90,20 +116,12 @@ func runEnv(ctx *Context) (any, int, error) {
 		return nil, output.ExitUsage, err
 	}
 
-	overridesPath := config.LocalOverridesPath(repo.WorktreeRoot, cfg.State.Directory)
-	local, err := config.LoadLocalOverrides(overridesPath)
-	if err != nil {
-		return nil, output.ExitConfig, err
-	}
 	if local.Environment == nil {
 		local.Environment = map[string]map[string]string{}
 	}
-	if cfg.Overrides.Environment == nil && options.action == "set" {
-		cfg.Overrides.Environment = map[string]map[string]string{}
-	}
 
-	// Mutate the worktree store and the merged view in lockstep so the
-	// regenerated override below matches exactly what was persisted.
+	// Mutate the worktree store so the regenerated override below matches
+	// exactly what was persisted.
 	var changed []EnvEntry
 	switch options.action {
 	case "set":
@@ -112,8 +130,7 @@ func runEnv(ctx *Context) (any, int, error) {
 			targets = knownServices
 		}
 		for _, pair := range options.pairs {
-			applyEnvSet(local.Environment, targets, pair.key, pair.value)
-			changed = append(changed, applyEnvSet(cfg.Overrides.Environment, targets, pair.key, pair.value)...)
+			changed = append(changed, applyEnvSet(local.Environment, targets, pair.key, pair.value)...)
 		}
 	case "unset":
 		for _, key := range options.keys {
@@ -122,25 +139,30 @@ func runEnv(ctx *Context) (any, int, error) {
 				targets = envServices(local.Environment)
 			}
 			removed := applyEnvUnset(local.Environment, targets, key)
-			applyEnvUnset(cfg.Overrides.Environment, targets, key)
 			// Unsetting a key that has no override is a no-op, not an error.
 			changed = append(changed, removed...)
 		}
 	}
 	// Drop stored overrides for services that no longer exist in the project.
 	pruned := pruneEnvServices(local.Environment, knownServices)
-	pruneEnvServices(cfg.Overrides.Environment, knownServices)
 
 	if len(local.Environment) == 0 {
 		local.Environment = nil
 	}
 	if len(changed) == 0 && len(pruned) == 0 {
-		return EnvResult{Action: options.action, Instance: instanceName, Overrides: envEntries(cfg.Overrides.Environment), NoChange: true}, output.ExitOK, nil
+		return EnvResult{Action: options.action, Instance: instanceName, Overrides: envEntries(local.Environment), NoChange: true}, output.ExitOK, nil
 	}
 	if err := config.WriteLocalOverrides(overridesPath, local); err != nil {
 		return nil, output.ExitConfig, err
 	}
 
+	// Reload the merged view after changing the local store. In particular,
+	// unsetting a local value must restore any project-level override from
+	// docktree.yml before regenerating the compose override.
+	cfg, err = loadMergedConfig(repo, repo.WorktreeRoot)
+	if err != nil {
+		return nil, output.ExitConfig, err
+	}
 	code, err := regenerateEnvOverride(project, cfg, repo.WorktreeRoot, stateDir, instanceName)
 	if err != nil {
 		return nil, code, err
@@ -171,7 +193,7 @@ func runEnv(ctx *Context) (any, int, error) {
 		Action:        options.action,
 		Instance:      instanceName,
 		Changed:       changed,
-		Overrides:     envEntries(cfg.Overrides.Environment),
+		Overrides:     envEntries(local.Environment),
 		Restarted:     restarted,
 		OverrideFile:  overrideFile,
 		OverridesFile: overridesPath,
@@ -184,9 +206,16 @@ func runEnv(ctx *Context) (any, int, error) {
 // re-render honestly.
 func regenerateEnvOverride(project *compose.ComposeProject, cfg *config.Config, worktreeRoot, stateDir, instanceName string) (int, error) {
 	registry := ports.NewRegistry()
+	if err := registry.Lock(); err != nil {
+		return output.ExitConflict, err
+	}
 	assignments, ok, err := registry.ExistingAssignments(instanceName, portRequests(project, cfg.Ports.BindHost))
+	unlockErr := registry.Unlock()
 	if err != nil {
 		return output.ExitConflict, err
+	}
+	if unlockErr != nil {
+		return output.ExitConflict, unlockErr
 	}
 	if !ok {
 		return output.ExitConflict, fmt.Errorf("no existing port assignments for instance %q; run `docktree up` first", instanceName)
@@ -322,6 +351,46 @@ func pruneEnvServices(env map[string]map[string]string, known []string) []string
 	return pruned
 }
 
+func cloneEnvOverrides(env map[string]map[string]string) map[string]map[string]string {
+	if len(env) == 0 {
+		return nil
+	}
+	out := make(map[string]map[string]string, len(env))
+	for service, vars := range env {
+		if len(vars) == 0 {
+			continue
+		}
+		out[service] = make(map[string]string, len(vars))
+		for key, value := range vars {
+			out[service][key] = value
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// pruneLocalEnvOverrides removes local overrides for services that are no
+// longer present in the current compose project and persists the cleanup.
+func pruneLocalEnvOverrides(worktreeRoot, stateDir string, known []string) (bool, error) {
+	path := config.LocalOverridesPath(worktreeRoot, stateDir)
+	local, err := config.LoadLocalOverrides(path)
+	if err != nil {
+		return false, err
+	}
+	if len(pruneEnvServices(local.Environment, known)) == 0 {
+		return false, nil
+	}
+	if len(local.Environment) == 0 {
+		local.Environment = nil
+	}
+	if err := config.WriteLocalOverrides(path, local); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // ---- option parsing ----------------------------------------------------------
 
 func parseEnvOptions(args []string) (envOptions, error) {
@@ -355,13 +424,13 @@ func parseEnvOptions(args []string) (envOptions, error) {
 			if service == "" {
 				return envOptions{}, fmt.Errorf("--service requires a service name")
 			}
-			options.services = append(options.services, service)
+			options.services = appendUniqueString(options.services, service)
 		case strings.HasPrefix(arg, "--restart="):
 			service := strings.TrimPrefix(arg, "--restart=")
 			if service == "" {
 				return envOptions{}, fmt.Errorf("--restart requires a service name")
 			}
-			options.restarts = append(options.restarts, service)
+			options.restarts = appendUniqueString(options.restarts, service)
 		default:
 			if strings.HasPrefix(arg, "-") {
 				return envOptions{}, fmt.Errorf("unknown env flag %q", arg)
@@ -380,10 +449,17 @@ func parseEnvOptions(args []string) (envOptions, error) {
 
 func (o *envOptions) addServiceFlag(flag, service string) {
 	if flag == "--service" {
-		o.services = append(o.services, service)
+		o.services = appendUniqueString(o.services, service)
 	} else {
-		o.restarts = append(o.restarts, service)
+		o.restarts = appendUniqueString(o.restarts, service)
 	}
+}
+
+func appendUniqueString(values []string, value string) []string {
+	if slices.Contains(values, value) {
+		return values
+	}
+	return append(values, value)
 }
 
 func (o *envOptions) addPositional(arg string) error {

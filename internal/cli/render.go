@@ -583,9 +583,9 @@ func humanRenderer() func(io.Writer, any) {
 				fmt.Fprintln(w)
 				var tbl tui.Table
 				tbl.TermWidth = tw
-				tbl.Headers = []string{"SERVICE", "VARIABLE", "VALUE"}
+				tbl.Headers = []string{"SERVICE", "VARIABLE"}
 				for _, e := range v.Overrides {
-					tbl.Rows = append(tbl.Rows, []string{e.Service, e.Key, e.Value})
+					tbl.Rows = append(tbl.Rows, []string{e.Service, e.Key})
 				}
 				fmt.Fprintln(w, tbl.RenderBorderedStyled(func(row, col int, val string) string {
 					if row == -1 {
@@ -610,10 +610,10 @@ func humanRenderer() func(io.Writer, any) {
 			for _, e := range v.Changed {
 				if v.Action == "unset" {
 					fmt.Fprintf(w, "%s Unset %s on %s %s\n",
-						tui.OKS("✓"), tui.AccentS(e.Key), tui.OKS(e.Service), tui.DimS("(was "+e.Value+")"))
+						tui.OKS("✓"), tui.AccentS(e.Key), tui.OKS(e.Service), tui.DimS("(value redacted)"))
 				} else {
-					fmt.Fprintf(w, "%s Set %s on %s to %s\n",
-						tui.OKS("✓"), tui.AccentS(e.Key), tui.OKS(e.Service), tui.DimS(e.Value))
+					fmt.Fprintf(w, "%s Set %s on %s\n",
+						tui.OKS("✓"), tui.AccentS(e.Key), tui.OKS(e.Service))
 				}
 			}
 			if v.OverrideFile != "" {
@@ -621,6 +621,8 @@ func humanRenderer() func(io.Writer, any) {
 			}
 			if len(v.Restarted) > 0 {
 				fmt.Fprintf(w, "%s Restarted %s\n", tui.OKS("✓"), tui.AccentS(strings.Join(v.Restarted, ", ")))
+			} else if len(v.Changed) > 0 {
+				fmt.Fprintf(w, "%s\n", tui.DimS("  Changes take effect on the next \"docktree up\" or when restarted with --restart."))
 			}
 		case VolumesResult:
 			if v.All {

@@ -180,7 +180,11 @@ Examples:
 Notes:
   .env and your compose files are never modified. Ports are reused from the
   running instance and never reallocated, so the stack must have been
-  started with "docktree up" first.`)
+  started with "docktree up" first.
+  "env list" shows worktree-local runtime overrides from .docktree/overrides.yml.
+  Project-level overrides.environment values remain managed by docktree.yml;
+  unsetting a local override restores that project value.
+  Environment values are never printed by env commands, including --json.`)
 }
 
 func printStopHelp(w io.Writer) {

@@ -177,10 +177,12 @@ type PortsResult struct {
 }
 
 // EnvEntry is one environment override: a variable on a single service.
+// Value is retained for internal change tracking but never serialized; env
+// values may contain credentials and must not leak through CLI output.
 type EnvEntry struct {
 	Service string `json:"service"`
 	Key     string `json:"key"`
-	Value   string `json:"value"`
+	Value   string `json:"-"`
 }
 
 // EnvResult is the native --json result of `docktree env set/unset/list`.
