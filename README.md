@@ -32,7 +32,7 @@ go install github.com/bnjoroge/docktree/cmd/docktree@latest
 Pin a version or relocate the binary via environment variables:
 
 ```bash
-VERSION=v0.1.0     curl -fsSL https://docktree.dev/install.sh | sh
+VERSION=v0.5.0     curl -fsSL https://docktree.dev/install.sh | sh
 INSTALL_DIR=~/.local/bin curl -fsSL https://docktree.dev/install.sh | sh
 ```
 
