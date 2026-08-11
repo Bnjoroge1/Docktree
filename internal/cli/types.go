@@ -176,6 +176,27 @@ type PortsResult struct {
 	Entries  []PortsEntry `json:"entries,omitempty"`
 }
 
+// EnvEntry is one environment override: a variable on a single service.
+// Value is retained for internal change tracking but never serialized; env
+// values may contain credentials and must not leak through CLI output.
+type EnvEntry struct {
+	Service string `json:"service"`
+	Key     string `json:"key"`
+	Value   string `json:"-"`
+}
+
+// EnvResult is the native --json result of `docktree env set/unset/list`.
+type EnvResult struct {
+	Action        string     `json:"action"` // "set", "unset", or "list"
+	Instance      string     `json:"instance,omitempty"`
+	Changed       []EnvEntry `json:"changed,omitempty"`
+	Overrides     []EnvEntry `json:"overrides"`
+	Restarted     []string   `json:"restarted,omitempty"`
+	OverrideFile  string     `json:"override_file,omitempty"`
+	OverridesFile string     `json:"overrides_file,omitempty"`
+	NoChange      bool       `json:"no_change,omitempty"`
+}
+
 type PortsEntry struct {
 	Instance string             `json:"instance"`
 	Ports    []ports.Assignment `json:"ports"`

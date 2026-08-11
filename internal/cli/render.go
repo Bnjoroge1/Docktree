@@ -571,6 +571,59 @@ func humanRenderer() func(io.Writer, any) {
 				}
 				return val
 			}))
+		case EnvResult:
+			if v.Action == "list" {
+				fmt.Fprintf(w, "%s %s\n", tui.BrandS("Docktree"), tui.AccentS(v.Instance))
+				if len(v.Overrides) == 0 {
+					fmt.Fprintln(w)
+					fmt.Fprintf(w, "  %s\n", tui.DimS("No environment overrides for this worktree."))
+					fmt.Fprintf(w, "  %s\n", tui.DimS("Set one with: docktree env set KEY=VALUE [--service <svc>]"))
+					break
+				}
+				fmt.Fprintln(w)
+				var tbl tui.Table
+				tbl.TermWidth = tw
+				tbl.Headers = []string{"SERVICE", "VARIABLE"}
+				for _, e := range v.Overrides {
+					tbl.Rows = append(tbl.Rows, []string{e.Service, e.Key})
+				}
+				fmt.Fprintln(w, tbl.RenderBorderedStyled(func(row, col int, val string) string {
+					if row == -1 {
+						return tui.DimS(val)
+					}
+					switch col {
+					case 0:
+						return tui.OKS(val)
+					case 1:
+						return tui.AccentS(val)
+					default:
+						return tui.DimS(val)
+					}
+				}))
+				break
+			}
+			if v.NoChange {
+				fmt.Fprintf(w, "%s No matching overrides on %s; nothing to change.\n",
+					tui.BrandS("Docktree"), tui.AccentS(v.Instance))
+				break
+			}
+			for _, e := range v.Changed {
+				if v.Action == "unset" {
+					fmt.Fprintf(w, "%s Unset %s on %s %s\n",
+						tui.OKS("✓"), tui.AccentS(e.Key), tui.OKS(e.Service), tui.DimS("(value redacted)"))
+				} else {
+					fmt.Fprintf(w, "%s Set %s on %s\n",
+						tui.OKS("✓"), tui.AccentS(e.Key), tui.OKS(e.Service))
+				}
+			}
+			if v.OverrideFile != "" {
+				fmt.Fprintf(w, "%s %s\n", tui.DimS("  Override:"), v.OverrideFile)
+			}
+			if len(v.Restarted) > 0 {
+				fmt.Fprintf(w, "%s Restarted %s\n", tui.OKS("✓"), tui.AccentS(strings.Join(v.Restarted, ", ")))
+			} else if len(v.Changed) > 0 {
+				fmt.Fprintf(w, "%s\n", tui.DimS("  Changes take effect on the next \"docktree up\" or when restarted with --restart."))
+			}
 		case VolumesResult:
 			if v.All {
 				fmt.Fprintf(w, "%s %s\n", tui.BrandS("Docktree"), tui.MutedS("volumes (all instances)"))

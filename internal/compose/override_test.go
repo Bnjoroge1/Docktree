@@ -9,6 +9,73 @@ import (
 	"github.com/bnjoroge/docktree/internal/ports"
 )
 
+func TestApplyEnvOverrides(t *testing.T) {
+	newOverride := func() *Override {
+		return &Override{Services: map[string]ServiceOverride{
+			"api":   {},
+			"web":   {Environment: map[string]string{"EXISTING": "1"}},
+			"redis": {},
+		}}
+	}
+
+	t.Run("applies to one service only", func(t *testing.T) {
+		o := newOverride()
+		ApplyEnvOverrides(o, map[string]map[string]string{
+			"api": {"CHAT_TOKENIZER_MODEL": "Qwen/Qwen3.6-35B-A3B"},
+		})
+		if got := o.Services["api"].Environment["CHAT_TOKENIZER_MODEL"]; got != "Qwen/Qwen3.6-35B-A3B" {
+			t.Fatalf("api env = %q", got)
+		}
+		if o.Services["redis"].Environment != nil {
+			t.Fatalf("redis should be untouched: %#v", o.Services["redis"].Environment)
+		}
+		if got := o.Services["web"].Environment["EXISTING"]; got != "1" {
+			t.Fatalf("web existing env clobbered: %#v", o.Services["web"].Environment)
+		}
+	})
+
+	t.Run("merges with existing environment", func(t *testing.T) {
+		o := newOverride()
+		ApplyEnvOverrides(o, map[string]map[string]string{
+			"web": {"NEW": "2"},
+		})
+		if got := o.Services["web"].Environment["EXISTING"]; got != "1" {
+			t.Fatalf("existing key lost: %#v", o.Services["web"].Environment)
+		}
+		if got := o.Services["web"].Environment["NEW"]; got != "2" {
+			t.Fatalf("new key missing: %#v", o.Services["web"].Environment)
+		}
+	})
+
+	t.Run("empty env is a no-op", func(t *testing.T) {
+		o := newOverride()
+		ApplyEnvOverrides(o, nil)
+		ApplyEnvOverrides(o, map[string]map[string]string{})
+		// Service emptied by an unset must not render an environment block.
+		ApplyEnvOverrides(o, map[string]map[string]string{"api": {}})
+		if o.Services["api"].Environment != nil {
+			t.Fatalf("expected no environment on api: %#v", o.Services["api"].Environment)
+		}
+		if o.Services["web"].Environment["EXISTING"] != "1" {
+			t.Fatalf("web clobbered by no-op apply: %#v", o.Services["web"].Environment)
+		}
+	})
+
+	t.Run("unknown service is skipped", func(t *testing.T) {
+		o := newOverride()
+		ApplyEnvOverrides(o, map[string]map[string]string{
+			"ghost": {"X": "1"},
+		})
+		if _, ok := o.Services["ghost"]; ok {
+			t.Fatalf("stale service injected into override: %#v", o.Services["ghost"])
+		}
+	})
+
+	t.Run("nil override is tolerated", func(t *testing.T) {
+		ApplyEnvOverrides(nil, map[string]map[string]string{"api": {"X": "1"}})
+	})
+}
+
 func TestGenerateOverride(t *testing.T) {
 	tests := []struct {
 		name          string

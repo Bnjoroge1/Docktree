@@ -2,6 +2,7 @@ package compose
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -105,6 +106,31 @@ func WriteOverride(override *Override, path string) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0o644)
+}
+
+// ApplyEnvOverrides merges per-service environment overrides (service ->
+// variable -> value, as stored in OverridesConfig.Environment) into the
+// generated override. Entries for services not present in the override are
+// skipped so a stale store can never inject a bogus service into the compose
+// project. A nil or empty env map leaves the override untouched.
+func ApplyEnvOverrides(override *Override, env map[string]map[string]string) {
+	if override == nil || len(env) == 0 {
+		return
+	}
+	for service, vars := range env {
+		if len(vars) == 0 {
+			continue
+		}
+		svcOverride, ok := override.Services[service]
+		if !ok {
+			continue
+		}
+		if svcOverride.Environment == nil {
+			svcOverride.Environment = make(map[string]string, len(vars))
+		}
+		maps.Copy(svcOverride.Environment, vars)
+		override.Services[service] = svcOverride
+	}
 }
 
 // GeneratePortClear returns an override that resets ports for every service

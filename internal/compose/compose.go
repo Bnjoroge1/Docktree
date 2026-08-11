@@ -46,6 +46,7 @@ type ServiceOverride struct {
 	Labels        map[string]string `yaml:"labels,omitempty"`
 	Ports         PortOverride      `yaml:"ports,omitempty"`
 	Networks      map[string]any    `yaml:"networks,omitempty"`
+	Environment   map[string]string `yaml:"environment,omitempty"`
 }
 
 type NetworkOverride struct {
