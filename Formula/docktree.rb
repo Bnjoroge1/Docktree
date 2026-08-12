@@ -7,20 +7,20 @@ class Docktree < Formula
   on_macos do
     if Hardware::CPU.arm?
       url "https://github.com/Bnjoroge1/Docktree/releases/download/v0.6.0/docktree_0.6.0_darwin_arm64.tar.gz"
-      sha256 "06f17f7d8d752f609bd10f5804e790e418fed75554e16d7de773d23b077f3a6d"
+      sha256 "879e8efd3b554ece18beba3780be2446fd951a0fd29bf66235630be65a9c5d10"
     else
       url "https://github.com/Bnjoroge1/Docktree/releases/download/v0.6.0/docktree_0.6.0_darwin_amd64.tar.gz"
-      sha256 "26892e90910d752534ba43bce1238483c850f573d3d754a24e09ceacdc92a6d2"
+      sha256 "3c7d797eb5ad73b79588d0258fc05cbcb5a8f9ee74afae8bc9be3568aac73913"
     end
   end
 
   on_linux do
     if Hardware::CPU.arm?
       url "https://github.com/Bnjoroge1/Docktree/releases/download/v0.6.0/docktree_0.6.0_linux_arm64.tar.gz"
-      sha256 "bdb1384dd44a96cc446357629b7a637a7b593a5fa3d9e682a793309317bc82b2"
+      sha256 "27debbd3198d9cfd24b994e23f4af6a5b3570aab8cae8548627ddcdfc5878175"
     else
       url "https://github.com/Bnjoroge1/Docktree/releases/download/v0.6.0/docktree_0.6.0_linux_amd64.tar.gz"
-      sha256 "b11fd3158f6528e8528c45710c0f49a951af5eec19e3990f257ea3178c9760c6"
+      sha256 "6fead934643e9f5485e526eb969e39e5dcf5190b658d6ec37209eef5b88aaec6"
     end
   end
 
