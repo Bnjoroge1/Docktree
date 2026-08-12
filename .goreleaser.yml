@@ -21,12 +21,28 @@ builds:
       - arm64
     ldflags:
       - -s -w -X github.com/bnjoroge/docktree/internal/cli.version={{.Version}}
+    hooks:
+      post:
+        # builds_info.mtime is ignored by goreleaser (never parsed for
+        # binaries), so pin the binary mtime here for reproducible archives.
+        - cmd: touch -t 200801021504.05 {{ .Path }}
+          output: true
 
 archives:
   - id: default
     formats: ["tar.gz"]
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    builds_info:
+      owner: root
+      group: root
+    files:
+      - src: README.md
+        info:
+          owner: root
+          group: root
+          mode: 0644
+          mtime: "2008-01-02T15:04:05Z"
 
 checksum:
   name_template: "checksums.txt"
