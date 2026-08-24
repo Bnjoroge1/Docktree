@@ -145,3 +145,87 @@ func TestStaleFilesSkipsMissingSource(t *testing.T) {
 		t.Fatalf("StaleFiles = %v, want empty", stale)
 	}
 }
+
+func writeTree(t *testing.T, dir string, files map[string]string) {
+	t.Helper()
+	for rel, content := range files {
+		path := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestStaleFilesDetectsChangedFileInsideDirectoryEntry(t *testing.T) {
+	source := t.TempDir()
+	target := t.TempDir()
+	tree := map[string]string{
+		"profiles/alpha.txt":    "one\n",
+		"profiles/beta.txt":     "two\n",
+		"profiles/nested/gamma": "three\n",
+	}
+	writeTree(t, source, tree)
+	writeTree(t, target, tree)
+	// Change one file and one nested file inside the directory entry.
+	if err := os.WriteFile(filepath.Join(source, "profiles", "beta.txt"), []byte("two!\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "profiles", "nested", "gamma"), []byte("three!\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Defaults()
+	cfg.Setup.Copy = []string{"profiles"}
+	stale := StaleFiles(source, target, &cfg)
+	want := []string{filepath.Join("profiles", "beta.txt"), filepath.Join("profiles", "nested", "gamma")}
+	if len(stale) != len(want) {
+		t.Fatalf("StaleFiles = %v, want %v", stale, want)
+	}
+	for i, w := range want {
+		if stale[i] != w {
+			t.Fatalf("StaleFiles[%d] = %q, want %q (all: %v)", i, stale[i], w, stale)
+		}
+	}
+}
+
+func TestStaleFilesDetectsMissingFileInsideDirectoryEntry(t *testing.T) {
+	source := t.TempDir()
+	target := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(source, "profiles"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "profiles", "alpha.txt"), []byte("one\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Target has the directory but is missing alpha.txt.
+	if err := os.MkdirAll(filepath.Join(target, "profiles"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Defaults()
+	cfg.Setup.Copy = []string{"profiles"}
+	stale := StaleFiles(source, target, &cfg)
+	if len(stale) != 1 || stale[0] != filepath.Join("profiles", "alpha.txt") {
+		t.Fatalf("StaleFiles = %v, want [%s]", stale, filepath.Join("profiles", "alpha.txt"))
+	}
+}
+
+func TestStaleFilesReturnsEmptyForIdenticalDirectoryEntry(t *testing.T) {
+	source := t.TempDir()
+	target := t.TempDir()
+	writeTree(t, source, map[string]string{
+		"profiles/alpha.txt":    "one\n",
+		"profiles/nested/gamma": "three\n",
+	})
+	writeTree(t, target, map[string]string{
+		"profiles/alpha.txt":    "one\n",
+		"profiles/nested/gamma": "three\n",
+	})
+	cfg := config.Defaults()
+	cfg.Setup.Copy = []string{"profiles"}
+	stale := StaleFiles(source, target, &cfg)
+	if len(stale) != 0 {
+		t.Fatalf("StaleFiles = %v, want empty", stale)
+	}
+}
