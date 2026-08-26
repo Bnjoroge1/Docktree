@@ -296,6 +296,28 @@ func loadMergedConfig(repo dockgit.RepoInfo, worktreeRoot string) (*config.Confi
 	return cfg, nil
 }
 
+// resolveInstanceName returns the authoritative Compose project identity for a
+// worktree. Once a worktree has created a Docktree instance, the persisted
+// project name is authoritative for the lifetime of that worktree; the
+// branch-derived name is only used before any instance state exists. Branch
+// checkouts and renames therefore never change the Compose project identity.
+func resolveInstanceName(repo dockgit.RepoInfo, cfg *config.Config) (string, error) {
+	stateDir := state.StatePath(repo.WorktreeRoot, cfg.State.Directory)
+	inst, err := state.LoadInstance(stateDir)
+	switch {
+	case err == nil && inst != nil:
+		if inst.ProjectName != "" {
+			return inst.ProjectName, nil
+		}
+		if inst.Name != "" {
+			return inst.Name, nil
+		}
+	case !errors.Is(err, os.ErrNotExist):
+		return "", err
+	}
+	return dockgit.InstanceName(dockgit.RepoName(repo.RepoRoot), dockgit.WorktreeName(repo.Branch, repo.WorktreeRoot), repo.RepoRoot, repo.WorktreeRoot), nil
+}
+
 func commonIdentity() (dockgit.RepoInfo, *config.Config, string, error) {
 	repo, err := dockgit.DetectRepo()
 	if err != nil {
@@ -305,7 +327,10 @@ func commonIdentity() (dockgit.RepoInfo, *config.Config, string, error) {
 	if err != nil {
 		return dockgit.RepoInfo{}, nil, "", err
 	}
-	instance := dockgit.InstanceName(dockgit.RepoName(repo.RepoRoot), dockgit.WorktreeName(repo.Branch, repo.WorktreeRoot), repo.RepoRoot, repo.WorktreeRoot)
+	instance, err := resolveInstanceName(repo, cfg)
+	if err != nil {
+		return dockgit.RepoInfo{}, nil, "", err
+	}
 	return repo, cfg, instance, nil
 }
 

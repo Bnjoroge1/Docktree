@@ -75,9 +75,12 @@ func runUp(ctx *Context) (any, int, error) {
 			steps.Done("Created worktree " + tui.AccentS(options.create))
 		}
 		repo = dockgit.RepoInfo{RepoRoot: repo.RepoRoot, WorktreeRoot: createdWorktree, Branch: options.create}
-		instanceName = dockgit.InstanceName(dockgit.RepoName(repo.RepoRoot), dockgit.WorktreeName(repo.Branch, repo.WorktreeRoot), repo.RepoRoot, repo.WorktreeRoot)
 
 		cfg, err = loadMergedConfig(repo, repo.WorktreeRoot)
+		if err != nil {
+			return nil, output.ExitConfig, err
+		}
+		instanceName, err = resolveInstanceName(repo, cfg)
 		if err != nil {
 			return nil, output.ExitConfig, err
 		}
@@ -567,7 +570,10 @@ func runValidate(project *compose.ComposeProject, files []string, cfg *config.Co
 			}
 		}
 	}
-	instanceName := dockgit.InstanceName(dockgit.RepoName(repo.RepoRoot), dockgit.WorktreeName(repo.Branch, repo.WorktreeRoot), repo.RepoRoot, repo.WorktreeRoot)
+	instanceName, err := resolveInstanceName(repo, cfg)
+	if err != nil {
+		return nil, output.ExitConfig, err
+	}
 	portRange, err := ports.ParseRange(cfg.Ports.Range)
 	if err != nil {
 		errs = append(errs, fmt.Sprintf("invalid port range %q: %v", cfg.Ports.Range, err))

@@ -153,6 +153,24 @@ func UpsertGlobalInstance(configDir string, inst *Instance) error {
 	if err != nil {
 		return err
 	}
+	// A worktree owns exactly one global record. When its identity changes
+	// (branch checkout or rename), drop any stale record that references the
+	// same worktree or state directory so the old identity never survives
+	// alongside the new one — duplicate records sharing a StateDirectory would
+	// let `docktree clean` remove a live worktree's state through the obsolete
+	// identity.
+	worktreeRoot := filepath.Clean(inst.WorktreeRoot)
+	stateDir := filepath.Clean(inst.StateDirectory)
+	for name, existing := range instances {
+		if name == inst.Name {
+			continue
+		}
+		matchesWorktree := worktreeRoot != "." && existing.WorktreeRoot != "" && filepath.Clean(existing.WorktreeRoot) == worktreeRoot
+		matchesState := stateDir != "." && existing.StateDirectory != "" && filepath.Clean(existing.StateDirectory) == stateDir
+		if matchesWorktree || matchesState {
+			delete(instances, name)
+		}
+	}
 	instances[inst.Name] = *inst
 	return SaveGlobalInstances(configDir, instances)
 }
