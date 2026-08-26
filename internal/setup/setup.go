@@ -178,9 +178,48 @@ func StaleFiles(sourceDir, targetDir string, cfg *config.Config) []string {
 	for _, rel := range cfg.Setup.Copy {
 		source := filepath.Join(sourceDir, rel)
 		target := filepath.Join(targetDir, rel)
+		stale = append(stale, stalePaths(source, target, rel)...)
+	}
+	return stale
+}
+
+// stalePaths compares one Setup.Copy entry between source and target and
+// returns the relative paths that need syncing. File entries are compared by
+// content hash; directory entries are walked so that individual files inside
+// them can be reported (and later copied) one by one.
+func stalePaths(source, target, rel string) []string {
+	info, err := os.Stat(source)
+	if err != nil {
+		// Source missing or unreadable: nothing to sync.
+		return nil
+	}
+	if !info.IsDir() {
 		if filesDiffer(source, target) {
-			stale = append(stale, rel)
+			return []string{rel}
 		}
+		return nil
+	}
+	var stale []string
+	err = filepath.Walk(source, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		fileRel, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+		targetPath := filepath.Join(target, fileRel)
+		if filesDiffer(path, targetPath) {
+			stale = append(stale, filepath.Join(rel, fileRel))
+		}
+		return nil
+	})
+	if err != nil {
+		// Unreadable source tree: report what was collected so far.
+		return stale
 	}
 	return stale
 }
