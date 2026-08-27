@@ -207,10 +207,14 @@ func runPorts(ctx *Context) (any, int, error) {
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	if _, err := loadConfigWithSharedWarnings(repo.RepoRoot, ctx.Stderr); err != nil {
+	cfg, err := loadConfigWithSharedWarnings(repo.RepoRoot, ctx.Stderr)
+	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	instanceName := dockgit.InstanceName(dockgit.RepoName(repo.RepoRoot), dockgit.WorktreeName(repo.Branch, repo.WorktreeRoot), repo.RepoRoot, repo.WorktreeRoot)
+	instanceName, err := resolveInstanceName(repo, cfg)
+	if err != nil {
+		return nil, output.ExitConfig, err
+	}
 	all, err := ports.NewRegistry().Load()
 	if err != nil {
 		return nil, output.ExitConfig, err

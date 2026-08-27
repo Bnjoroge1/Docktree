@@ -214,7 +214,7 @@ func applyCleanCandidates(portRegistry *ports.Registry, candidates []cleanCandid
 			return nil, err
 		}
 		if candidate.Instance != nil {
-			if err := state.RemoveStateDir(candidate.Instance); err != nil {
+			if err := state.RemoveStateDirIfUnreferenced("", candidate.Instance); err != nil {
 				return nil, err
 			}
 		}
