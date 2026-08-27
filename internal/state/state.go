@@ -159,16 +159,25 @@ func UpsertGlobalInstance(configDir string, inst *Instance) error {
 	// alongside the new one — duplicate records sharing a StateDirectory would
 	// let `docktree clean` remove a live worktree's state through the obsolete
 	// identity.
-	worktreeRoot := filepath.Clean(inst.WorktreeRoot)
-	stateDir := filepath.Clean(inst.StateDirectory)
-	for name, existing := range instances {
-		if name == inst.Name {
-			continue
-		}
-		matchesWorktree := worktreeRoot != "." && existing.WorktreeRoot != "" && filepath.Clean(existing.WorktreeRoot) == worktreeRoot
-		matchesState := stateDir != "." && existing.StateDirectory != "" && filepath.Clean(existing.StateDirectory) == stateDir
-		if matchesWorktree || matchesState {
-			delete(instances, name)
+	// Records without any path anchor (no worktree root, no state directory)
+	// cannot be attributed to a worktree and are never deduped.
+	if inst.WorktreeRoot != "" || inst.StateDirectory != "" {
+		worktreeRoot := CanonicalPath(inst.WorktreeRoot)
+		stateDir := CanonicalPath(statePath(inst.WorktreeRoot, inst.StateDirectory))
+		for name, existing := range instances {
+			if name == inst.Name {
+				continue
+			}
+			if existing.WorktreeRoot == "" && existing.StateDirectory == "" {
+				continue
+			}
+			existingWorktreeRoot := CanonicalPath(existing.WorktreeRoot)
+			existingStateDir := CanonicalPath(statePath(existing.WorktreeRoot, existing.StateDirectory))
+			matchesWorktree := worktreeRoot != "" && existingWorktreeRoot != "" && existingWorktreeRoot == worktreeRoot
+			matchesState := stateDir != "" && existingStateDir != "" && existingStateDir == stateDir
+			if matchesWorktree || matchesState {
+				delete(instances, name)
+			}
 		}
 	}
 	instances[inst.Name] = *inst
@@ -199,10 +208,7 @@ func RemoveStateDir(inst *Instance) error {
 	if inst == nil {
 		return nil
 	}
-	path := inst.StateDirectory
-	if path == "" && inst.WorktreeRoot != "" {
-		path = filepath.Join(inst.WorktreeRoot, ".docktree")
-	}
+	path := InstanceStateDir(inst)
 	if path == "" {
 		return nil
 	}
@@ -211,6 +217,76 @@ func RemoveStateDir(inst *Instance) error {
 		return nil
 	}
 	return err
+}
+
+// InstanceStateDir returns the state directory RemoveStateDir would delete for
+// inst: the persisted StateDirectory, or <worktreeRoot>/.docktree by default.
+// It is the single source of truth so cleanup guards and removal can never
+// resolve different directories.
+func InstanceStateDir(inst *Instance) string {
+	if inst == nil {
+		return ""
+	}
+	if inst.StateDirectory != "" {
+		return inst.StateDirectory
+	}
+	if inst.WorktreeRoot != "" {
+		return statePath(inst.WorktreeRoot, "")
+	}
+	return ""
+}
+
+// CanonicalPath returns an absolute, symlink-resolved form of path so
+// equivalent-but-differently-spelled paths (symlinked worktree roots, /var vs
+// /private/var on macOS) compare equal. Falls back to Abs+Clean when the path
+// does not exist.
+func CanonicalPath(path string) string {
+	if path == "" {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return filepath.Clean(resolved)
+	}
+	if abs, err := filepath.Abs(path); err == nil {
+		return filepath.Clean(abs)
+	}
+	return filepath.Clean(path)
+}
+
+// RemoveStateDirIfUnreferenced removes inst's state directory only when no
+// other global instance still references it. The ownership check runs under
+// the global-instances lock so a concurrent `up` registering the same worktree
+// cannot lose its state directory to a stale snapshot.
+func RemoveStateDirIfUnreferenced(configDir string, inst *Instance) error {
+	if inst == nil {
+		return nil
+	}
+	dir := InstanceStateDir(inst)
+	if dir == "" {
+		return nil
+	}
+	if configDir == "" {
+		configDir = GlobalConfigDir()
+	}
+	lf, err := lockFile(filepath.Join(configDir, "instances.lock"))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = unlockFile(lf) }()
+	instances, err := LoadGlobalInstances(configDir)
+	if err != nil {
+		return err
+	}
+	canonicalDir := CanonicalPath(dir)
+	for name, other := range instances {
+		if name == inst.Name {
+			continue
+		}
+		if CanonicalPath(InstanceStateDir(&other)) == canonicalDir {
+			return nil
+		}
+	}
+	return RemoveStateDir(inst)
 }
 
 func EnsureStateDir(worktreeRoot, stateDir string) error {

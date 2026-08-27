@@ -312,6 +312,7 @@ func resolveInstanceName(repo dockgit.RepoInfo, cfg *config.Config) (string, err
 		if inst.Name != "" {
 			return inst.Name, nil
 		}
+		return "", fmt.Errorf("worktree state at %s has no saved project name; refusing to derive a new identity (run `docktree clean` or remove the state directory to start fresh)", stateDir)
 	case !errors.Is(err, os.ErrNotExist):
 		return "", err
 	}

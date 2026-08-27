@@ -114,44 +114,20 @@ func TestResolveInstanceNamePropagatesCorruptState(t *testing.T) {
 	}
 }
 
-// TestStateDirOwnedByOther guards `docktree clean`: after an identity
-// rollover both the old and the new global record can point at one worktree.
-// Clean must drop the stale record without deleting the live state directory.
-func TestStateDirOwnedByOther(t *testing.T) {
-	shared := state.Instance{Name: "new", WorktreeRoot: "/wt", StateDirectory: "/wt/.docktree"}
-	instances := map[string]state.Instance{
-		"old": {Name: "old", WorktreeRoot: "/wt", StateDirectory: "/wt/.docktree"},
-		"new": shared,
+// TestResolveInstanceNameErrorsOnEmptyIdentity guards against the identity
+// fork a nameless-but-valid state record would cause: deriving a branch-based
+// name here would silently start a second Compose project next to the original
+// one, contradicting the fail-loudly behavior of the corrupt-state path.
+func TestResolveInstanceNameErrorsOnEmptyIdentity(t *testing.T) {
+	root := t.TempDir()
+	worktree := filepath.Join(root, "wt")
+	cfg := config.Defaults()
+	stateDir := state.StatePath(worktree, cfg.State.Directory)
+	if err := state.SaveInstance(stateDir, &state.Instance{Branch: "main"}); err != nil {
+		t.Fatal(err)
 	}
-
-	if !stateDirOwnedByOther(instances, "old", &state.Instance{WorktreeRoot: "/wt", StateDirectory: "/wt/.docktree"}) {
-		t.Fatal("old record should be owned by the live new record")
-	}
-	// While both records exist, the new record's dir is likewise owned by the
-	// stale record. applyCleanCandidates deletes each record from the map as
-	// it removes it, so the dir is only deleted once the last owner is gone.
-	if !stateDirOwnedByOther(instances, "new", &shared) {
-		t.Fatal("while the stale record still exists, the state dir is owned")
-	}
-
-	// Records with distinct state directories never own each other's state.
-	distinct := map[string]state.Instance{
-		"a": {Name: "a", WorktreeRoot: "/wt1", StateDirectory: "/wt1/.docktree"},
-		"b": {Name: "b", WorktreeRoot: "/wt2", StateDirectory: "/wt2/.docktree"},
-	}
-	if stateDirOwnedByOther(distinct, "a", &state.Instance{WorktreeRoot: "/wt1", StateDirectory: "/wt1/.docktree"}) {
-		t.Fatal("distinct state dirs must not be treated as shared")
-	}
-	if stateDirOwnedByOther(distinct, "a", &state.Instance{WorktreeRoot: "/wt1"}) {
-		t.Fatal("legacy record with no state dir must not claim a dir")
-	}
-
-	// Fallback: an instance without StateDirectory resolves to
-	// <worktree>/.docktree, matching how RemoveStateDir locates it.
-	legacy := map[string]state.Instance{
-		"a": {Name: "a", WorktreeRoot: "/wt", StateDirectory: "/wt/.docktree"},
-	}
-	if !stateDirOwnedByOther(legacy, "old", &state.Instance{Name: "old", WorktreeRoot: "/wt"}) {
-		t.Fatal("legacy record should resolve its default state dir")
+	repo := dockgit.RepoInfo{RepoRoot: root, WorktreeRoot: worktree, Branch: "feature/b"}
+	if _, err := resolveInstanceName(repo, &cfg); err == nil {
+		t.Fatal("expected error for state record with no saved identity")
 	}
 }

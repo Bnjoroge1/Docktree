@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -205,7 +204,6 @@ func applyCleanCandidates(portRegistry *ports.Registry, candidates []cleanCandid
 			_ = portRegistry.Unlock()
 			return nil, err
 		}
-		delete(instances, candidate.Name)
 		applied = append(applied, currentCandidate)
 	}
 	if err := portRegistry.Unlock(); err != nil {
@@ -215,44 +213,13 @@ func applyCleanCandidates(portRegistry *ports.Registry, candidates []cleanCandid
 		if _, err := docker.RemoveProjectResources(candidate.Name, includeVolumes); err != nil {
 			return nil, err
 		}
-		if candidate.Instance != nil && !stateDirOwnedByOther(instances, candidate.Name, candidate.Instance) {
-			if err := state.RemoveStateDir(candidate.Instance); err != nil {
+		if candidate.Instance != nil {
+			if err := state.RemoveStateDirIfUnreferenced("", candidate.Instance); err != nil {
 				return nil, err
 			}
 		}
 	}
 	return applied, nil
-}
-
-// stateDirOwnedByOther reports whether another global instance still
-// references the same worktree state directory as inst. After an identity
-// rollover both the old and the new record can point at one worktree; clean
-// must remove the stale record without deleting the live worktree's state.
-func stateDirOwnedByOther(instances map[string]state.Instance, excludeName string, inst *state.Instance) bool {
-	if inst == nil {
-		return false
-	}
-	dir := inst.StateDirectory
-	if dir == "" && inst.WorktreeRoot != "" {
-		dir = filepath.Join(inst.WorktreeRoot, ".docktree")
-	}
-	if dir == "" {
-		return false
-	}
-	dir = filepath.Clean(dir)
-	for name, other := range instances {
-		if name == excludeName {
-			continue
-		}
-		otherDir := other.StateDirectory
-		if otherDir == "" && other.WorktreeRoot != "" {
-			otherDir = filepath.Join(other.WorktreeRoot, ".docktree")
-		}
-		if otherDir != "" && filepath.Clean(otherDir) == dir {
-			return true
-		}
-	}
-	return false
 }
 
 func confirmClean(w io.Writer) bool {

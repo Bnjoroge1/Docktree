@@ -412,7 +412,9 @@ func TestIdentityStableAcrossBranchChanges(t *testing.T) {
 	}
 	logData := readFile(t, filepath.Join(root, "docker.log"))
 	for _, line := range strings.Split(logData, "\n") {
-		if strings.Contains(line, " up -d") && !strings.Contains(line, "-p "+project+" up -d") {
+		// --profile flags can sit between -p <project> and up -d, so check the
+		// project selector independently of the subcommand.
+		if strings.Contains(line, " up -d") && !strings.Contains(line, "-p "+project) {
 			t.Fatalf("up targeted a different project after branch switch: %s", line)
 		}
 	}

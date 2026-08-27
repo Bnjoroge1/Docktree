@@ -295,7 +295,7 @@ func runUp(ctx *Context) (any, int, error) {
 	}
 
 	if options.validate {
-		return runValidate(project, files, cfg, repo, envWarnings, profiles)
+		return runValidate(project, files, cfg, repo, instanceName, envWarnings, profiles)
 	}
 	if options.dryRun {
 		return runDryRun(project, files, cfg, repo, instanceName, envWarnings, profiles)
@@ -554,7 +554,7 @@ func cleanupFailedNetworkPoolUp(ctx *Context, registry *ports.Registry, instance
 	return errors.Join(errs...)
 }
 
-func runValidate(project *compose.ComposeProject, files []string, cfg *config.Config, repo dockgit.RepoInfo, envWarnings []compose.Warning, profiles []string) (any, int, error) {
+func runValidate(project *compose.ComposeProject, files []string, cfg *config.Config, repo dockgit.RepoInfo, instanceName string, envWarnings []compose.Warning, profiles []string) (any, int, error) {
 	var errs []string
 	if len(project.Services) == 0 {
 		errs = append(errs, "no services defined in compose file")
@@ -569,10 +569,6 @@ func runValidate(project *compose.ComposeProject, files []string, cfg *config.Co
 				errs = append(errs, fmt.Sprintf("service %q: build context %q not found", name, svc.Build.Context))
 			}
 		}
-	}
-	instanceName, err := resolveInstanceName(repo, cfg)
-	if err != nil {
-		return nil, output.ExitConfig, err
 	}
 	portRange, err := ports.ParseRange(cfg.Ports.Range)
 	if err != nil {

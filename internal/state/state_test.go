@@ -174,3 +174,74 @@ func TestUpsertGlobalInstanceKeepsLegacyRecordsWithEmptyPaths(t *testing.T) {
 		t.Fatalf("records without path info must not be deduped: %#v", got)
 	}
 }
+
+// TestUpsertGlobalInstanceResolvesRelativeStateDirs guards against a relative
+// StateDirectory on two different worktrees being treated as the same
+// directory (the comparison must resolve each against its own WorktreeRoot).
+func TestUpsertGlobalInstanceResolvesRelativeStateDirs(t *testing.T) {
+	dir := t.TempDir()
+	if err := UpsertGlobalInstance(dir, &Instance{Name: "repo-a-abc123", WorktreeRoot: filepath.Join(dir, "wt-a"), StateDirectory: ".docktree"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpsertGlobalInstance(dir, &Instance{Name: "repo-b-def456", WorktreeRoot: filepath.Join(dir, "wt-b"), StateDirectory: ".docktree"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadGlobalInstances(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("relative state dirs on distinct worktrees must not collide: %#v", got)
+	}
+}
+
+func TestInstanceStateDir(t *testing.T) {
+	if got := InstanceStateDir(nil); got != "" {
+		t.Fatalf("nil instance: got %q", got)
+	}
+	if got := InstanceStateDir(&Instance{}); got != "" {
+		t.Fatalf("no anchors: got %q", got)
+	}
+	want := filepath.Join("/wt", ".docktree")
+	if got := InstanceStateDir(&Instance{WorktreeRoot: "/wt"}); got != want {
+		t.Fatalf("default: got %q, want %q", got, want)
+	}
+	if got := InstanceStateDir(&Instance{WorktreeRoot: "/wt", StateDirectory: "/elsewhere/state"}); got != "/elsewhere/state" {
+		t.Fatalf("persisted: got %q", got)
+	}
+}
+
+func TestRemoveStateDirIfUnreferenced(t *testing.T) {
+	dir := t.TempDir()
+	shared := filepath.Join(dir, "wt", ".docktree")
+	if err := os.MkdirAll(filepath.Join(shared, "generated"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	live := Instance{Name: "repo-feature-b-def456", WorktreeRoot: filepath.Join(dir, "wt"), StateDirectory: shared}
+	stale := Instance{Name: "repo-feature-a-abc123", WorktreeRoot: filepath.Join(dir, "wt"), StateDirectory: shared}
+	// Simulate the pre-fix rollover: both records coexist in the store,
+	// pointing at one state directory (the dedupe in UpsertGlobalInstance
+	// would prevent this going forward).
+	if err := SaveGlobalInstances(dir, map[string]Instance{"repo-feature-b-def456": live, "repo-feature-a-abc123": stale}); err != nil {
+		t.Fatal(err)
+	}
+	// The stale record's dir is still owned by the live record.
+	if err := RemoveStateDirIfUnreferenced(dir, &stale); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(shared); err != nil {
+		t.Fatalf("live state dir was removed: %v", err)
+	}
+
+	// A record whose dir no other instance references is removed.
+	orphan := Instance{Name: "repo-orphan-000000", WorktreeRoot: filepath.Join(dir, "gone"), StateDirectory: filepath.Join(dir, "gone", ".docktree")}
+	if err := os.MkdirAll(orphan.StateDirectory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveStateDirIfUnreferenced(dir, &orphan); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(orphan.StateDirectory); !os.IsNotExist(err) {
+		t.Fatalf("unreferenced state dir was not removed: %v", err)
+	}
+}
