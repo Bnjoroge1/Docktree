@@ -273,3 +273,38 @@ func TestScaffoldOmitsEmptySlices(t *testing.T) {
 		t.Fatalf("scaffolded YAML should keep non-empty defaults like 'copy:', got:\n%s", s)
 	}
 }
+
+func TestDiscoverRoot(t *testing.T) {
+	stop := t.TempDir()
+	nested := filepath.Join(stop, "project-a", "packages", "pkg1")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := DiscoverRoot(nested, stop); ok {
+		t.Fatal("expected no config before any file is written")
+	}
+
+	projectA := filepath.Join(stop, "project-a")
+	if err := os.WriteFile(filepath.Join(projectA, FileName), []byte("compose: {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stop, FileName), []byte("compose: {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Nearest wins, even with a root config present.
+	if got, ok := DiscoverRoot(nested, stop); !ok || got != projectA {
+		t.Fatalf("DiscoverRoot(nested) = %q, %v; want %q", got, ok, projectA)
+	}
+	if got, ok := DiscoverRoot(stop, stop); !ok || got != stop {
+		t.Fatalf("DiscoverRoot(stop) = %q, %v; want %q", got, ok, stop)
+	}
+	// The walk never escapes stopDir.
+	outside := filepath.Join(t.TempDir(), "elsewhere")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := DiscoverRoot(outside, stop); !ok || got != stop {
+		t.Fatalf("DiscoverRoot(outside) = %q, %v; want %q", got, ok, stop)
+	}
+}

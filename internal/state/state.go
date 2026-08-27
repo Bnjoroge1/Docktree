@@ -41,12 +41,15 @@ func unlockFile(f *os.File) error {
 
 // Instance records the local metadata Docktree needs to manage one worktree.
 type Instance struct {
-	Name            string    `json:"name"`
-	ProjectName     string    `json:"project_name"`
-	RepoRoot        string    `json:"repo_root"`
-	WorktreeRoot    string    `json:"worktree_root"`
-	StateDirectory  string    `json:"state_directory,omitempty"`
-	Branch          string    `json:"branch"`
+	Name           string `json:"name"`
+	ProjectName    string `json:"project_name"`
+	RepoRoot       string `json:"repo_root"`
+	WorktreeRoot   string `json:"worktree_root"`
+	StateDirectory string `json:"state_directory,omitempty"`
+	Branch         string `json:"branch"`
+	// Subpath is the slash-separated subproject path within WorktreeRoot that
+	// owns this instance. Empty means the repository-root project.
+	Subpath         string    `json:"subpath,omitempty"`
 	CreatedAt       time.Time `json:"created_at"`
 	LastActiveAt    time.Time `json:"last_active_at"`
 	ComposeFileHash string    `json:"compose_file_hash"`
@@ -153,12 +156,13 @@ func UpsertGlobalInstance(configDir string, inst *Instance) error {
 	if err != nil {
 		return err
 	}
-	// A worktree owns exactly one global record. When its identity changes
-	// (branch checkout or rename), drop any stale record that references the
-	// same worktree or state directory so the old identity never survives
-	// alongside the new one — duplicate records sharing a StateDirectory would
-	// let `docktree clean` remove a live worktree's state through the obsolete
-	// identity.
+	// A worktree owns exactly one global record per subproject. When an
+	// identity changes (branch checkout or rename), drop any stale record that
+	// references the same worktree+subproject or the same state directory so the
+	// old identity never survives alongside the new one — duplicate records
+	// sharing a StateDirectory would let `docktree clean` remove a live
+	// worktree's state through the obsolete identity. Independent subprojects
+	// share a worktree root legitimately and must never evict each other.
 	// Records without any path anchor (no worktree root, no state directory)
 	// cannot be attributed to a worktree and are never deduped.
 	if inst.WorktreeRoot != "" || inst.StateDirectory != "" {
@@ -173,7 +177,7 @@ func UpsertGlobalInstance(configDir string, inst *Instance) error {
 			}
 			existingWorktreeRoot := CanonicalPath(existing.WorktreeRoot)
 			existingStateDir := CanonicalPath(statePath(existing.WorktreeRoot, existing.StateDirectory))
-			matchesWorktree := worktreeRoot != "" && existingWorktreeRoot != "" && existingWorktreeRoot == worktreeRoot
+			matchesWorktree := worktreeRoot != "" && existingWorktreeRoot != "" && existingWorktreeRoot == worktreeRoot && existing.Subpath == inst.Subpath
 			matchesState := stateDir != "" && existingStateDir != "" && existingStateDir == stateDir
 			if matchesWorktree || matchesState {
 				delete(instances, name)

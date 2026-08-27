@@ -12,6 +12,7 @@ import (
 	"github.com/bnjoroge/docktree/internal/compose"
 	"github.com/bnjoroge/docktree/internal/config"
 	"github.com/bnjoroge/docktree/internal/docker"
+	dockgit "github.com/bnjoroge/docktree/internal/git"
 	"github.com/bnjoroge/docktree/internal/output"
 	"github.com/bnjoroge/docktree/internal/ports"
 	"github.com/bnjoroge/docktree/internal/state"
@@ -45,13 +46,13 @@ func runEnv(ctx *Context) (any, int, error) {
 		return envHelpDoc(), output.ExitOK, nil
 	}
 
-	repo, cfg, instanceName, err := commonIdentity()
+	repo, cfg, instanceName, err := commonIdentity(ctx)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
 
-	stateDir := state.StatePath(repo.WorktreeRoot, cfg.State.Directory)
-	overridesPath := config.LocalOverridesPath(repo.WorktreeRoot, cfg.State.Directory)
+	stateDir := state.StatePath(repo.ProjectRoot, cfg.State.Directory)
+	overridesPath := config.LocalOverridesPath(repo.ProjectRoot, cfg.State.Directory)
 	local, err := config.LoadLocalOverrides(overridesPath)
 	if err != nil {
 		return nil, output.ExitConfig, err
@@ -62,7 +63,7 @@ func runEnv(ctx *Context) (any, int, error) {
 		if inst, instErr := state.LoadInstance(stateDir); instErr == nil {
 			files := inst.ComposeFiles
 			if len(files) == 0 {
-				if files, err = composeFiles(repo.WorktreeRoot, cfg); err != nil {
+				if files, err = composeFiles(repo.ProjectRoot, cfg); err != nil {
 					return nil, output.ExitConfig, err
 				}
 			}
@@ -94,7 +95,7 @@ func runEnv(ctx *Context) (any, int, error) {
 	// ComposeFiles was persisted.
 	files := inst.ComposeFiles
 	if len(files) == 0 {
-		if files, err = composeFiles(repo.WorktreeRoot, cfg); err != nil {
+		if files, err = composeFiles(repo.ProjectRoot, cfg); err != nil {
 			return nil, output.ExitConfig, err
 		}
 	}
@@ -159,11 +160,11 @@ func runEnv(ctx *Context) (any, int, error) {
 	// Reload the merged view after changing the local store. In particular,
 	// unsetting a local value must restore any project-level override from
 	// docktree.yml before regenerating the compose override.
-	cfg, err = loadMergedConfig(repo, repo.WorktreeRoot)
+	cfg, err = loadMergedConfig(repo)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	code, err := regenerateEnvOverride(project, cfg, repo.WorktreeRoot, stateDir, instanceName)
+	code, err := regenerateEnvOverride(project, cfg, repo, stateDir, instanceName)
 	if err != nil {
 		return nil, code, err
 	}
@@ -204,7 +205,7 @@ func runEnv(ctx *Context) (any, int, error) {
 // ports already allocated to this instance. It never reallocates: without
 // existing assignments the stack has never been up, so there is nothing to
 // re-render honestly.
-func regenerateEnvOverride(project *compose.ComposeProject, cfg *config.Config, worktreeRoot, stateDir, instanceName string) (int, error) {
+func regenerateEnvOverride(project *compose.ComposeProject, cfg *config.Config, repo dockgit.RepoInfo, stateDir, instanceName string) (int, error) {
 	registry := ports.NewRegistry()
 	if err := registry.Lock(); err != nil {
 		return output.ExitConflict, err
@@ -220,7 +221,7 @@ func regenerateEnvOverride(project *compose.ComposeProject, cfg *config.Config, 
 	if !ok {
 		return output.ExitConflict, fmt.Errorf("no existing port assignments for instance %q; run `docktree up` first", instanceName)
 	}
-	override, err := compose.GenerateOverride(project, instanceName, assignments, repoRootVolumesShare())
+	override, err := compose.GenerateOverride(project, instanceName, assignments, canonicalVolumesShare(repo))
 	if err != nil {
 		return output.ExitConfig, err
 	}

@@ -707,7 +707,7 @@ func TestEnsureCreateComposeInputsCommittedRejectsUntrackedFile(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compose.Files = []string{"infra/compose.tokenizer-test.yml"}
 
-	err := ensureCreateComposeInputsCommitted(repo, repo, &cfg, "", false)
+	err := ensureCreateComposeInputsCommitted(dockgit.RepoInfo{RepoRoot: repo, WorktreeRoot: repo}.WithSubpath(""), &cfg, "", false)
 	if err == nil {
 		t.Fatal("expected untracked compose file to fail")
 	}
@@ -727,7 +727,7 @@ func TestEnsureCreateComposeInputsCommittedAllowsCommittedFile(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compose.Files = []string{"compose.yml"}
 
-	if err := ensureCreateComposeInputsCommitted(repo, repo, &cfg, "", false); err != nil {
+	if err := ensureCreateComposeInputsCommitted(dockgit.RepoInfo{RepoRoot: repo, WorktreeRoot: repo}.WithSubpath(""), &cfg, "", false); err != nil {
 		t.Fatalf("expected committed compose file to pass: %v", err)
 	}
 }

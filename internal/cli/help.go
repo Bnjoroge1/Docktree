@@ -12,7 +12,7 @@ func printHelp(w io.Writer) {
 	maxCmd := 9
 	fmt.Fprintf(w, "%s\n\n", tui.MutedS("docktree coordinates Docker Compose services across git worktrees."))
 	fmt.Fprintf(w, "%s\n", tui.TextS("Usage:"))
-	fmt.Fprintf(w, "  %s\n\n", tui.AccentS("docktree [--json] <command>"))
+	fmt.Fprintf(w, "  %s\n\n", tui.AccentS("docktree [--json] [--config PATH] <command>"))
 	fmt.Fprintf(w, "%s\n", tui.TextS("Commands:"))
 	printHelpCmd(w, maxCmd, "build", "Pass through to docker compose build")
 	printHelpCmd(w, maxCmd, "clean", "Remove stale Docktree-managed resources")
@@ -144,8 +144,10 @@ Stop the current worktree's Compose project, or specific services.
 Options:
   -v, --volumes  Drop per-worktree tenant databases and Docker volumes.
                  Data is permanently deleted.
-  -a, --all      Apply to all worktree instances in this repository.
+  -a, --all      Apply to all worktree instances of the selected project.
                  Combine with -v to drop volumes across all worktrees at once.
+  --all-projects Like --all, but across every subproject in the repository
+                 rather than only the selected one.
   --dry-run      Show what would be stopped without making changes
   -h, --help     Show this help text
 

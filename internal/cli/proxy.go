@@ -77,7 +77,7 @@ func runProxy(ctx *Context) (any, int, error) {
 	}
 
 	cfg := config.Defaults()
-	if repo := loadRepoConfig(); repo != nil {
+	if repo := loadRepoConfig(ctx); repo != nil {
 		cfg = *repo
 	}
 
@@ -123,9 +123,9 @@ func runProxy(ctx *Context) (any, int, error) {
 				fmt.Fprintf(ctx.Stdout, "  %s → %s\n",
 					tui.URLS(fmt.Sprintf("http://%s.localhost", name)),
 					tui.MutedS(backend))
-				}
 			}
 		}
+	}
 
 	if ctx.Renderer.JSON {
 		// Emit startup JSON once the listener is bound. The ready callback
@@ -158,9 +158,15 @@ func runProxy(ctx *Context) (any, int, error) {
 	return ProxyResult{Addr: addr, Routes: routes, Running: true}, output.ExitOK, nil
 }
 
-// loadRepoConfig tries to load docktree.yml from the current directory.
-func loadRepoConfig() *config.Config {
-	cfg, err := config.Load(".")
+// loadRepoConfig loads the docktree.yml of the project owning the current
+// directory, for proxy defaults. It falls back to the working directory when
+// not inside a git repository.
+func loadRepoConfig(ctx *Context) *config.Config {
+	dir := "."
+	if repo, err := resolveRepo(ctx.ConfigPath); err == nil {
+		dir = canonicalConfigRoot(repo)
+	}
+	cfg, err := config.Load(dir)
 	if err != nil {
 		return nil
 	}

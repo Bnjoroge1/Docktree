@@ -30,6 +30,14 @@ docktree <cmd> --help      # per-command flags, authoritative
 docktree --json <cmd> [args]
 ```
 
+`--config PATH` is the other global flag, also before the subcommand. It picks
+one subproject's `docktree.yml` in a monorepo instead of the nearest one found
+by walking up from the current directory:
+
+```bash
+docktree --json --config project-a/docktree.yml up
+```
+
 Two categories — know which you're calling before parsing:
 
 | Category | Commands | `--json` |
@@ -93,6 +101,18 @@ Exit codes: `0` ok, `1` general, `2` usage, `3` config, `4` docker,
   unused Docker networks. `up` now cleans partial resources after this failure.
 - **Propagate setup files** (`.env`, etc.) to every worktree:
   `docktree --json sync`.
+- **Monorepos with several independent projects**: a repository may contain one
+  `docktree.yml` per subproject. Every command operates on the nearest one,
+  walking up from the current directory to the worktree root, so `cd project-a`
+  then `docktree up` starts only `project-a`, and `project-b` can run at the
+  same time in the same worktree. Compose files, setup files, and the state
+  directory resolve from that subproject root. `UpResult.instance.subpath`
+  reports which project a command acted on (absent for root-level projects).
+  Prefer `cd`ing into the project, or pass `--config <path>`; never assume a
+  single repository-wide instance.
+- **Scoped teardown**: `docktree down --all` covers every worktree instance of
+  the *selected* project. Use `docktree down --all-projects` only when the user
+  really wants every subproject in the repository stopped.
 - **First-time hint**: when `docktree up` starts services in a worktree that
   has no `docktree.yml` and the compose file contains shareable services
   (postgres, redis, minio, etc.), the human-readable output includes a

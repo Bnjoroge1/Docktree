@@ -117,6 +117,49 @@ volumes:
     - cache-data   # share this volume across worktrees
 ```
 
+### Monorepos with multiple independent projects
+
+A repository can hold several independent `docktree.yml` files, one per
+subproject. Each is its own Docktree project with its own Compose identity,
+network, ports, state, and lifecycle:
+
+```text
+repo/
+├── project-a/
+│   ├── docktree.yml
+│   ├── compose.yml
+│   └── packages/a1/
+└── project-b/
+    ├── docktree.yml
+    └── compose.yml
+```
+
+Commands select the **nearest** `docktree.yml`, walking up from the current
+directory to the worktree root:
+
+```bash
+cd project-a && docktree up            # starts project-a only
+cd project-b && docktree up            # runs alongside project-a
+cd project-a/packages/a1 && docktree up   # still project-a
+```
+
+`compose.files`, setup files, `.env` files, and the state directory all resolve
+from the selected subproject root, so `project-a/.docktree/` and
+`project-b/.docktree/` stay independent — including across multiple git
+worktrees.
+
+Select a project explicitly with the global `--config` flag:
+
+```bash
+docktree --config project-a/docktree.yml up
+docktree --config project-b status
+```
+
+Scoped commands stay scoped: `docktree down --all` in `project-a` stops every
+worktree instance *of project-a*. Use `--all-projects` for repository-wide
+behavior. Repositories with a single root-level `docktree.yml` are unaffected —
+identities, ports, and state paths are unchanged.
+
 ### Shared databases and secret wrappers
 
 With `shared.services` and `tenancy: per_database`, Docktree rewrites database URLs that are visible as Compose environment variables. If your app builds `DATABASE_URL` inside a runtime shell command (Infisical, Doppler, Vault, etc.), Docktree cannot safely rewrite it — prefer reading a Docktree-provided `DATABASE_URL` from the environment, have the wrapper respect an existing one, or fall back to isolated per-worktree database containers.

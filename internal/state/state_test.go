@@ -158,6 +158,68 @@ func TestUpsertGlobalInstanceKeepsDistinctWorktrees(t *testing.T) {
 	}
 }
 
+// TestUpsertGlobalInstanceKeepsSiblingSubprojects is the regression test for
+// issue #61: independent subprojects legitimately share one worktree root, so
+// registering one must never evict the other.
+func TestUpsertGlobalInstanceKeepsSiblingSubprojects(t *testing.T) {
+	dir := t.TempDir()
+	worktree := filepath.Join(dir, "wt")
+	for _, sub := range []string{"project-a", "project-b"} {
+		inst := &Instance{
+			Name:           "repo-" + sub + "-main-abc123",
+			WorktreeRoot:   worktree,
+			Subpath:        sub,
+			StateDirectory: filepath.Join(worktree, sub, ".docktree"),
+		}
+		if err := UpsertGlobalInstance(dir, inst); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := LoadGlobalInstances(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("sibling subprojects must keep separate records: %#v", got)
+	}
+
+	// A root-scoped record in the same worktree is a third, distinct project.
+	if err := UpsertGlobalInstance(dir, &Instance{
+		Name:           "repo-main-def456",
+		WorktreeRoot:   worktree,
+		StateDirectory: filepath.Join(worktree, ".docktree"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ = LoadGlobalInstances(dir); len(got) != 3 {
+		t.Fatalf("root project must not evict subprojects: %#v", got)
+	}
+
+	// Re-registering one subproject under a new identity still evicts only its
+	// own stale record.
+	if err := UpsertGlobalInstance(dir, &Instance{
+		Name:           "repo-project-a-feature-999999",
+		WorktreeRoot:   worktree,
+		Subpath:        "project-a",
+		StateDirectory: filepath.Join(worktree, "project-a", ".docktree"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err = LoadGlobalInstances(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("rename must replace only the same subproject record: %#v", got)
+	}
+	if _, ok := got["repo-project-a-main-abc123"]; ok {
+		t.Fatal("stale project-a identity survived")
+	}
+	if _, ok := got["repo-project-b-main-abc123"]; !ok {
+		t.Fatal("project-b record was evicted by project-a rename")
+	}
+}
+
 func TestUpsertGlobalInstanceKeepsLegacyRecordsWithEmptyPaths(t *testing.T) {
 	dir := t.TempDir()
 	if err := UpsertGlobalInstance(dir, &Instance{Name: "repo-a-abc123"}); err != nil {

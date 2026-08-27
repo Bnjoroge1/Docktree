@@ -7,7 +7,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/bnjoroge/docktree/internal/config"
 	"github.com/bnjoroge/docktree/internal/docker"
 	dockgit "github.com/bnjoroge/docktree/internal/git"
 	"github.com/bnjoroge/docktree/internal/output"
@@ -24,18 +23,18 @@ func runDown(ctx *Context) (any, int, error) {
 	if options.help {
 		return downHelpDoc(), output.ExitOK, nil
 	}
-	repo, err := dockgit.DetectRepo()
+	repo, err := resolveRepo(ctx.ConfigPath)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
 	if options.all {
 		return runDownAll(ctx, options, &repo)
 	}
-	cfg, err := config.Load(repo.RepoRoot)
+	cfg, err := loadCanonicalConfig(repo)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	stateDir := state.StatePath(repo.WorktreeRoot, cfg.State.Directory)
+	stateDir := state.StatePath(repo.ProjectRoot, cfg.State.Directory)
 	inst, err := state.LoadInstance(stateDir)
 	if errors.Is(err, os.ErrNotExist) {
 		return DownResult{AlreadyStopped: true}, output.ExitNoop, nil
@@ -43,7 +42,7 @@ func runDown(ctx *Context) (any, int, error) {
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	composeFiles := activeComposeFiles(repo.WorktreeRoot, cfg, inst)
+	composeFiles := activeComposeFiles(repo.ProjectRoot, cfg, inst)
 	if options.dryRun {
 		services := options.services
 		if len(services) == 0 {
@@ -75,7 +74,7 @@ func runDown(ctx *Context) (any, int, error) {
 	}
 	var droppedTenants []string
 	if options.volumes && len(cfg.Shared.Services) > 0 {
-		plan, planErr := buildPlatformPlan("")
+		plan, planErr := buildPlatformPlan(canonicalConfigRoot(repo), repo.Subpath)
 		if planErr != nil {
 			return nil, output.ExitConfig, planErr
 		}
@@ -128,9 +127,15 @@ func runDownAll(ctx *Context, options downOptions, repo *dockgit.RepoInfo) (any,
 	var repoInstances []*state.Instance
 	for i := range instances {
 		inst := instances[i]
-		if inst.RepoRoot == repo.RepoRoot {
-			repoInstances = append(repoInstances, &inst)
+		if inst.RepoRoot != repo.RepoRoot {
+			continue
 		}
+		// --all means every worktree of the selected subproject; --all-projects
+		// widens it to every subproject in the repository.
+		if !options.allProjects && inst.Subpath != repo.Subpath {
+			continue
+		}
+		repoInstances = append(repoInstances, &inst)
 	}
 	if len(repoInstances) == 0 {
 		return DownResult{AlreadyStopped: true}, output.ExitNoop, nil
@@ -151,12 +156,12 @@ func runDownAll(ctx *Context, options downOptions, repo *dockgit.RepoInfo) (any,
 	var allDroppedVolumes []string
 	var stoppedInstances []string
 	for _, inst := range repoInstances {
-		cfg, err := config.Load(inst.RepoRoot)
+		cfg, err := loadInstanceConfig(inst)
 		if err != nil {
 			fmt.Fprintf(ctx.Stderr, "warning: skipping %s: %v\n", inst.Name, err)
 			continue
 		}
-		composeFiles := activeComposeFiles(inst.WorktreeRoot, cfg, inst)
+		composeFiles := activeComposeFiles(instanceProjectRoot(inst), cfg, inst)
 		runningState, err := composeRunStateForInstance(inst, cfg)
 		if err != nil {
 			fmt.Fprintf(ctx.Stderr, "warning: skipping %s: %v\n", inst.Name, err)
@@ -169,7 +174,7 @@ func runDownAll(ctx *Context, options downOptions, repo *dockgit.RepoInfo) (any,
 			steps.Header("Stopping services…", inst.ProjectName)
 		}
 		if options.volumes && len(cfg.Shared.Services) > 0 {
-			plan, planErr := buildPlatformPlan("")
+			plan, planErr := buildPlatformPlan(instanceConfigRoot(inst), inst.Subpath)
 			if planErr == nil {
 				for _, binding := range tenantBindingsForInstance(plan, inst) {
 					fmt.Fprintf(ctx.Stderr, "Dropping tenant database: %s\n", binding.TenantDB)
@@ -213,7 +218,7 @@ func runDownAll(ctx *Context, options downOptions, repo *dockgit.RepoInfo) (any,
 			}
 		}
 		inst.LastActiveAt = time.Now().UTC()
-		stateDir := state.StatePath(inst.WorktreeRoot, cfg.State.Directory)
+		stateDir := state.StatePath(instanceProjectRoot(inst), cfg.State.Directory)
 		if err := state.SaveInstance(stateDir, inst); err != nil {
 			fmt.Fprintf(ctx.Stderr, "warning: failed to save state for %s: %v\n", inst.Name, err)
 		}
@@ -236,15 +241,15 @@ func runStop(ctx *Context) (any, int, error) {
 	if options.help {
 		return stopHelpDoc(), output.ExitOK, nil
 	}
-	repo, err := dockgit.DetectRepo()
+	repo, err := resolveRepo(ctx.ConfigPath)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	cfg, err := config.Load(repo.RepoRoot)
+	cfg, err := loadCanonicalConfig(repo)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	stateDir := state.StatePath(repo.WorktreeRoot, cfg.State.Directory)
+	stateDir := state.StatePath(repo.ProjectRoot, cfg.State.Directory)
 	inst, err := state.LoadInstance(stateDir)
 	if errors.Is(err, os.ErrNotExist) {
 		return StopResult{AlreadyStopped: true}, output.ExitNoop, nil
@@ -252,7 +257,7 @@ func runStop(ctx *Context) (any, int, error) {
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	composeFiles := activeComposeFiles(repo.WorktreeRoot, cfg, inst)
+	composeFiles := activeComposeFiles(repo.ProjectRoot, cfg, inst)
 	if options.dryRun {
 		services := options.services
 		if len(services) == 0 {

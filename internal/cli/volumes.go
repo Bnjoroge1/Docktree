@@ -42,7 +42,7 @@ func runVolumes(ctx *Context) (any, int, error) {
 		return VolumesResult{All: true, Entries: entries}, output.ExitOK, nil
 	}
 
-	_, _, instanceName, err := commonIdentity()
+	_, _, instanceName, err := commonIdentity(ctx)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}

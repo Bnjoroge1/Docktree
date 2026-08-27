@@ -11,13 +11,13 @@ import (
 	"sort"
 	"strings"
 
-	composetypes "github.com/compose-spec/compose-go/v2/types"
 	"github.com/bnjoroge/docktree/internal/compose"
 	"github.com/bnjoroge/docktree/internal/config"
 	dockgit "github.com/bnjoroge/docktree/internal/git"
 	"github.com/bnjoroge/docktree/internal/output"
 	"github.com/bnjoroge/docktree/internal/setup"
 	"github.com/bnjoroge/docktree/internal/tui"
+	composetypes "github.com/compose-spec/compose-go/v2/types"
 	"gopkg.in/yaml.v3"
 )
 
@@ -59,16 +59,18 @@ func runInit(ctx *Context) (any, int, error) {
 		return nil, output.ExitUsage, fmt.Errorf("--apply and --dry-run are mutually exclusive")
 	}
 
-	// Resolve to main repo, not current worktree — config lives there.
+	// init creates a new project, so it targets the current directory rather
+	// than discovering an existing docktree.yml. The write always lands in the
+	// main checkout (config lives there) at the same relative path as cwd
+	// inside the current worktree.
 	repo, err := dockgit.DetectRepo()
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	mainRoot, err := dockgit.MainRepoRootForPath(repo.WorktreeRoot)
-	if err == nil && mainRoot != "" {
-		repo.RepoRoot = mainRoot
+	cfgRoot, err := initConfigRoot(repo, ctx.ConfigPath)
+	if err != nil {
+		return nil, output.ExitConfig, err
 	}
-	cfgRoot := repo.RepoRoot
 
 	cfg, err := config.Load(cfgRoot)
 	if err != nil {
@@ -409,6 +411,7 @@ func detectSymlinkableDirs(dir string) []string {
 	sort.Strings(found)
 	return found
 }
+
 // A consumer service running through a secrets wrapper (infisical run,
 // doppler run, etc.) means the DB URL is injected by the wrapper and
 // invisible to Docktree. Warn when any consumer's command/entrypoint

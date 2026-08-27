@@ -191,13 +191,50 @@ func Load(dir string) (*Config, error) {
 	return load(dir, true)
 }
 
+// FileName is the per-project Docktree configuration file name.
+const FileName = "docktree.yml"
+
+// DiscoverRoot walks upward from startDir looking for the nearest directory
+// that contains a docktree.yml, stopping after stopDir (inclusive). It returns
+// the directory holding the configuration and whether one was found.
+//
+// startDir must be inside stopDir; when it is not, only stopDir is examined.
+func DiscoverRoot(startDir, stopDir string) (string, bool) {
+	stop := filepath.Clean(stopDir)
+	dir := filepath.Clean(startDir)
+	if !withinDir(stop, dir) {
+		dir = stop
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, FileName)); err == nil {
+			return dir, true
+		}
+		if dir == stop {
+			return "", false
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", false
+		}
+		dir = parent
+	}
+}
+
+// withinDir reports whether path is root or nested under it.
+func withinDir(root, path string) bool {
+	if path == root {
+		return true
+	}
+	return strings.HasPrefix(path, root+string(filepath.Separator))
+}
+
 func LoadUnvalidated(dir string) (*Config, error) {
 	return load(dir, false)
 }
 
 func load(dir string, validateShared bool) (*Config, error) {
 	cfg := Defaults()
-	path := filepath.Join(dir, "docktree.yml")
+	path := filepath.Join(dir, FileName)
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return &cfg, nil
@@ -222,7 +259,7 @@ func load(dir string, validateShared bool) (*Config, error) {
 }
 
 func Scaffold(dir string, cfg *Config) (bool, error) {
-	path := filepath.Join(dir, "docktree.yml")
+	path := filepath.Join(dir, FileName)
 	if _, err := os.Stat(path); err == nil {
 		return false, nil
 	}

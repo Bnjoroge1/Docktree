@@ -18,14 +18,14 @@ func TestResolveInstanceNamePrefersSavedProjectIdentity(t *testing.T) {
 	root := t.TempDir()
 	worktree := filepath.Join(root, "worktrees", "feature-a")
 	cfg := config.Defaults()
-	repo := dockgit.RepoInfo{RepoRoot: root, WorktreeRoot: worktree, Branch: "feature/a"}
+	repo := dockgit.RepoInfo{RepoRoot: root, WorktreeRoot: worktree, Branch: "feature/a"}.WithSubpath("")
 
 	// No instance state yet: identity is derived from the current branch.
 	first, err := resolveInstanceName(repo, &cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := dockgit.InstanceName(dockgit.RepoName(root), dockgit.WorktreeName("feature/a", worktree), root, worktree)
+	want := dockgit.InstanceName(dockgit.RepoName(root), dockgit.WorktreeName("feature/a", worktree), root, worktree, "")
 	if first != want {
 		t.Fatalf("pre-state name = %q, want %q", first, want)
 	}
@@ -84,7 +84,7 @@ func TestResolveInstanceNameFallsBackToLegacyNameField(t *testing.T) {
 	if err := state.SaveInstance(stateDir, &state.Instance{Name: legacy, Branch: "main"}); err != nil {
 		t.Fatal(err)
 	}
-	repo := dockgit.RepoInfo{RepoRoot: root, WorktreeRoot: worktree, Branch: "other/branch"}
+	repo := dockgit.RepoInfo{RepoRoot: root, WorktreeRoot: worktree, Branch: "other/branch"}.WithSubpath("")
 	got, err := resolveInstanceName(repo, &cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -108,7 +108,7 @@ func TestResolveInstanceNamePropagatesCorruptState(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(stateDir, "state.json"), []byte("{not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	repo := dockgit.RepoInfo{RepoRoot: root, WorktreeRoot: worktree, Branch: "main"}
+	repo := dockgit.RepoInfo{RepoRoot: root, WorktreeRoot: worktree, Branch: "main"}.WithSubpath("")
 	if _, err := resolveInstanceName(repo, &cfg); err == nil {
 		t.Fatal("expected error for corrupt state.json")
 	}
@@ -126,7 +126,7 @@ func TestResolveInstanceNameErrorsOnEmptyIdentity(t *testing.T) {
 	if err := state.SaveInstance(stateDir, &state.Instance{Branch: "main"}); err != nil {
 		t.Fatal(err)
 	}
-	repo := dockgit.RepoInfo{RepoRoot: root, WorktreeRoot: worktree, Branch: "feature/b"}
+	repo := dockgit.RepoInfo{RepoRoot: root, WorktreeRoot: worktree, Branch: "feature/b"}.WithSubpath("")
 	if _, err := resolveInstanceName(repo, &cfg); err == nil {
 		t.Fatal("expected error for state record with no saved identity")
 	}

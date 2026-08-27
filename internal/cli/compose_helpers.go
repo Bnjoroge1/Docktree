@@ -105,7 +105,7 @@ func composeFiles(dir string, cfg *config.Config) ([]string, error) {
 			}
 			found = []string{selected}
 		}
-		}
+	}
 
 	// compose-go default behavior (including parent directories) is used
 	// as a last resort to match standard docker compose upward-walk behavior.
@@ -249,7 +249,7 @@ const (
 )
 
 func composeRunStateForInstance(inst *state.Instance, cfg *config.Config) (composeRunState, error) {
-	out, err := docker.RunCapture(docker.ComposeCommand{ProjectName: inst.ProjectName, Files: activeComposeFiles(inst.WorktreeRoot, cfg, inst), CommandArgs: []string{"ps", "--format", "json"}})
+	out, err := docker.RunCapture(docker.ComposeCommand{ProjectName: inst.ProjectName, Files: activeComposeFiles(instanceProjectRoot(inst), cfg, inst), CommandArgs: []string{"ps", "--format", "json"}})
 	if err != nil {
 		return composeRunUnknown, err
 	}

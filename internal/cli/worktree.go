@@ -25,7 +25,7 @@ func runPrepare(ctx *Context) (any, int, error) {
 		return prepareHelpDoc(), output.ExitOK, nil
 	}
 
-	repo, err := dockgit.DetectRepo()
+	repo, err := resolveRepo(ctx.ConfigPath)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
@@ -35,7 +35,7 @@ func runPrepare(ctx *Context) (any, int, error) {
 	}
 	if err := setup.Prepare(setup.Options{
 		SourceDir: canonicalConfigRoot(repo),
-		TargetDir: repo.WorktreeRoot,
+		TargetDir: projectRoot(repo),
 		Config:    cfg,
 		Stdout:    ctx.Stdout,
 		Stderr:    ctx.Stderr,
@@ -59,16 +59,15 @@ func runCreate(ctx *Context) (any, int, error) {
 	if options.help {
 		return createHelpDoc(), output.ExitOK, nil
 	}
-	repo, err := dockgit.DetectRepo()
+	repo, err := resolveRepo(ctx.ConfigPath)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	configRoot := canonicalConfigRoot(repo)
-	cfg, err := config.Load(configRoot)
+	cfg, err := loadCanonicalConfig(repo)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	worktreeRoot, err := createPreparedWorktree(configRoot, cfg, options.branch, ctx.Stdout, ctx.Stderr)
+	worktreeRoot, err := createPreparedWorktree(repo, cfg, options.branch, ctx.Stdout, ctx.Stderr)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
@@ -82,8 +81,11 @@ func runCreate(ctx *Context) (any, int, error) {
 	}, output.ExitOK, nil
 }
 
-func createPreparedWorktree(repoRoot string, cfg *config.Config, branch string, stdout, stderr io.Writer) (string, error) {
-	worktreeRoot, err := worktreePath(repoRoot, cfg, branch)
+// createPreparedWorktree adds a git worktree and runs setup into the selected
+// subproject inside it. Worktree placement is always repository-level; only the
+// setup source/target pair is subproject-scoped.
+func createPreparedWorktree(repo dockgit.RepoInfo, cfg *config.Config, branch string, stdout, stderr io.Writer) (string, error) {
+	worktreeRoot, err := worktreePath(repo.RepoRoot, cfg, branch)
 	if err != nil {
 		return "", err
 	}
@@ -91,15 +93,15 @@ func createPreparedWorktree(repoRoot string, cfg *config.Config, branch string, 
 		return "", err
 	}
 	cmd := exec.Command("git", "worktree", "add", "-b", branch, worktreeRoot)
-	cmd.Dir = repoRoot
+	cmd.Dir = repo.RepoRoot
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	if err := cmd.Run(); err != nil {
 		return "", err
 	}
 	if err := setup.Prepare(setup.Options{
-		SourceDir: repoRoot,
-		TargetDir: worktreeRoot,
+		SourceDir: canonicalConfigRoot(repo),
+		TargetDir: projectRoot(repo.WithWorktree(worktreeRoot, branch)),
 		Config:    cfg,
 		Stdout:    stdout,
 		Stderr:    stderr,
@@ -109,23 +111,25 @@ func createPreparedWorktree(repoRoot string, cfg *config.Config, branch string, 
 	return worktreeRoot, nil
 }
 
-func ensureCreateComposeInputsCommitted(repoRoot, worktreeRoot string, cfg *config.Config, fileOverride string, includeDocktreeConfig bool) error {
+func ensureCreateComposeInputsCommitted(repo dockgit.RepoInfo, cfg *config.Config, fileOverride string, includeDocktreeConfig bool) error {
+	repoRoot := repo.RepoRoot
+	project := projectRoot(repo)
 	var files []string
 	if fileOverride != "" {
 		if filepath.IsAbs(fileOverride) {
 			files = []string{fileOverride}
 		} else {
-			files = []string{filepath.Join(worktreeRoot, fileOverride)}
+			files = []string{filepath.Join(project, fileOverride)}
 		}
 	} else {
-		resolved, err := composeFiles(worktreeRoot, cfg)
+		resolved, err := composeFiles(project, cfg)
 		if err != nil {
 			return err
 		}
 		files = resolved
 	}
 	if includeDocktreeConfig {
-		files = append(files, filepath.Join(repoRoot, "docktree.yml"))
+		files = append(files, filepath.Join(canonicalConfigRoot(repo), config.FileName))
 	}
 
 	var issues []string
@@ -238,12 +242,10 @@ func slugWorktreeBranch(branch string) string {
 	return value
 }
 
-func repoRootVolumesShare() []string {
-	mainRoot, err := dockgit.MainRepoRoot()
-	if err != nil {
-		return nil
-	}
-	repoCfg, err := config.Load(mainRoot)
+// canonicalVolumesShare reads volumes.share from the canonical config root so
+// every worktree of a project agrees on which volumes are shared.
+func canonicalVolumesShare(repo dockgit.RepoInfo) []string {
+	repoCfg, err := loadCanonicalConfig(repo)
 	if err != nil {
 		return nil
 	}
@@ -261,15 +263,23 @@ func loadConfigWithSharedWarnings(dir string, stderr io.Writer) (*config.Config,
 	return cfg, nil
 }
 
-// canonicalConfigRoot returns the main repo root when running inside a
-// linked worktree, or repo.RepoRoot when in the main repo itself. This
-// ensures worktree commands and platform read the same docktree.yml.
+// canonicalConfigRoot returns the directory holding the selected project's
+// docktree.yml: the main checkout root joined with the subproject path. Linked
+// worktrees therefore read the same config as the main checkout.
 func canonicalConfigRoot(repo dockgit.RepoInfo) string {
-	mainRoot, err := dockgit.MainRepoRootForPath(repo.WorktreeRoot)
-	if err == nil && mainRoot != "" {
-		return mainRoot
+	if repo.ConfigRoot != "" {
+		return repo.ConfigRoot
 	}
-	return repo.RepoRoot
+	return repo.WithSubpath(repo.Subpath).ConfigRoot
+}
+
+// projectRoot returns the directory the selected project's compose files,
+// state, and setup targets resolve against.
+func projectRoot(repo dockgit.RepoInfo) string {
+	if repo.ProjectRoot != "" {
+		return repo.ProjectRoot
+	}
+	return repo.WithSubpath(repo.Subpath).ProjectRoot
 }
 
 func loadCanonicalConfig(repo dockgit.RepoInfo) (*config.Config, error) {
@@ -280,12 +290,12 @@ func loadCanonicalConfigWithWarnings(repo dockgit.RepoInfo, stderr io.Writer) (*
 	return loadConfigWithSharedWarnings(canonicalConfigRoot(repo), stderr)
 }
 
-func loadMergedConfig(repo dockgit.RepoInfo, worktreeRoot string) (*config.Config, error) {
+func loadMergedConfig(repo dockgit.RepoInfo) (*config.Config, error) {
 	cfg, err := loadCanonicalConfig(repo)
 	if err != nil {
 		return nil, err
 	}
-	local, err := config.LoadLocalOverrides(config.LocalOverridesPath(worktreeRoot, cfg.State.Directory))
+	local, err := config.LoadLocalOverrides(config.LocalOverridesPath(projectRoot(repo), cfg.State.Directory))
 	if err != nil {
 		return nil, fmt.Errorf("worktree local overrides: %w", err)
 	}
@@ -302,7 +312,7 @@ func loadMergedConfig(repo dockgit.RepoInfo, worktreeRoot string) (*config.Confi
 // branch-derived name is only used before any instance state exists. Branch
 // checkouts and renames therefore never change the Compose project identity.
 func resolveInstanceName(repo dockgit.RepoInfo, cfg *config.Config) (string, error) {
-	stateDir := state.StatePath(repo.WorktreeRoot, cfg.State.Directory)
+	stateDir := state.StatePath(projectRoot(repo), cfg.State.Directory)
 	inst, err := state.LoadInstance(stateDir)
 	switch {
 	case err == nil && inst != nil:
@@ -316,15 +326,15 @@ func resolveInstanceName(repo dockgit.RepoInfo, cfg *config.Config) (string, err
 	case !errors.Is(err, os.ErrNotExist):
 		return "", err
 	}
-	return dockgit.InstanceName(dockgit.RepoName(repo.RepoRoot), dockgit.WorktreeName(repo.Branch, repo.WorktreeRoot), repo.RepoRoot, repo.WorktreeRoot), nil
+	return dockgit.InstanceName(dockgit.RepoName(repo.RepoRoot), dockgit.WorktreeName(repo.Branch, repo.WorktreeRoot), repo.RepoRoot, repo.WorktreeRoot, repo.Subpath), nil
 }
 
-func commonIdentity() (dockgit.RepoInfo, *config.Config, string, error) {
-	repo, err := dockgit.DetectRepo()
+func commonIdentity(ctx *Context) (dockgit.RepoInfo, *config.Config, string, error) {
+	repo, err := resolveRepo(ctx.ConfigPath)
 	if err != nil {
 		return dockgit.RepoInfo{}, nil, "", err
 	}
-	cfg, err := loadMergedConfig(repo, repo.WorktreeRoot)
+	cfg, err := loadMergedConfig(repo)
 	if err != nil {
 		return dockgit.RepoInfo{}, nil, "", err
 	}
@@ -335,9 +345,19 @@ func commonIdentity() (dockgit.RepoInfo, *config.Config, string, error) {
 	return repo, cfg, instance, nil
 }
 
-func ensureGitignore(worktreeRoot, stateDir string) error {
-	path := filepath.Join(worktreeRoot, ".gitignore")
-	entry := strings.Trim(stateDir, "/") + "/"
+// ensureGitignore keeps the worktree's root .gitignore covering the selected
+// project's state directory. Subprojects get a subpath-qualified entry so one
+// .gitignore serves every project in the worktree.
+func ensureGitignore(repo dockgit.RepoInfo, stateDir string) error {
+	if filepath.IsAbs(stateDir) {
+		return nil
+	}
+	path := filepath.Join(repo.WorktreeRoot, ".gitignore")
+	entry := strings.Trim(filepath.ToSlash(stateDir), "/")
+	if repo.Subpath != "" {
+		entry = repo.Subpath + "/" + entry
+	}
+	entry += "/"
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return os.WriteFile(path, []byte(entry+"\n"), 0o644)

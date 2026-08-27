@@ -105,11 +105,14 @@ type cleanCandidate struct {
 }
 
 type downOptions struct {
-	help     bool
-	dryRun   bool
-	volumes  bool
-	all      bool
-	services []string
+	help    bool
+	dryRun  bool
+	volumes bool
+	all     bool
+	// allProjects widens --all from "every worktree of this subproject" to
+	// "every Docktree instance in this repository".
+	allProjects bool
+	services    []string
 }
 
 func parseDownOptions(args []string) (downOptions, error) {
@@ -126,6 +129,9 @@ func parseDownOptions(args []string) (downOptions, error) {
 			options.volumes = true
 		case arg == "-a" || arg == "--all":
 			options.all = true
+		case arg == "--all-projects":
+			options.all = true
+			options.allProjects = true
 		default:
 			if strings.HasPrefix(arg, "-") {
 				return downOptions{}, fmt.Errorf("unknown down flag %q", arg)
@@ -315,17 +321,34 @@ func parseCleanOptions(args []string) (cleanOptions, error) {
 	return options, nil
 }
 
-func parseGlobalFlags(args []string) (bool, []string) {
+// parseGlobalFlags strips flags that apply to every command: --json and
+// --config, which selects a subproject docktree.yml explicitly instead of
+// discovering the nearest one from the working directory.
+func parseGlobalFlags(args []string) (bool, string, []string, error) {
 	jsonMode := false
+	configPath := ""
 	var rest []string
-	for _, arg := range args {
-		if arg == "--json" {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--json":
 			jsonMode = true
-			continue
+		case arg == "--config":
+			if i+1 >= len(args) {
+				return false, "", nil, fmt.Errorf("--config requires a path")
+			}
+			i++
+			configPath = args[i]
+		case strings.HasPrefix(arg, "--config="):
+			configPath = strings.TrimPrefix(arg, "--config=")
+			if configPath == "" {
+				return false, "", nil, fmt.Errorf("--config requires a path")
+			}
+		default:
+			rest = append(rest, arg)
 		}
-		rest = append(rest, arg)
 	}
-	return jsonMode, rest
+	return jsonMode, configPath, rest, nil
 }
 
 type syncOptions struct {
