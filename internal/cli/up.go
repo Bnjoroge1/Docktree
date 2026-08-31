@@ -75,9 +75,12 @@ func runUp(ctx *Context) (any, int, error) {
 			steps.Done("Created worktree " + tui.AccentS(options.create))
 		}
 		repo = dockgit.RepoInfo{RepoRoot: repo.RepoRoot, WorktreeRoot: createdWorktree, Branch: options.create}
-		instanceName = dockgit.InstanceName(dockgit.RepoName(repo.RepoRoot), dockgit.WorktreeName(repo.Branch, repo.WorktreeRoot), repo.RepoRoot, repo.WorktreeRoot)
 
 		cfg, err = loadMergedConfig(repo, repo.WorktreeRoot)
+		if err != nil {
+			return nil, output.ExitConfig, err
+		}
+		instanceName, err = resolveInstanceName(repo, cfg)
 		if err != nil {
 			return nil, output.ExitConfig, err
 		}
@@ -292,7 +295,7 @@ func runUp(ctx *Context) (any, int, error) {
 	}
 
 	if options.validate {
-		return runValidate(project, files, cfg, repo, envWarnings, profiles)
+		return runValidate(project, files, cfg, repo, instanceName, envWarnings, profiles)
 	}
 	if options.dryRun {
 		return runDryRun(project, files, cfg, repo, instanceName, envWarnings, profiles)
@@ -551,7 +554,7 @@ func cleanupFailedNetworkPoolUp(ctx *Context, registry *ports.Registry, instance
 	return errors.Join(errs...)
 }
 
-func runValidate(project *compose.ComposeProject, files []string, cfg *config.Config, repo dockgit.RepoInfo, envWarnings []compose.Warning, profiles []string) (any, int, error) {
+func runValidate(project *compose.ComposeProject, files []string, cfg *config.Config, repo dockgit.RepoInfo, instanceName string, envWarnings []compose.Warning, profiles []string) (any, int, error) {
 	var errs []string
 	if len(project.Services) == 0 {
 		errs = append(errs, "no services defined in compose file")
@@ -567,7 +570,6 @@ func runValidate(project *compose.ComposeProject, files []string, cfg *config.Co
 			}
 		}
 	}
-	instanceName := dockgit.InstanceName(dockgit.RepoName(repo.RepoRoot), dockgit.WorktreeName(repo.Branch, repo.WorktreeRoot), repo.RepoRoot, repo.WorktreeRoot)
 	portRange, err := ports.ParseRange(cfg.Ports.Range)
 	if err != nil {
 		errs = append(errs, fmt.Sprintf("invalid port range %q: %v", cfg.Ports.Range, err))

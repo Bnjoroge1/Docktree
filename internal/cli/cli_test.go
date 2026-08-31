@@ -272,7 +272,7 @@ func TestRunValidateNoServices(t *testing.T) {
 	project := &compose.ComposeProject{Services: map[string]compose.Service{}}
 	cfg := config.Defaults()
 	repo := dockgit.RepoInfo{RepoRoot: "/tmp/Docktree", WorktreeRoot: "/tmp/Docktree", Branch: "main"}
-	result, code, err := runValidate(project, nil, &cfg, repo, nil, nil)
+	result, code, err := runValidate(project, nil, &cfg, repo, "repo-main-abc123", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +296,7 @@ func TestRunValidateWithServices(t *testing.T) {
 	}
 	cfg := config.Defaults()
 	repo := dockgit.RepoInfo{RepoRoot: "/tmp/Docktree", WorktreeRoot: "/tmp/Docktree", Branch: "main"}
-	result, code, err := runValidate(project, nil, &cfg, repo, nil, nil)
+	result, code, err := runValidate(project, nil, &cfg, repo, "repo-main-abc123", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

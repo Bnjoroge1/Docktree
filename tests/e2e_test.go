@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bnjoroge/docktree/internal/cli"
 	"github.com/bnjoroge/docktree/internal/output"
@@ -269,6 +270,325 @@ func TestCleanCommandWithFakeDockerState(t *testing.T) {
 	}
 	if _, ok := instances[project]; ok {
 		t.Fatalf("global instance was not removed: %#v", instances)
+	}
+}
+
+// TestIdentityStableAcrossBranchChanges is the regression test for issue #62:
+// once a worktree has created an instance, its persisted project name is
+// authoritative. Branch checkout, rename, and detached HEAD moves must never
+// change the identity used by up, ports, volumes, env, or dry-run, and must
+// never create a second global instance or port-registry entry.
+func TestIdentityStableAcrossBranchChanges(t *testing.T) {
+	sourceCompose, err := filepath.Abs(filepath.Join("..", "testdata", "docker-compose.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	copyFile(t, sourceCompose, filepath.Join(repo, "compose.yml"))
+	run(t, repo, "git", "init", "-b", "main")
+	run(t, repo, "git", "config", "user.email", "docktree@example.test")
+	run(t, repo, "git", "config", "user.name", "Docktree Test")
+	run(t, repo, "git", "add", ".")
+	run(t, repo, "git", "commit", "-m", "init")
+
+	fakeBin := filepath.Join(root, "bin")
+	if err := os.MkdirAll(fakeBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stateFile := filepath.Join(root, "docker-state")
+	writeFakeDocker(t, filepath.Join(fakeBin, "docker"), stateFile)
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+	if err := os.Chdir(repo); err != nil {
+		t.Fatal(err)
+	}
+
+	code, stdout, errText := runCLI("up", "--json")
+	if code != output.ExitOK || errText != "" || !json.Valid([]byte(stdout)) {
+		t.Fatalf("up code=%d err=%s out=%s", code, errText, stdout)
+	}
+	var firstUp upJSON
+	if err := json.Unmarshal([]byte(stdout), &firstUp); err != nil {
+		t.Fatal(err)
+	}
+	project := firstUp.Instance.ProjectName
+	if project == "" {
+		t.Fatalf("missing project name: %s", stdout)
+	}
+
+	portsFor := func() string {
+		t.Helper()
+		code, stdout, errText := runCLI("ports", "--json")
+		if code != output.ExitOK || errText != "" {
+			t.Fatalf("ports code=%d err=%s", code, errText)
+		}
+		var result struct {
+			Instance string `json:"instance"`
+			Entries  []struct {
+				Ports []struct {
+					HostPort int `json:"host_port"`
+				} `json:"ports"`
+			} `json:"entries"`
+		}
+		if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+			t.Fatalf("ports output not json: %v\n%s", err, stdout)
+		}
+		if len(result.Entries) != 1 || len(result.Entries[0].Ports) != 2 {
+			t.Fatalf("expected two allocated ports: %s", stdout)
+		}
+		return result.Instance
+	}
+
+	// Branch checkout in the same worktree.
+	run(t, repo, "git", "checkout", "-b", "feature/b")
+	if got := portsFor(); got != project {
+		t.Fatalf("ports after checkout: instance %q, want %q", got, project)
+	}
+
+	code, stdout, errText = runCLI("volumes", "--json")
+	if code != output.ExitOK || errText != "" {
+		t.Fatalf("volumes code=%d err=%s", code, errText)
+	}
+	var volumesResult struct {
+		Instance string `json:"instance"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &volumesResult); err != nil {
+		t.Fatalf("volumes output not json: %v\n%s", err, stdout)
+	}
+	if volumesResult.Instance != project {
+		t.Fatalf("volumes after checkout: instance %q, want %q", volumesResult.Instance, project)
+	}
+
+	code, stdout, errText = runCLI("env", "list", "--json")
+	if code != output.ExitOK || errText != "" {
+		t.Fatalf("env list code=%d err=%s", code, errText)
+	}
+	var envResult struct {
+		Instance string `json:"instance"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &envResult); err != nil {
+		t.Fatalf("env output not json: %v\n%s", err, stdout)
+	}
+	if envResult.Instance != project {
+		t.Fatalf("env after checkout: instance %q, want %q", envResult.Instance, project)
+	}
+
+	code, stdout, errText = runCLI("up", "--dry-run", "--json")
+	if code != output.ExitOK || errText != "" {
+		t.Fatalf("up --dry-run code=%d err=%s", code, errText)
+	}
+	var dryRun struct {
+		InstanceName string `json:"instance_name"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &dryRun); err != nil {
+		t.Fatalf("dry-run output not json: %v\n%s", err, stdout)
+	}
+	if dryRun.InstanceName != project {
+		t.Fatalf("up --dry-run after checkout: instance %q, want %q", dryRun.InstanceName, project)
+	}
+
+	// A real up after the branch switch must target the saved project, not
+	// fork a second Compose project under a new name.
+	code, stdout, errText = runCLI("up", "--json")
+	if code != output.ExitOK || errText != "" {
+		t.Fatalf("second up code=%d err=%s", code, errText)
+	}
+	var secondUp upJSON
+	if err := json.Unmarshal([]byte(stdout), &secondUp); err != nil {
+		t.Fatal(err)
+	}
+	if secondUp.Instance.ProjectName != project {
+		t.Fatalf("second up project %q, want %q", secondUp.Instance.ProjectName, project)
+	}
+	logData := readFile(t, filepath.Join(root, "docker.log"))
+	for _, line := range strings.Split(logData, "\n") {
+		// --profile flags can sit between -p <project> and up -d, so check the
+		// project selector independently of the subcommand.
+		if strings.Contains(line, " up -d") && !strings.Contains(line, "-p "+project) {
+			t.Fatalf("up targeted a different project after branch switch: %s", line)
+		}
+	}
+
+	// Branch rename.
+	run(t, repo, "git", "branch", "-m", "feature/c")
+	if got := portsFor(); got != project {
+		t.Fatalf("ports after rename: instance %q, want %q", got, project)
+	}
+
+	// Detached HEAD.
+	run(t, repo, "git", "checkout", "--detach", "HEAD")
+	if got := portsFor(); got != project {
+		t.Fatalf("ports after detached HEAD: instance %q, want %q", got, project)
+	}
+
+	// Exactly one global instance, one port-registry entry — both keyed by the
+	// original project name.
+	instances, err := state.LoadGlobalInstances("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(instances) != 1 {
+		t.Fatalf("expected one global instance, got %#v", instances)
+	}
+	if _, ok := instances[project]; !ok {
+		t.Fatalf("global instance missing for %q: %#v", project, instances)
+	}
+	registry, err := ports.NewRegistry().Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(registry) != 1 {
+		t.Fatalf("expected one port-registry entry, got %#v", registry)
+	}
+	if _, ok := registry[project]; !ok {
+		t.Fatalf("port registry missing for %q: %#v", project, registry)
+	}
+
+	saved, err := state.LoadInstance(state.StatePath(repo, ".docktree"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.ProjectName != project {
+		t.Fatalf("saved project name %q, want %q", saved.ProjectName, project)
+	}
+}
+
+// TestCleanKeepsLiveStateAfterIdentityRollover is the cleanup-hazard
+// regression test for issue #62: a stale global record that shares its
+// StateDirectory with the live record (created by a pre-fix identity
+// rollover) must be removable without deleting the current worktree's
+// .docktree directory.
+func TestCleanKeepsLiveStateAfterIdentityRollover(t *testing.T) {
+	sourceCompose, err := filepath.Abs(filepath.Join("..", "testdata", "docker-compose.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	copyFile(t, sourceCompose, filepath.Join(repo, "compose.yml"))
+	run(t, repo, "git", "init", "-b", "main")
+	run(t, repo, "git", "config", "user.email", "docktree@example.test")
+	run(t, repo, "git", "config", "user.name", "Docktree Test")
+	run(t, repo, "git", "add", ".")
+	run(t, repo, "git", "commit", "-m", "init")
+
+	fakeBin := filepath.Join(root, "bin")
+	if err := os.MkdirAll(fakeBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stateFile := filepath.Join(root, "docker-state")
+	writeFakeDocker(t, filepath.Join(fakeBin, "docker"), stateFile)
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldwd)
+	if err := os.Chdir(repo); err != nil {
+		t.Fatal(err)
+	}
+
+	code, stdout, errText := runCLI("up", "--json")
+	if code != output.ExitOK || errText != "" {
+		t.Fatalf("up code=%d err=%s", code, errText)
+	}
+	var up upJSON
+	if err := json.Unmarshal([]byte(stdout), &up); err != nil {
+		t.Fatal(err)
+	}
+	live := up.Instance.ProjectName
+	if live == "" {
+		t.Fatalf("missing project name: %s", stdout)
+	}
+
+	// Simulate the pre-fix rollover: a stale identity record and its port
+	// allocations survive alongside the live record, both pointing at the
+	// same worktree state directory. The stale record has no Docker
+	// resources, so clean sees it as stale port allocations.
+	now := time.Now().UTC()
+	instances, err := state.LoadGlobalInstances("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	liveInst := instances[live]
+	instances["repo-feature-old-000000"] = state.Instance{
+		Name:           "repo-feature-old-000000",
+		ProjectName:    "repo-feature-old-000000",
+		WorktreeRoot:   liveInst.WorktreeRoot,
+		StateDirectory: liveInst.StateDirectory,
+		Branch:         "feature/old",
+		CreatedAt:      now,
+		LastActiveAt:   now,
+	}
+	if err := state.SaveGlobalInstances("", instances); err != nil {
+		t.Fatal(err)
+	}
+	registry := ports.NewRegistry()
+	all, err := registry.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	all["repo-feature-old-000000"] = []ports.Assignment{
+		{Service: "web", ContainerPort: 80, HostIP: "127.0.0.1", HostPort: 41999},
+	}
+	if err := registry.Save(all); err != nil {
+		t.Fatal(err)
+	}
+
+	code, stdout, errText = runCLI("clean", "--yes", "--json")
+	if code != output.ExitOK || errText != "" || !json.Valid([]byte(stdout)) {
+		t.Fatalf("clean code=%d err=%s out=%s", code, errText, stdout)
+	}
+	var cleanResult struct {
+		Instances []struct {
+			Instance string `json:"instance"`
+			Reason   string `json:"reason"`
+		} `json:"instances"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &cleanResult); err != nil {
+		t.Fatal(err)
+	}
+	if len(cleanResult.Instances) != 1 || cleanResult.Instances[0].Instance != "repo-feature-old-000000" {
+		t.Fatalf("expected only the stale record as a clean candidate: %s", stdout)
+	}
+
+	// The stale record is gone…
+	instances, err = state.LoadGlobalInstances("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(instances) != 1 {
+		t.Fatalf("expected one global instance after clean, got %#v", instances)
+	}
+	if _, ok := instances[live]; !ok {
+		t.Fatalf("live instance %q was removed: %#v", live, instances)
+	}
+	all, err = registry.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := all["repo-feature-old-000000"]; ok {
+		t.Fatalf("stale port allocations were not released: %#v", all)
+	}
+
+	// …but the live worktree's state directory must survive.
+	if _, err := os.Stat(filepath.Join(liveInst.StateDirectory, "state.json")); err != nil {
+		t.Fatalf("clean removed the live worktree's state dir: %v", err)
 	}
 }
 
