@@ -2,6 +2,7 @@ package docker
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os/exec"
 	"slices"
@@ -62,39 +63,38 @@ func ListProjectResources(project string, includeVolumes bool) (ProjectResources
 	return result, nil
 }
 
+// RemoveProjectResources removes each container, network, and (optionally)
+// volume belonging to a compose project individually, so one unremovable
+// resource does not abort the rest of the teardown. Failures are collected
+// and returned as an aggregate error.
 func RemoveProjectResources(project string, includeVolumes bool) (ProjectResources, error) {
 	resources, err := ListProjectResources(project, includeVolumes)
 	if err != nil {
 		return ProjectResources{}, err
 	}
-	if len(resources.Containers) > 0 {
-		args := []string{"rm", "-f"}
-		for _, resource := range resources.Containers {
-			args = append(args, resource.ID)
-		}
-		if err := dockerRun(args...); err != nil {
-			return ProjectResources{}, err
-		}
-	}
-	if len(resources.Networks) > 0 {
-		args := []string{"network", "rm"}
-		for _, resource := range resources.Networks {
-			args = append(args, resource.Name)
-		}
-		if err := dockerRun(args...); err != nil {
-			return ProjectResources{}, err
+	var errs []error
+	for _, resource := range resources.Containers {
+		if err := dockerRun("rm", "-f", resource.ID); err != nil {
+			name := resource.Name
+			if name == "" {
+				name = resource.ID
+			}
+			errs = append(errs, fmt.Errorf("remove container %s: %w", name, err))
 		}
 	}
-	if includeVolumes && len(resources.Volumes) > 0 {
-		args := []string{"volume", "rm", "-f"}
+	for _, resource := range resources.Networks {
+		if err := dockerRun("network", "rm", resource.Name); err != nil {
+			errs = append(errs, fmt.Errorf("remove network %s: %w", resource.Name, err))
+		}
+	}
+	if includeVolumes {
 		for _, resource := range resources.Volumes {
-			args = append(args, resource.Name)
-		}
-		if err := dockerRun(args...); err != nil {
-			return ProjectResources{}, err
+			if err := dockerRun("volume", "rm", "-f", resource.Name); err != nil {
+				errs = append(errs, fmt.Errorf("remove volume %s: %w", resource.Name, err))
+			}
 		}
 	}
-	return resources, nil
+	return resources, errors.Join(errs...)
 }
 
 func listResources(args ...string) ([]Resource, error) {
@@ -169,6 +169,51 @@ func parseLabelString(value string) map[string]string {
 		}
 	}
 	return labels
+}
+
+type NetworkInfo struct {
+	Name        string
+	Driver      string
+	ProjectName string
+}
+
+// ListDocktreeNetworks enumerates networks carrying a Docktree project label
+// from `docker network ls` alone, independent of any container or state file.
+func ListDocktreeNetworks() ([]NetworkInfo, error) {
+	lines, err := dockerLines("network", "ls", "--format", "{{.Name}}\t{{.Driver}}\t{{.Labels}}")
+	if err != nil {
+		return nil, err
+	}
+	var networks []NetworkInfo
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "\t")
+		if len(parts) < 2 {
+			continue
+		}
+		name := parts[0]
+		driver := parts[1]
+		var labelsStr string
+		if len(parts) >= 3 {
+			labelsStr = parts[2]
+		}
+		labels := parseLabelString(labelsStr)
+		project := labels["docktree.instance"]
+		if project == "" {
+			project = labels["com.docker.compose.project"]
+		}
+		if project == "" {
+			continue
+		}
+		networks = append(networks, NetworkInfo{
+			Name:        name,
+			Driver:      driver,
+			ProjectName: project,
+		})
+	}
+	return networks, nil
 }
 
 type VolumeInfo struct {

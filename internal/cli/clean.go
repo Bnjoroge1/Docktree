@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -97,6 +98,34 @@ func discoverCleanCandidates(portRegistry *ports.Registry, includeVolumes bool) 
 	for _, name := range managedProjects {
 		names[name] = true
 	}
+	// Resource-rooted fallback: even when state, port claims, and labelled
+	// containers are all gone (e.g. after a partially failed teardown), the
+	// volumes and networks themselves still carry project labels. Names are
+	// restricted to Docktree's instance-name shape so unrelated compose
+	// projects are never swept. Platform-tier projects are excluded so a live
+	// platform stack is never a candidate. Volume-rooted candidates are only
+	// added when volumes will actually be removed, so a volume-only orphan is
+	// not re-reported forever by a run without --volumes.
+	if includeVolumes {
+		volumes, err := docker.ListDocktreeVolumes()
+		if err != nil {
+			return nil, err
+		}
+		for _, vol := range volumes {
+			if isWorktreeInstanceName(vol.ProjectName) {
+				names[vol.ProjectName] = true
+			}
+		}
+	}
+	networks, err := docker.ListDocktreeNetworks()
+	if err != nil {
+		return nil, err
+	}
+	for _, net := range networks {
+		if isWorktreeInstanceName(net.ProjectName) {
+			names[net.ProjectName] = true
+		}
+	}
 	ordered := make([]string, 0, len(names))
 	for name := range names {
 		ordered = append(ordered, name)
@@ -122,6 +151,20 @@ func discoverCleanCandidates(portRegistry *ports.Registry, includeVolumes bool) 
 		candidates = append(candidates, cleanCandidate{Name: name, Reason: reason, Ports: len(portMap[name]), Resources: resources, Instance: inst, StateFound: stateFound})
 	}
 	return candidates, nil
+}
+
+// docktreeNameRe matches Docktree instance names: <repo>-<worktree>-<6 hex
+// chars>. It is conservative by design — anything that does not match the
+// full three-segment shape ending in the 6-char path hash is left alone, so
+// foreign compose projects sharing a `com.docker.compose.project` label are
+// never treated as candidates.
+var docktreeNameRe = regexp.MustCompile(`^[a-z0-9_-]+-[a-z0-9_-]+-[a-f0-9]{6}$`)
+
+// isWorktreeInstanceName reports whether a project name matches the Docktree
+// worktree-instance shape and is not the repo-scoped platform tier, so the
+// resource-rooted discovery fallback only ever targets worktree stacks.
+func isWorktreeInstanceName(name string) bool {
+	return docktreeNameRe.MatchString(name) && !strings.HasPrefix(name, "docktree-platform-")
 }
 
 func staleReason(inst *state.Instance, stateFound bool, portCount int, resources docker.ProjectResources) string {
@@ -181,7 +224,7 @@ func applyCleanCandidates(portRegistry *ports.Registry, candidates []cleanCandid
 		_ = portRegistry.Unlock()
 		return nil, err
 	}
-	var applied []cleanCandidate
+	var planned []cleanCandidate
 	for _, candidate := range candidates {
 		currentCandidate := candidate
 		currentCandidate.Ports = len(portMap[candidate.Name])
@@ -196,30 +239,49 @@ func applyCleanCandidates(portRegistry *ports.Registry, candidates []cleanCandid
 		if staleReason(currentCandidate.Instance, currentCandidate.StateFound, currentCandidate.Ports, currentCandidate.Resources) == "" {
 			continue
 		}
-		if err := portRegistry.Release(candidate.Name); err != nil {
-			_ = portRegistry.Unlock()
-			return nil, err
-		}
-		if err := state.RemoveGlobalInstance("", candidate.Name); err != nil {
-			_ = portRegistry.Unlock()
-			return nil, err
-		}
-		applied = append(applied, currentCandidate)
+		planned = append(planned, currentCandidate)
 	}
 	if err := portRegistry.Unlock(); err != nil {
 		return nil, err
 	}
-	for _, candidate := range applied {
-		if _, err := docker.RemoveProjectResources(candidate.Name, includeVolumes); err != nil {
-			return nil, err
+
+	// Docker resources are removed first, per candidate, and the port claim
+	// and state record are only retired after that candidate's resources are
+	// gone. If removal fails, the claim and record stay behind so a later
+	// `clean` can still discover and retry the orphan. Candidates continue
+	// past each other so one failure never blocks the rest of the sweep.
+	var applied []cleanCandidate
+	var errs []error
+	for _, candidate := range planned {
+		removed, err := docker.RemoveProjectResources(candidate.Name, includeVolumes)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", candidate.Name, err))
+			continue
+		}
+		candidate.Resources = removed
+		if err := portRegistry.Lock(); err != nil {
+			errs = append(errs, fmt.Errorf("%s: lock port registry: %w", candidate.Name, err))
+			continue
+		}
+		releaseErr := portRegistry.Release(candidate.Name)
+		unlockErr := portRegistry.Unlock()
+		if releaseErr != nil {
+			errs = append(errs, fmt.Errorf("%s: release allocated ports: %w", candidate.Name, releaseErr))
+		}
+		if unlockErr != nil {
+			errs = append(errs, fmt.Errorf("%s: unlock port registry: %w", candidate.Name, unlockErr))
+		}
+		if err := state.RemoveGlobalInstance("", candidate.Name); err != nil {
+			errs = append(errs, fmt.Errorf("%s: remove global instance: %w", candidate.Name, err))
 		}
 		if candidate.Instance != nil {
 			if err := state.RemoveStateDir(candidate.Instance); err != nil {
-				return nil, err
+				errs = append(errs, fmt.Errorf("%s: remove state directory: %w", candidate.Name, err))
 			}
 		}
+		applied = append(applied, candidate)
 	}
-	return applied, nil
+	return applied, errors.Join(errs...)
 }
 
 func confirmClean(w io.Writer) bool {
