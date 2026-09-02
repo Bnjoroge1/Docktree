@@ -126,6 +126,9 @@ type TunnelState struct {
 }
 
 func tunnelStatePath(worktreeRoot, stateDir string) string {
+	if filepath.IsAbs(stateDir) {
+		return filepath.Join(stateDir, "tunnel.json")
+	}
 	if stateDir == "" {
 		stateDir = ".docktree"
 	}
@@ -624,7 +627,7 @@ func runTunnelList(ctx *Context) (any, int, error) {
 
 	var entries []TunnelListEntry
 	for _, inst := range instances {
-		ts, _ := LoadTunnelState(instanceProjectRoot(&inst), inst.StateDirectory)
+		ts, _ := LoadTunnelState(instanceProjectRoot(&inst), state.InstanceStateDir(&inst))
 		if ts == nil {
 			continue
 		}

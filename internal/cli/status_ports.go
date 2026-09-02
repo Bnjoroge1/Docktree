@@ -101,7 +101,7 @@ func runStatusAll(ctx *Context) (any, int, error) {
 		entry.ProxyURL = fmt.Sprintf("http://%s.%s:%d", inst.Name, instTLD, instProxyPort)
 
 		// Tunnel URL if running
-		ts, _ := LoadTunnelState(inst.WorktreeRoot, inst.StateDirectory)
+		ts, _ := LoadTunnelState(instanceProjectRoot(&inst), state.InstanceStateDir(&inst))
 		if ts != nil && ts.StartTime != "" && processMatchesStr(ts.PID, ts.StartTime) && ts.URL != "" {
 			entry.TunnelURL = ts.URL
 		}

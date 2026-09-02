@@ -19,7 +19,9 @@ type monorepoJSON struct {
 		Subpath        string `json:"subpath"`
 		StateDirectory string `json:"state_directory"`
 		WorktreeRoot   string `json:"worktree_root"`
+		Stopped        bool   `json:"stopped"`
 	} `json:"instance"`
+	Stopped      bool     `json:"stopped"`
 	ComposeFiles []string `json:"compose_files"`
 	DryRun       bool     `json:"dry_run"`
 	Instances    []string `json:"instances"`
@@ -192,8 +194,9 @@ func TestMonorepoSubprojectsRunSideBySide(t *testing.T) {
 		t.Fatalf("down project-a: code=%d err=%s", code, errText)
 	}
 	t.Chdir(filepath.Join(repo, "project-b"))
-	if code, stdout, _ := runCLI("status", "--json"); code != output.ExitOK {
-		t.Fatalf("project-b status after project-a down: code=%d out=%s", code, stdout)
+	bStatus := upJSONIn(t, filepath.Join(repo, "project-b"), "status")
+	if bStatus.Instance.ProjectName != b.Instance.ProjectName || bStatus.Instance.Stopped || bStatus.Stopped {
+		t.Fatalf("project-b stopped after project-a down: got %+v", bStatus.Instance)
 	}
 }
 

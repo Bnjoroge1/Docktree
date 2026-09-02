@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"crypto/sha1"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -252,7 +254,9 @@ type platformPlan struct {
 func platformSlug(mainRoot, subpath string) string {
 	slug := dockgit.RepoName(mainRoot)
 	if sub := dockgit.NormalizeSubpath(subpath); sub != "" {
-		slug += "-" + strings.ReplaceAll(sub, "/", "-")
+		sum := sha1.Sum([]byte(sub))
+		hash := hex.EncodeToString(sum[:])[:6]
+		slug += "-" + strings.ReplaceAll(sub, "/", "-") + "-" + hash
 	}
 	return slug
 }

@@ -222,10 +222,11 @@ func DiscoverRoot(startDir, stopDir string) (string, bool) {
 
 // withinDir reports whether path is root or nested under it.
 func withinDir(root, path string) bool {
-	if path == root {
-		return true
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
 	}
-	return strings.HasPrefix(path, root+string(filepath.Separator))
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func LoadUnvalidated(dir string) (*Config, error) {

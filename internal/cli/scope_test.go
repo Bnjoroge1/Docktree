@@ -124,6 +124,9 @@ func TestResolveRepoExplicitConfig(t *testing.T) {
 	if _, err := resolveRepo(filepath.Join("project-a", "nope.yml")); err == nil {
 		t.Fatal("expected error for missing config file")
 	}
+	if _, err := resolveRepo(filepath.Join("project-a", "compose.yml")); err == nil {
+		t.Fatal("expected error for non-docktree.yml file")
+	}
 	if _, err := resolveRepo(filepath.Join("project-a", "packages")); err == nil {
 		t.Fatal("expected error for directory without docktree.yml")
 	}
@@ -225,6 +228,21 @@ func TestParseGlobalFlags(t *testing.T) {
 
 	if _, _, _, err := parseGlobalFlags([]string{"--config"}); err == nil {
 		t.Fatal("expected error for --config without a value")
+	}
+	if _, _, _, err := parseGlobalFlags([]string{"--config", ""}); err == nil {
+		t.Fatal("expected error for --config with empty value")
+	}
+	if _, _, _, err := parseGlobalFlags([]string{"--config="}); err == nil {
+		t.Fatal("expected error for --config= with empty value")
+	}
+
+	// -- stops global flag processing
+	jsonMode, cfgPath, rest, err = parseGlobalFlags([]string{"exec", "web", "--", "--config", "other.yml"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfgPath != "" || len(rest) != 5 || rest[2] != "--" || rest[3] != "--config" {
+		t.Fatalf("expected -- to preserve trailing args: cfgPath=%q rest=%v", cfgPath, rest)
 	}
 }
 

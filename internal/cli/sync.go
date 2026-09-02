@@ -41,7 +41,7 @@ func runSync(ctx *Context) (any, int, error) {
 	}
 	groups := make(map[string]*repoGroup)
 	for _, inst := range instances {
-		if inst.RepoRoot == "" {
+		if inst.RepoRoot == "" || inst.WorktreeRoot == "" {
 			continue
 		}
 		root := instanceConfigRoot(&inst)

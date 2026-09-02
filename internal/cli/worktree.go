@@ -353,11 +353,8 @@ func ensureGitignore(repo dockgit.RepoInfo, stateDir string) error {
 		return nil
 	}
 	path := filepath.Join(repo.WorktreeRoot, ".gitignore")
-	entry := strings.Trim(filepath.ToSlash(stateDir), "/")
-	if repo.Subpath != "" {
-		entry = repo.Subpath + "/" + entry
-	}
-	entry += "/"
+	entry := filepath.ToSlash(filepath.Join(repo.Subpath, stateDir))
+	entry = strings.Trim(entry, "/") + "/"
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return os.WriteFile(path, []byte(entry+"\n"), 0o644)

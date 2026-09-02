@@ -77,8 +77,12 @@ func runProxy(ctx *Context) (any, int, error) {
 	}
 
 	cfg := config.Defaults()
-	if repo := loadRepoConfig(ctx); repo != nil {
-		cfg = *repo
+	repoCfg, err := loadRepoConfig(ctx)
+	if err != nil {
+		return nil, output.ExitConfig, err
+	}
+	if repoCfg != nil {
+		cfg = *repoCfg
 	}
 
 	port := cfg.Proxy.Port
@@ -160,17 +164,25 @@ func runProxy(ctx *Context) (any, int, error) {
 
 // loadRepoConfig loads the docktree.yml of the project owning the current
 // directory, for proxy defaults. It falls back to the working directory when
-// not inside a git repository.
-func loadRepoConfig(ctx *Context) *config.Config {
+// not inside a git repository, but propagates errors if an explicit --config
+// path was provided and failed to resolve.
+func loadRepoConfig(ctx *Context) (*config.Config, error) {
+	if ctx.ConfigPath != "" {
+		repo, err := resolveRepo(ctx.ConfigPath)
+		if err != nil {
+			return nil, err
+		}
+		return config.Load(canonicalConfigRoot(repo))
+	}
 	dir := "."
-	if repo, err := resolveRepo(ctx.ConfigPath); err == nil {
+	if repo, err := resolveRepo(""); err == nil {
 		dir = canonicalConfigRoot(repo)
 	}
 	cfg, err := config.Load(dir)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
-	return cfg
+	return cfg, nil
 }
 
 func printProxyHelp(w interface{ Write([]byte) (int, error) }) {

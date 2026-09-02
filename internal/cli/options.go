@@ -330,6 +330,10 @@ func parseGlobalFlags(args []string) (bool, string, []string, error) {
 	var rest []string
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
+		if arg == "--" {
+			rest = append(rest, args[i:]...)
+			break
+		}
 		switch {
 		case arg == "--json":
 			jsonMode = true
@@ -339,6 +343,9 @@ func parseGlobalFlags(args []string) (bool, string, []string, error) {
 			}
 			i++
 			configPath = args[i]
+			if configPath == "" {
+				return false, "", nil, fmt.Errorf("--config requires a path")
+			}
 		case strings.HasPrefix(arg, "--config="):
 			configPath = strings.TrimPrefix(arg, "--config=")
 			if configPath == "" {

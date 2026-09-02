@@ -30,6 +30,23 @@ func makeInst(repoRoot, name string) *state.Instance {
 	return &state.Instance{RepoRoot: repoRoot, Name: name}
 }
 
+func TestPlatformSlugCollisionResistance(t *testing.T) {
+	root := "/repos/myrepo"
+	if got := platformSlug(root, ""); got != "myrepo" {
+		t.Fatalf("root slug = %q, want %q", got, "myrepo")
+	}
+	a := platformSlug(root, "foo/bar")
+	b := platformSlug(root, "foo-bar")
+	if a == b {
+		t.Fatalf("colliding platform slugs: foo/bar and foo-bar both produced %q", a)
+	}
+	c := platformSlug(root, "api/v1")
+	d := platformSlug(root, "api-v1")
+	if c == d {
+		t.Fatalf("colliding platform slugs: api/v1 and api-v1 both produced %q", c)
+	}
+}
+
 // TestTenantBindingsForInstanceSingleDB checks that a service using the legacy
 // url_envs (no databases map) produces one binding with no logical DB prefix.
 func TestTenantBindingsForInstanceSingleDB(t *testing.T) {

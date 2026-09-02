@@ -308,3 +308,18 @@ func TestDiscoverRoot(t *testing.T) {
 		t.Fatalf("DiscoverRoot(outside) = %q, %v; want %q", got, ok, stop)
 	}
 }
+
+func TestWithinDir(t *testing.T) {
+	if !withinDir("/", "/a/b") {
+		t.Fatal("expected /a/b to be within /")
+	}
+	if !withinDir("/a", "/a/b") {
+		t.Fatal("expected /a/b to be within /a")
+	}
+	if !withinDir("/a", "/a") {
+		t.Fatal("expected /a to be within /a")
+	}
+	if withinDir("/a/b", "/a") {
+		t.Fatal("expected /a to NOT be within /a/b")
+	}
+}

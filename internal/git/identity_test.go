@@ -164,6 +164,10 @@ func TestNormalizeSubpath(t *testing.T) {
 		"/project-a/":         "project-a",
 		"project-a/packages/": "project-a/packages",
 		"project-a/./b":       "project-a/b",
+		"project-a/..":        "",
+		"project-a/../project-b": "project-b",
+		"foo/bar/../..":       "",
+		"  apps/api  ":        "apps/api",
 	}
 	for in, want := range tests {
 		if got := NormalizeSubpath(in); got != want {

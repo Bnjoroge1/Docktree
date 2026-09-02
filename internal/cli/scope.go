@@ -39,8 +39,18 @@ func resolveSubpath(repo dockgit.RepoInfo, configPath string) (string, error) {
 	if err != nil {
 		return "", nil
 	}
-	root, ok := config.DiscoverRoot(realPath(cwd), stop)
+	realCwd := realPath(cwd)
+	root, ok := config.DiscoverRoot(realCwd, stop)
 	if !ok {
+		mainStop := realPath(repo.RepoRoot)
+		if mainStop != stop {
+			if rel, err := filepath.Rel(stop, realCwd); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				mainCwd := filepath.Join(mainStop, rel)
+				if mainRoot, ok := config.DiscoverRoot(mainCwd, mainStop); ok {
+					return subpathWithin(mainStop, mainRoot)
+				}
+			}
+		}
 		return "", nil
 	}
 	return subpathWithin(stop, root)
@@ -64,6 +74,9 @@ func explicitSubpath(worktreeRoot, configPath string) (string, error) {
 	}
 	dir := abs
 	if !info.IsDir() {
+		if filepath.Base(abs) != config.FileName {
+			return "", fmt.Errorf("--config %s: not a %s file", configPath, config.FileName)
+		}
 		dir = filepath.Dir(abs)
 	} else if _, err := os.Stat(filepath.Join(dir, config.FileName)); err != nil {
 		return "", fmt.Errorf("--config %s: no %s in that directory", configPath, config.FileName)

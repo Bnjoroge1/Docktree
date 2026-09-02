@@ -76,12 +76,16 @@ func DetectRepo() (RepoInfo, error) {
 // slash-separated relative form used for identity and scope derivation.
 // The repository root is represented as the empty string.
 func NormalizeSubpath(sub string) string {
-	sub = filepath.ToSlash(strings.TrimSpace(sub))
-	sub = strings.Trim(sub, "/")
-	if sub == "" || sub == "." {
+	sub = strings.TrimSpace(sub)
+	if sub == "" {
 		return ""
 	}
-	return path.Clean(sub)
+	cleaned := path.Clean(filepath.ToSlash(sub))
+	cleaned = strings.Trim(cleaned, "/")
+	if cleaned == "" || cleaned == "." {
+		return ""
+	}
+	return cleaned
 }
 
 // WithSubpath returns a copy of r scoped to the given subproject path,
