@@ -221,6 +221,9 @@ func TestGenerateOverride(t *testing.T) {
 				if dbVol.External == nil || *dbVol.External != false {
 					t.Fatalf("db-data external: got %#v", dbVol.External)
 				}
+				if dbVol.Labels["docktree.managed"] != "true" || dbVol.Labels["docktree.instance"] != "repo-feature-abc" {
+					t.Fatalf("db-data volume labels: got %#v", dbVol.Labels)
+				}
 				cacheVol := o.Volumes["cache-data"]
 				if cacheVol.Name != "repo-feature-abc-cache-data" {
 					t.Fatalf("cache-data volume name: got %q", cacheVol.Name)
@@ -335,6 +338,9 @@ func TestGenerateOverride(t *testing.T) {
 				if net.Driver != "bridge" {
 					t.Fatalf("isolated network driver = %q, want bridge", net.Driver)
 				}
+				if net.Labels["docktree.managed"] != "true" || net.Labels["docktree.instance"] != "repo-feature-abc123" {
+					t.Fatalf("isolated network labels: got %#v", net.Labels)
+				}
 				// Every service must reference the isolated network
 				for svcName, svc := range o.Services {
 					if _, ok := svc.Networks[isoNet]; !ok {
@@ -367,6 +373,9 @@ func TestGenerateOverride(t *testing.T) {
 				}
 				if n1.External {
 					t.Fatal("expected custom-net to not be external")
+				}
+				if n1.Labels["docktree.instance"] != "repo-feature-xyz" {
+					t.Fatalf("custom-net labels: got %#v", n1.Labels)
 				}
 
 				// external-net and platform-net should NOT be rewritten

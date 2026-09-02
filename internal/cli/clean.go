@@ -100,12 +100,14 @@ func discoverCleanCandidates(portRegistry *ports.Registry, includeVolumes bool) 
 	}
 	// Resource-rooted fallback: even when state, port claims, and labelled
 	// containers are all gone (e.g. after a partially failed teardown), the
-	// volumes and networks themselves still carry project labels. Names are
-	// restricted to Docktree's instance-name shape so unrelated compose
-	// projects are never swept. Platform-tier projects are excluded so a live
-	// platform stack is never a candidate. Volume-rooted candidates are only
-	// added when volumes will actually be removed, so a volume-only orphan is
-	// not re-reported forever by a run without --volumes.
+	// networks and volumes Docktree generated still carry its
+	// `docktree.instance` ownership label. docker.ListDocktree{Networks,Volumes}
+	// only report resources bearing that label and exclude the platform tier,
+	// so foreign compose projects and the shared platform stack are never
+	// swept; the instance-name shape check below is a defensive second gate.
+	// Volume-rooted candidates are only added when volumes will actually be
+	// removed, so a volume-only orphan is not re-reported forever by a run
+	// without --volumes.
 	if includeVolumes {
 		volumes, err := docker.ListDocktreeVolumes()
 		if err != nil {
@@ -154,17 +156,19 @@ func discoverCleanCandidates(portRegistry *ports.Registry, includeVolumes bool) 
 }
 
 // docktreeNameRe matches Docktree instance names: <repo>-<worktree>-<6 hex
-// chars>. It is conservative by design — anything that does not match the
-// full three-segment shape ending in the 6-char path hash is left alone, so
-// foreign compose projects sharing a `com.docker.compose.project` label are
-// never treated as candidates.
+// chars>. It is a defensive shape sanity check layered on top of the
+// label-based ownership guarantee in docker.ListDocktree* — anything that
+// does not match the full three-segment shape ending in the 6-char path hash
+// is left alone.
 var docktreeNameRe = regexp.MustCompile(`^[a-z0-9_-]+-[a-z0-9_-]+-[a-f0-9]{6}$`)
 
 // isWorktreeInstanceName reports whether a project name matches the Docktree
-// worktree-instance shape and is not the repo-scoped platform tier, so the
-// resource-rooted discovery fallback only ever targets worktree stacks.
+// worktree-instance shape. Platform-tier exclusion is handled by label at the
+// docker listing layer (docktree.tier=platform), not by name prefix, so a
+// legitimate worktree instance whose repo/worktree slugs render as
+// "docktree-platform-<hash>" is still recognized here.
 func isWorktreeInstanceName(name string) bool {
-	return docktreeNameRe.MatchString(name) && !strings.HasPrefix(name, "docktree-platform-")
+	return docktreeNameRe.MatchString(name)
 }
 
 func staleReason(inst *state.Instance, stateFound bool, portCount int, resources docker.ProjectResources) string {
@@ -211,77 +215,109 @@ func cleanResultFromCandidates(candidates []cleanCandidate, dryRun, volumes, rem
 }
 
 func applyCleanCandidates(portRegistry *ports.Registry, candidates []cleanCandidate, includeVolumes bool) ([]cleanCandidate, error) {
-	if err := portRegistry.Lock(); err != nil {
-		return nil, err
+	var applied []cleanCandidate
+	var errs []error
+	for _, candidate := range candidates {
+		result, err := applyCleanCandidate(portRegistry, candidate, includeVolumes)
+		if err != nil {
+			errs = append(errs, err)
+		}
+		if result != nil {
+			applied = append(applied, *result)
+		}
 	}
+	return applied, errors.Join(errs...)
+}
+
+// applyCleanCandidate tears down a single candidate. The port-registry lock is
+// held for the whole candidate so a concurrent `up` cannot allocate this
+// instance's ports mid-teardown, and the candidate's staleness is re-checked
+// against fresh state under that lock so an `up` that finished registering the
+// instance since discovery is left untouched. Docker resources are removed
+// before any tracking metadata is retired; if removal fails the claim and
+// record stay behind so a later `clean` can rediscover and retry the orphan.
+// A returned candidate was fully retired; a nil candidate with a nil error was
+// intentionally skipped (no longer stale, or deferred to a `--volumes` run).
+func applyCleanCandidate(portRegistry *ports.Registry, candidate cleanCandidate, includeVolumes bool) (*cleanCandidate, error) {
+	if err := portRegistry.Lock(); err != nil {
+		return nil, fmt.Errorf("%s: lock port registry: %w", candidate.Name, err)
+	}
+	unlocked := false
+	unlock := func() error {
+		if unlocked {
+			return nil
+		}
+		unlocked = true
+		return portRegistry.Unlock()
+	}
+	defer func() { _ = unlock() }()
+
 	portMap, err := portRegistry.Load()
 	if err != nil {
-		_ = portRegistry.Unlock()
-		return nil, err
+		return nil, fmt.Errorf("%s: load port registry: %w", candidate.Name, err)
 	}
 	instances, err := state.LoadGlobalInstances("")
 	if err != nil {
-		_ = portRegistry.Unlock()
-		return nil, err
+		return nil, fmt.Errorf("%s: load global instances: %w", candidate.Name, err)
 	}
-	var planned []cleanCandidate
-	for _, candidate := range candidates {
-		currentCandidate := candidate
-		currentCandidate.Ports = len(portMap[candidate.Name])
-		if saved, ok := instances[candidate.Name]; ok {
-			copied := saved
-			currentCandidate.Instance = &copied
-			currentCandidate.StateFound = true
-		} else {
-			currentCandidate.Instance = nil
-			currentCandidate.StateFound = false
-		}
-		if staleReason(currentCandidate.Instance, currentCandidate.StateFound, currentCandidate.Ports, currentCandidate.Resources) == "" {
-			continue
-		}
-		planned = append(planned, currentCandidate)
+	candidate.Ports = len(portMap[candidate.Name])
+	if saved, ok := instances[candidate.Name]; ok {
+		copied := saved
+		candidate.Instance = &copied
+		candidate.StateFound = true
+	} else {
+		candidate.Instance = nil
+		candidate.StateFound = false
 	}
-	if err := portRegistry.Unlock(); err != nil {
-		return nil, err
+	// Re-validate against fresh state: a concurrent `up` may have reclaimed
+	// this instance since discovery, in which case it is no longer stale.
+	if staleReason(candidate.Instance, candidate.StateFound, candidate.Ports, candidate.Resources) == "" {
+		return nil, nil
 	}
 
-	// Docker resources are removed first, per candidate, and the port claim
-	// and state record are only retired after that candidate's resources are
-	// gone. If removal fails, the claim and record stay behind so a later
-	// `clean` can still discover and retry the orphan. Candidates continue
-	// past each other so one failure never blocks the rest of the sweep.
-	var applied []cleanCandidate
-	var errs []error
-	for _, candidate := range planned {
-		removed, err := docker.RemoveProjectResources(candidate.Name, includeVolumes)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", candidate.Name, err))
-			continue
-		}
-		candidate.Resources = removed
-		if err := portRegistry.Lock(); err != nil {
-			errs = append(errs, fmt.Errorf("%s: lock port registry: %w", candidate.Name, err))
-			continue
-		}
-		releaseErr := portRegistry.Release(candidate.Name)
-		unlockErr := portRegistry.Unlock()
-		if releaseErr != nil {
-			errs = append(errs, fmt.Errorf("%s: release allocated ports: %w", candidate.Name, releaseErr))
-		}
-		if unlockErr != nil {
-			errs = append(errs, fmt.Errorf("%s: unlock port registry: %w", candidate.Name, unlockErr))
-		}
-		if err := state.RemoveGlobalInstance("", candidate.Name); err != nil {
-			errs = append(errs, fmt.Errorf("%s: remove global instance: %w", candidate.Name, err))
-		}
-		if candidate.Instance != nil {
-			if err := state.RemoveStateDir(candidate.Instance); err != nil {
-				errs = append(errs, fmt.Errorf("%s: remove state directory: %w", candidate.Name, err))
-			}
-		}
-		applied = append(applied, candidate)
+	removed, err := docker.RemoveProjectResources(candidate.Name, includeVolumes)
+	if err != nil {
+		// Resources remain; keep the claim and record so the orphan stays
+		// recoverable on a later run.
+		return nil, fmt.Errorf("%s: %w", candidate.Name, err)
 	}
-	return applied, errors.Join(errs...)
+	candidate.Resources = removed
+
+	// A plain `clean` neither lists nor removes volumes. If this project still
+	// owns volumes, retiring its claim and record now would strand them as
+	// permanently unreachable orphans, so keep the tracking metadata and let a
+	// later `clean --volumes` finish the teardown.
+	if !includeVolumes {
+		residual, err := docker.ListProjectResources(candidate.Name, true)
+		if err != nil {
+			return nil, fmt.Errorf("%s: check residual volumes: %w", candidate.Name, err)
+		}
+		if len(residual.Volumes) > 0 {
+			return nil, nil
+		}
+	}
+
+	// Retire the global state record first. If it fails, keep the port claim
+	// so the candidate stays discoverable ("stale port allocations") and is
+	// retried; releasing the ports here would leave a resource-free record
+	// that looks healthy and is never revisited.
+	if err := state.RemoveGlobalInstance("", candidate.Name); err != nil {
+		return nil, fmt.Errorf("%s: remove global instance: %w", candidate.Name, err)
+	}
+
+	var errs []error
+	if err := portRegistry.Release(candidate.Name); err != nil {
+		errs = append(errs, fmt.Errorf("%s: release allocated ports: %w", candidate.Name, err))
+	}
+	if err := unlock(); err != nil {
+		errs = append(errs, fmt.Errorf("%s: unlock port registry: %w", candidate.Name, err))
+	}
+	if candidate.Instance != nil {
+		if err := state.RemoveStateDir(candidate.Instance); err != nil {
+			errs = append(errs, fmt.Errorf("%s: remove state directory: %w", candidate.Name, err))
+		}
+	}
+	return &candidate, errors.Join(errs...)
 }
 
 func confirmClean(w io.Writer) bool {

@@ -29,10 +29,7 @@ func ListDocktreeProjects() ([]string, error) {
 	var projects []string
 	for _, line := range lines {
 		labels := parseLabelString(line)
-		project := labels["docktree.instance"]
-		if project == "" {
-			project = labels["com.docker.compose.project"]
-		}
+		project := docktreeProjectFromLabels(labels)
 		if project == "" || seen[project] {
 			continue
 		}
@@ -171,6 +168,21 @@ func parseLabelString(value string) map[string]string {
 	return labels
 }
 
+// docktreeProjectFromLabels returns the worktree-instance project name a
+// Docker resource belongs to, but only when the resource carries Docktree's
+// own ownership signal. It requires the `docktree.instance` label — which
+// Docktree stamps on the containers, networks, and volumes it generates — and
+// never falls back to the generic `com.docker.compose.project` label, so a
+// foreign Compose project can never be mistaken for a Docktree instance and
+// swept. Repo-scoped platform-tier resources (`docktree.tier=platform`) are
+// excluded so a live shared platform stack is never treated as a candidate.
+func docktreeProjectFromLabels(labels map[string]string) string {
+	if labels["docktree.tier"] == "platform" {
+		return ""
+	}
+	return labels["docktree.instance"]
+}
+
 type NetworkInfo struct {
 	Name        string
 	Driver      string
@@ -200,10 +212,7 @@ func ListDocktreeNetworks() ([]NetworkInfo, error) {
 			labelsStr = parts[2]
 		}
 		labels := parseLabelString(labelsStr)
-		project := labels["docktree.instance"]
-		if project == "" {
-			project = labels["com.docker.compose.project"]
-		}
+		project := docktreeProjectFromLabels(labels)
 		if project == "" {
 			continue
 		}
@@ -244,10 +253,7 @@ func ListDocktreeVolumes() ([]VolumeInfo, error) {
 			labelsStr = parts[2]
 		}
 		labels := parseLabelString(labelsStr)
-		project := labels["docktree.instance"]
-		if project == "" {
-			project = labels["com.docker.compose.project"]
-		}
+		project := docktreeProjectFromLabels(labels)
 		if project == "" {
 			continue
 		}

@@ -28,7 +28,7 @@ func GenerateOverride(project *ComposeProject, instanceName string, assignments 
 	override := &Override{
 		Services: map[string]ServiceOverride{},
 		Networks: map[string]NetworkOverride{
-			isoNet: {Driver: "bridge"},
+			isoNet: {Driver: "bridge", Labels: docktreeResourceLabels(instanceName)},
 		},
 		Volumes: map[string]VolumeOverride{},
 	}
@@ -47,6 +47,7 @@ func GenerateOverride(project *ComposeProject, instanceName string, assignments 
 			override.Networks[netKey] = NetworkOverride{
 				Name:     netConfig.Name + "-" + instanceName,
 				External: false,
+				Labels:   docktreeResourceLabels(instanceName),
 			}
 		}
 	}
@@ -88,6 +89,7 @@ func GenerateOverride(project *ComposeProject, instanceName string, assignments 
 			override.Volumes[volName] = VolumeOverride{
 				Name:     instanceName + "-" + volName,
 				External: &external,
+				Labels:   docktreeResourceLabels(instanceName),
 			}
 		}
 	}
@@ -215,4 +217,19 @@ func repoPart(instanceName string) string {
 		return instanceName
 	}
 	return parts[0]
+}
+
+// docktreeResourceLabels returns the ownership labels stamped onto the
+// networks and volumes Docktree generates for a worktree instance. Compose
+// only labels containers by default; carrying the same `docktree.instance`
+// signal on networks and volumes lets `clean` recognize its own orphaned
+// resources by label rather than by name shape alone, so a foreign compose
+// project that happens to share the instance-name shape is never swept. A
+// fresh map is returned per call so callers never alias one another.
+func docktreeResourceLabels(instanceName string) map[string]string {
+	return map[string]string{
+		"docktree.managed":  "true",
+		"docktree.instance": instanceName,
+		"docktree.repo":     repoPart(instanceName),
+	}
 }

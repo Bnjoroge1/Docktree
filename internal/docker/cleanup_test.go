@@ -184,6 +184,8 @@ func TestListDocktreeProjects(t *testing.T) {
 if [ "$1 $2" = "ps -a" ]; then
   printf 'docktree.managed=true,docktree.instance=alpha,com.docker.compose.project=alpha\n'
   printf 'docktree.managed=true,docktree.instance=beta,com.docker.compose.project=beta\n'
+  printf 'docktree.managed=true,docktree.tier=platform,com.docker.compose.project=docktree-platform-myrepo\n'
+  printf 'com.docker.compose.project=foreign-project-abc123\n'
 fi
 `), 0o755); err != nil {
 		t.Fatal(err)
@@ -193,6 +195,8 @@ fi
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Only resources carrying docktree.instance are managed projects; the
+	// platform tier and foreign compose projects are excluded.
 	if len(projects) != 2 || projects[0] != "alpha" || projects[1] != "beta" {
 		t.Fatalf("unexpected projects: %#v", projects)
 	}
@@ -212,9 +216,11 @@ func TestListDocktreeVolumes(t *testing.T) {
 	script := filepath.Join(dir, "docker")
 	if err := os.WriteFile(script, []byte(`#!/bin/sh
 if [ "$1 $2" = "volume ls" ]; then
-  printf 'vol1\tlocal\tcom.docker.compose.project=alpha,com.docker.compose.volume=db_data\n'
-  printf 'vol2\tlocal\tcom.docker.compose.project=beta\n'
+  printf 'vol1\tlocal\tdocktree.managed=true,docktree.instance=alpha,com.docker.compose.project=alpha,com.docker.compose.volume=db_data\n'
+  printf 'vol2\tlocal\tdocktree.managed=true,docktree.instance=beta,com.docker.compose.project=beta\n'
   printf 'vol3\tlocal\tno-docktree-label=true\n'
+  printf 'vol4\tlocal\tdocktree.managed=true,docktree.tier=platform,com.docker.compose.project=docktree-platform-myrepo\n'
+  printf 'vol5\tlocal\tcom.docker.compose.project=foreign-abc123\n'
 fi
 `), 0o755); err != nil {
 		t.Fatal(err)
@@ -224,6 +230,9 @@ fi
 	if err != nil {
 		t.Fatal(err)
 	}
+	// vol3 carries no docktree label, vol4 is platform tier, and vol5 is a
+	// foreign compose project with only the generic project label — none are
+	// Docktree-owned, so only vol1/vol2 are reported.
 	if len(volumes) != 2 {
 		t.Fatalf("expected 2 volumes, got %d: %#v", len(volumes), volumes)
 	}
@@ -240,9 +249,11 @@ func TestListDocktreeNetworks(t *testing.T) {
 	script := filepath.Join(dir, "docker")
 	if err := os.WriteFile(script, []byte(`#!/bin/sh
 if [ "$1 $2" = "network ls" ]; then
-  printf 'net1\tbridge\tcom.docker.compose.project=alpha\n'
+  printf 'net1\tbridge\tdocktree.managed=true,docktree.instance=alpha,com.docker.compose.project=alpha\n'
   printf 'net2\tbridge\tdocktree.instance=beta\n'
   printf 'net3\tbridge\tno-docktree-label=true\n'
+  printf 'net4\tbridge\tdocktree.managed=true,docktree.tier=platform,com.docker.compose.project=docktree-platform-myrepo\n'
+  printf 'net5\tbridge\tcom.docker.compose.project=foreign-abc123\n'
 fi
 `), 0o755); err != nil {
 		t.Fatal(err)
@@ -252,6 +263,8 @@ fi
 	if err != nil {
 		t.Fatal(err)
 	}
+	// net3 has no docktree label, net4 is platform tier, and net5 is a
+	// foreign compose project — only net1/net2 are Docktree-owned.
 	if len(networks) != 2 {
 		t.Fatalf("expected 2 networks, got %d: %#v", len(networks), networks)
 	}

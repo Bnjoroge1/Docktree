@@ -19,8 +19,14 @@ func TestIsWorktreeInstanceName(t *testing.T) {
 	}{
 		{"typical instance", "repo-feature-abc123", true},
 		{"repo and branch contain dashes", "my-repo-feature-auth-abc123", true},
-		{"platform tier is excluded", "docktree-platform-myrepo", false},
-		{"platform tier with hex-like slug", "docktree-platform-abcd123", false},
+		// Platform-tier exclusion is enforced by the docktree.tier label at the
+		// docker listing layer, not by name shape. A worktree instance whose
+		// repo/worktree slugs render as "docktree-platform-<6hex>" is a valid
+		// instance name and must be recognized here (regression: the old
+		// name-prefix guard wrongly rejected it, leaking such instances).
+		{"platform-prefixed name that matches instance shape", "docktree-platform-abcdef", true},
+		{"platform name without hash suffix", "docktree-platform-myrepo", false},
+		{"platform name with non-hex tail", "docktree-platform-abcd123", false},
 		{"missing hash suffix", "repo-feature", false},
 		{"hash too short", "repo-feature-abcd1", false},
 		{"hash not hex", "repo-feature-ghijkl", false},
@@ -50,10 +56,10 @@ case "$1 $2" in
     exit 0
     ;;
   "network ls")
-    printf 'repo-feature-abc123_default\tbridge\tcom.docker.compose.project=repo-feature-abc123\n'
+    printf 'repo-feature-abc123-isolated\tbridge\tdocktree.managed=true,docktree.instance=repo-feature-abc123,com.docker.compose.project=repo-feature-abc123\n'
     ;;
   "volume ls")
-    printf 'repo-feature-abc123_data\tlocal\tcom.docker.compose.project=repo-feature-abc123\n'
+    printf 'repo-feature-abc123-data\tlocal\tdocktree.managed=true,docktree.instance=repo-feature-abc123,com.docker.compose.project=repo-feature-abc123,com.docker.compose.volume=data\n'
     ;;
 esac
 exit 0
@@ -108,10 +114,12 @@ case "$1 $2" in
     ;;
   "network ls")
     printf 'myapp_default\tbridge\tcom.docker.compose.project=myapp\n'
-    printf 'docktree-platform-myapp_default\tbridge\tcom.docker.compose.project=docktree-platform-myapp\n'
+    printf 'foreign-app-abc123_default\tbridge\tcom.docker.compose.project=foreign-app-abc123\n'
+    printf 'docktree-platform-myrepo_default\tbridge\tdocktree.managed=true,docktree.tier=platform,docktree.instance=docktree-platform-myrepo,com.docker.compose.project=docktree-platform-myrepo\n'
     ;;
   "volume ls")
     printf 'myapp_data\tlocal\tcom.docker.compose.project=myapp\n'
+    printf 'foreign-app-abc123_data\tlocal\tcom.docker.compose.project=foreign-app-abc123\n'
     ;;
 esac
 exit 0
@@ -215,5 +223,68 @@ exit 0
 	}
 	if _, ok := instances["repo-feature-abc123"]; !ok {
 		t.Fatalf("global instance was removed despite failed removal: %#v", instances)
+	}
+}
+
+// TestApplyCleanCandidatesDefersVolumeOrphansOnPlainClean covers the case where
+// a plain `clean` (no --volumes) processes a candidate that still owns a
+// volume. Because a plain run cannot remove the volume, retiring the claim and
+// state record would strand it as an unrecoverable orphan, so the metadata is
+// kept and the candidate is left for a later `clean --volumes`.
+func TestApplyCleanCandidatesDefersVolumeOrphansOnPlainClean(t *testing.T) {
+	root := t.TempDir()
+	bin := filepath.Join(root, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// No containers or networks, but a residual volume remains for the project.
+	script := `#!/bin/sh
+case "$1 $2" in
+  "ps -a")
+    exit 0
+    ;;
+  "network ls")
+    exit 0
+    ;;
+  "volume ls")
+    printf 'repo-feature-abc123-data\n'
+    ;;
+esac
+exit 0
+`
+	if err := os.WriteFile(filepath.Join(bin, "docker"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+
+	registry := ports.NewRegistry()
+	if err := registry.Save(map[string][]ports.Assignment{
+		"repo-feature-abc123": {{Service: "web", ContainerPort: 80, HostIP: "127.0.0.1", HostPort: 41000}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	candidates := []cleanCandidate{{
+		Name:      "repo-feature-abc123",
+		Reason:    "orphaned resources and port allocations",
+		Resources: docker.ProjectResources{Volumes: []docker.Resource{{Name: "repo-feature-abc123-data"}}},
+	}}
+	applied, err := applyCleanCandidates(registry, candidates, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(applied) != 0 {
+		t.Fatalf("expected candidate deferred, got applied %#v", applied)
+	}
+
+	// The port claim must survive so a later `clean --volumes` can remove the
+	// residual volume and finish the teardown.
+	portMap, err := registry.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := portMap["repo-feature-abc123"]; !ok {
+		t.Fatalf("port claim was retired while a volume orphan remained: %#v", portMap)
 	}
 }
