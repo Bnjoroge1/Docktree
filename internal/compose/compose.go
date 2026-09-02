@@ -53,11 +53,13 @@ type NetworkOverride struct {
 	Driver   string `yaml:"driver,omitempty"`
 	External bool   `yaml:"external,omitempty"`
 	Name     string `yaml:"name,omitempty"`
+	Labels   map[string]string `yaml:"labels,omitempty"`
 }
 
 type VolumeOverride struct {
 	Name     string `yaml:"name,omitempty"`
 	External *bool  `yaml:"external,omitempty"`
+	Labels   map[string]string `yaml:"labels,omitempty"`
 }
 
 type PortMapping struct {

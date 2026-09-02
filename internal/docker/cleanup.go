@@ -2,6 +2,7 @@ package docker
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os/exec"
 	"slices"
@@ -28,10 +29,7 @@ func ListDocktreeProjects() ([]string, error) {
 	var projects []string
 	for _, line := range lines {
 		labels := parseLabelString(line)
-		project := labels["docktree.instance"]
-		if project == "" {
-			project = labels["com.docker.compose.project"]
-		}
+		project := docktreeProjectFromLabels(labels)
 		if project == "" || seen[project] {
 			continue
 		}
@@ -62,39 +60,38 @@ func ListProjectResources(project string, includeVolumes bool) (ProjectResources
 	return result, nil
 }
 
+// RemoveProjectResources removes each container, network, and (optionally)
+// volume belonging to a compose project individually, so one unremovable
+// resource does not abort the rest of the teardown. Failures are collected
+// and returned as an aggregate error.
 func RemoveProjectResources(project string, includeVolumes bool) (ProjectResources, error) {
 	resources, err := ListProjectResources(project, includeVolumes)
 	if err != nil {
 		return ProjectResources{}, err
 	}
-	if len(resources.Containers) > 0 {
-		args := []string{"rm", "-f"}
-		for _, resource := range resources.Containers {
-			args = append(args, resource.ID)
-		}
-		if err := dockerRun(args...); err != nil {
-			return ProjectResources{}, err
-		}
-	}
-	if len(resources.Networks) > 0 {
-		args := []string{"network", "rm"}
-		for _, resource := range resources.Networks {
-			args = append(args, resource.Name)
-		}
-		if err := dockerRun(args...); err != nil {
-			return ProjectResources{}, err
+	var errs []error
+	for _, resource := range resources.Containers {
+		if err := dockerRun("rm", "-f", resource.ID); err != nil {
+			name := resource.Name
+			if name == "" {
+				name = resource.ID
+			}
+			errs = append(errs, fmt.Errorf("remove container %s: %w", name, err))
 		}
 	}
-	if includeVolumes && len(resources.Volumes) > 0 {
-		args := []string{"volume", "rm", "-f"}
+	for _, resource := range resources.Networks {
+		if err := dockerRun("network", "rm", resource.Name); err != nil {
+			errs = append(errs, fmt.Errorf("remove network %s: %w", resource.Name, err))
+		}
+	}
+	if includeVolumes {
 		for _, resource := range resources.Volumes {
-			args = append(args, resource.Name)
-		}
-		if err := dockerRun(args...); err != nil {
-			return ProjectResources{}, err
+			if err := dockerRun("volume", "rm", "-f", resource.Name); err != nil {
+				errs = append(errs, fmt.Errorf("remove volume %s: %w", resource.Name, err))
+			}
 		}
 	}
-	return resources, nil
+	return resources, errors.Join(errs...)
 }
 
 func listResources(args ...string) ([]Resource, error) {
@@ -171,6 +168,63 @@ func parseLabelString(value string) map[string]string {
 	return labels
 }
 
+// docktreeProjectFromLabels returns the worktree-instance project name a
+// Docker resource belongs to, but only when the resource carries Docktree's
+// own ownership signal. It requires the `docktree.instance` label — which
+// Docktree stamps on the containers, networks, and volumes it generates — and
+// never falls back to the generic `com.docker.compose.project` label, so a
+// foreign Compose project can never be mistaken for a Docktree instance and
+// swept. Repo-scoped platform-tier resources (`docktree.tier=platform`) are
+// excluded so a live shared platform stack is never treated as a candidate.
+func docktreeProjectFromLabels(labels map[string]string) string {
+	if labels["docktree.tier"] == "platform" {
+		return ""
+	}
+	return labels["docktree.instance"]
+}
+
+type NetworkInfo struct {
+	Name        string
+	Driver      string
+	ProjectName string
+}
+
+// ListDocktreeNetworks enumerates networks carrying a Docktree project label
+// from `docker network ls` alone, independent of any container or state file.
+func ListDocktreeNetworks() ([]NetworkInfo, error) {
+	lines, err := dockerLines("network", "ls", "--format", "{{.Name}}\t{{.Driver}}\t{{.Labels}}")
+	if err != nil {
+		return nil, err
+	}
+	var networks []NetworkInfo
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "\t")
+		if len(parts) < 2 {
+			continue
+		}
+		name := parts[0]
+		driver := parts[1]
+		var labelsStr string
+		if len(parts) >= 3 {
+			labelsStr = parts[2]
+		}
+		labels := parseLabelString(labelsStr)
+		project := docktreeProjectFromLabels(labels)
+		if project == "" {
+			continue
+		}
+		networks = append(networks, NetworkInfo{
+			Name:        name,
+			Driver:      driver,
+			ProjectName: project,
+		})
+	}
+	return networks, nil
+}
+
 type VolumeInfo struct {
 	Name        string
 	Driver      string
@@ -199,10 +253,7 @@ func ListDocktreeVolumes() ([]VolumeInfo, error) {
 			labelsStr = parts[2]
 		}
 		labels := parseLabelString(labelsStr)
-		project := labels["docktree.instance"]
-		if project == "" {
-			project = labels["com.docker.compose.project"]
-		}
+		project := docktreeProjectFromLabels(labels)
 		if project == "" {
 			continue
 		}
