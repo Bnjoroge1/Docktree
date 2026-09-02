@@ -237,7 +237,7 @@ func TestParseGlobalFlags(t *testing.T) {
 	}
 
 	// -- stops global flag processing
-	jsonMode, cfgPath, rest, err = parseGlobalFlags([]string{"exec", "web", "--", "--config", "other.yml"})
+	_, cfgPath, rest, err = parseGlobalFlags([]string{"exec", "web", "--", "--config", "other.yml"})
 	if err != nil {
 		t.Fatal(err)
 	}
