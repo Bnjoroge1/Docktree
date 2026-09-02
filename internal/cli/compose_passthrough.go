@@ -7,9 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/bnjoroge/docktree/internal/config"
 	"github.com/bnjoroge/docktree/internal/docker"
-	dockgit "github.com/bnjoroge/docktree/internal/git"
 	"github.com/bnjoroge/docktree/internal/output"
 	"github.com/bnjoroge/docktree/internal/state"
 )
@@ -23,15 +21,15 @@ func runComposePassthrough(ctx *Context, subcommand string, args []string, allow
 		helpFn(ctx.Stdout)
 		return nil, output.ExitOK, nil
 	}
-	repo, err := dockgit.DetectRepo()
+	repo, err := resolveRepo(ctx.ConfigPath)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	cfg, err := config.Load(repo.RepoRoot)
+	cfg, err := loadCanonicalConfig(repo)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	stateDir := state.StatePath(repo.WorktreeRoot, cfg.State.Directory)
+	stateDir := state.StatePath(repo.ProjectRoot, cfg.State.Directory)
 	inst, err := state.LoadInstance(stateDir)
 	if err != nil {
 		// No saved instance — tabular commands return empty results;
@@ -46,7 +44,7 @@ func runComposePassthrough(ctx *Context, subcommand string, args []string, allow
 		}
 		return nil, output.ExitConfig, err
 	}
-	composeFiles := activeComposeFiles(repo.WorktreeRoot, cfg, inst)
+	composeFiles := activeComposeFiles(repo.ProjectRoot, cfg, inst)
 	composeArgs := append([]string{subcommand}, args...)
 	cmd := docker.ComposeCommand{
 		ProjectName: inst.ProjectName,
@@ -88,20 +86,20 @@ func runComposeRun(ctx *Context) (any, int, error) {
 		printRunHelp(ctx.Stdout)
 		return nil, output.ExitOK, nil
 	}
-	repo, err := dockgit.DetectRepo()
+	repo, err := resolveRepo(ctx.ConfigPath)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	cfg, err := config.Load(repo.RepoRoot)
+	cfg, err := loadCanonicalConfig(repo)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	stateDir := state.StatePath(repo.WorktreeRoot, cfg.State.Directory)
+	stateDir := state.StatePath(repo.ProjectRoot, cfg.State.Directory)
 	inst, err := state.LoadInstance(stateDir)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	composeFiles := activeComposeFiles(repo.WorktreeRoot, cfg, inst)
+	composeFiles := activeComposeFiles(repo.ProjectRoot, cfg, inst)
 	args = stripRunSeparator(args)
 	composeArgs := append([]string{"run", "--rm"}, args...)
 	cmd := docker.ComposeCommand{
@@ -161,32 +159,32 @@ func runDocker(ctx *Context) (any, int, error) {
 		printDockerHelp(ctx.Stdout)
 		return nil, output.ExitOK, nil
 	}
-	repo, err := dockgit.DetectRepo()
+	repo, err := resolveRepo(ctx.ConfigPath)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	cfg, err := config.Load(repo.RepoRoot)
+	cfg, err := loadCanonicalConfig(repo)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	stateDir := state.StatePath(repo.WorktreeRoot, cfg.State.Directory)
+	stateDir := state.StatePath(repo.ProjectRoot, cfg.State.Directory)
 	inst, err := state.LoadInstance(stateDir)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	composeFiles := activeComposeFiles(repo.WorktreeRoot, cfg, inst)
+	composeFiles := activeComposeFiles(repo.ProjectRoot, cfg, inst)
 
 	// Intercept tabular subcommands and render with docktree table formatting.
 	// Only intercept clean runs — pass through if the user gave output-shaping flags.
 	if !hasOutputShapingFlags(args[1:]) {
-	switch args[0] {
-	case "images":
-		return runDockerImages(inst.ProjectName, composeFiles, args)
-	case "top":
-		return runDockerTop(inst.ProjectName, composeFiles, args)
-	case "ls":
-		return runDockerLs(composeFiles, args)
-	}
+		switch args[0] {
+		case "images":
+			return runDockerImages(inst.ProjectName, composeFiles, args)
+		case "top":
+			return runDockerTop(inst.ProjectName, composeFiles, args)
+		case "ls":
+			return runDockerLs(composeFiles, args)
+		}
 	}
 
 	cmd := docker.ComposeCommand{
@@ -234,8 +232,6 @@ func runDockerImages(projectName string, composeFiles, args []string) (any, int,
 	}
 	return ImagesResult{ProjectName: projectName, Entries: entries}, output.ExitOK, nil
 }
-
-
 
 func runDockerTop(projectName string, composeFiles, args []string) (any, int, error) {
 	cmd := docker.ComposeCommand{

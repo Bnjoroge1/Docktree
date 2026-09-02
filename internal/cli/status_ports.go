@@ -11,7 +11,6 @@ import (
 
 	"github.com/bnjoroge/docktree/internal/config"
 	"github.com/bnjoroge/docktree/internal/docker"
-	dockgit "github.com/bnjoroge/docktree/internal/git"
 	"github.com/bnjoroge/docktree/internal/output"
 	"github.com/bnjoroge/docktree/internal/ports"
 	"github.com/bnjoroge/docktree/internal/state"
@@ -31,15 +30,15 @@ func runStatus(ctx *Context) (any, int, error) {
 		return runStatusAll(ctx)
 	}
 
-	repo, err := dockgit.DetectRepo()
+	repo, err := resolveRepo(ctx.ConfigPath)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	cfg, err := loadConfigWithSharedWarnings(repo.RepoRoot, ctx.Stderr)
+	cfg, err := loadCanonicalConfigWithWarnings(repo, ctx.Stderr)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	inst, err := state.LoadInstance(state.StatePath(repo.WorktreeRoot, cfg.State.Directory))
+	inst, err := state.LoadInstance(state.StatePath(repo.ProjectRoot, cfg.State.Directory))
 	if errors.Is(err, os.ErrNotExist) {
 		return StatusResult{Stopped: true}, output.ExitNoop, nil
 	}
@@ -67,7 +66,6 @@ func runStatusAll(ctx *Context) (any, int, error) {
 
 	var entries []StatusAllEntry
 
-
 	for _, name := range names {
 		inst := instances[name]
 		entry := StatusAllEntry{
@@ -85,7 +83,7 @@ func runStatusAll(ctx *Context) (any, int, error) {
 			continue
 		}
 
-		cfg, err := config.Load(inst.RepoRoot)
+		cfg, err := loadInstanceConfig(&inst)
 		if err != nil {
 			entries = append(entries, entry)
 			continue
@@ -103,13 +101,13 @@ func runStatusAll(ctx *Context) (any, int, error) {
 		entry.ProxyURL = fmt.Sprintf("http://%s.%s:%d", inst.Name, instTLD, instProxyPort)
 
 		// Tunnel URL if running
-		ts, _ := LoadTunnelState(inst.WorktreeRoot, inst.StateDirectory)
+		ts, _ := LoadTunnelState(instanceProjectRoot(&inst), state.InstanceStateDir(&inst))
 		if ts != nil && ts.StartTime != "" && processMatchesStr(ts.PID, ts.StartTime) && ts.URL != "" {
 			entry.TunnelURL = ts.URL
 		}
 		out, err := docker.RunCapture(docker.ComposeCommand{
 			ProjectName: inst.ProjectName,
-			Files:       activeComposeFiles(inst.WorktreeRoot, cfg, &inst),
+			Files:       activeComposeFiles(instanceProjectRoot(&inst), cfg, &inst),
 			CommandArgs: []string{"ps", "--format", "json"},
 		})
 		if err != nil {
@@ -137,7 +135,7 @@ func runStatusAll(ctx *Context) (any, int, error) {
 }
 
 func statusForInstance(ctx *Context, inst *state.Instance, cfg *config.Config) (any, int, error) {
-	out, err := docker.RunCapture(docker.ComposeCommand{ProjectName: inst.ProjectName, Files: activeComposeFiles(inst.WorktreeRoot, cfg, inst), CommandArgs: []string{"ps", "--format", "json"}})
+	out, err := docker.RunCapture(docker.ComposeCommand{ProjectName: inst.ProjectName, Files: activeComposeFiles(instanceProjectRoot(inst), cfg, inst), CommandArgs: []string{"ps", "--format", "json"}})
 	if err != nil {
 		return nil, output.ExitDocker, err
 	}
@@ -203,11 +201,11 @@ func runPorts(ctx *Context) (any, int, error) {
 		}
 		return PortsResult{All: true, Entries: entries}, output.ExitOK, nil
 	}
-	repo, err := dockgit.DetectRepo()
+	repo, err := resolveRepo(ctx.ConfigPath)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	cfg, err := loadConfigWithSharedWarnings(repo.RepoRoot, ctx.Stderr)
+	cfg, err := loadCanonicalConfigWithWarnings(repo, ctx.Stderr)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}

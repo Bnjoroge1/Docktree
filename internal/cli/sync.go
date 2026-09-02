@@ -33,17 +33,19 @@ func runSync(ctx *Context) (any, int, error) {
 		return SyncResult{}, output.ExitNoop, nil
 	}
 
-	// Group instances by repo root so we load config once per repo.
+	// Group instances by config root (repo root plus subproject) so we load
+	// config once per project and never sync one project's setup files into
+	// another's worktree.
 	type repoGroup struct {
 		instances []state.Instance
 	}
 	groups := make(map[string]*repoGroup)
 	for _, inst := range instances {
-		root := inst.RepoRoot
-		if root == "" {
+		if inst.RepoRoot == "" || inst.WorktreeRoot == "" {
 			continue
 		}
-		if _, err := os.Stat(inst.WorktreeRoot); err != nil {
+		root := instanceConfigRoot(&inst)
+		if _, err := os.Stat(instanceProjectRoot(&inst)); err != nil {
 			continue // worktree gone
 		}
 		g, ok := groups[root]
@@ -64,18 +66,19 @@ func runSync(ctx *Context) (any, int, error) {
 			continue
 		}
 		for _, inst := range g.instances {
-			if filepath.Clean(inst.WorktreeRoot) == filepath.Clean(root) {
+			project := instanceProjectRoot(&inst)
+			if filepath.Clean(project) == filepath.Clean(root) {
 				continue
 			}
 			item := SyncItem{
 				Instance:     inst.Name,
-				WorktreeRoot: inst.WorktreeRoot,
+				WorktreeRoot: project,
 				MainRoot:     root,
 				Branch:       inst.Branch,
 			}
-			stale := setup.StaleFiles(root, inst.WorktreeRoot, cfg)
+			stale := setup.StaleFiles(root, project, cfg)
 			if len(stale) == 0 {
-				continue 
+				continue
 			}
 			item.Files = stale
 			items = append(items, item)

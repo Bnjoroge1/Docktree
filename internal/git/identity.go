@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -21,6 +22,15 @@ type RepoInfo struct {
 	WorktreeRoot string
 	Branch       string
 	Prefix       string
+	// Subpath is the slash-separated path of the selected Docktree subproject
+	// relative to WorktreeRoot. It is empty for repository-root projects.
+	Subpath string
+	// ConfigRoot is where docktree.yml and setup sources live: the main
+	// checkout root joined with Subpath.
+	ConfigRoot string
+	// ProjectRoot is where compose files, state, and setup targets live: the
+	// current worktree root joined with Subpath.
+	ProjectRoot string
 }
 
 type WorktreeInfo struct {
@@ -57,7 +67,44 @@ func DetectRepo() (RepoInfo, error) {
 		WorktreeRoot: filepath.Clean(worktreeRoot),
 		Branch:       branch,
 		Prefix:       prefix,
+		ConfigRoot:   repoRoot,
+		ProjectRoot:  filepath.Clean(worktreeRoot),
 	}, nil
+}
+
+// NormalizeSubpath converts a subproject path into the canonical
+// slash-separated relative form used for identity and scope derivation.
+// The repository root is represented as the empty string.
+func NormalizeSubpath(sub string) string {
+	sub = strings.TrimSpace(sub)
+	if sub == "" {
+		return ""
+	}
+	cleaned := path.Clean(filepath.ToSlash(sub))
+	cleaned = strings.Trim(cleaned, "/")
+	if cleaned == "" || cleaned == "." {
+		return ""
+	}
+	return cleaned
+}
+
+// WithSubpath returns a copy of r scoped to the given subproject path,
+// recomputing ConfigRoot and ProjectRoot. An empty subpath yields
+// repository-root scope, identical to DetectRepo's result.
+func (r RepoInfo) WithSubpath(sub string) RepoInfo {
+	r.Subpath = NormalizeSubpath(sub)
+	native := filepath.FromSlash(r.Subpath)
+	r.ConfigRoot = filepath.Join(r.RepoRoot, native)
+	r.ProjectRoot = filepath.Join(r.WorktreeRoot, native)
+	return r
+}
+
+// WithWorktree returns a copy of r rebased onto a different worktree root,
+// preserving the selected subproject.
+func (r RepoInfo) WithWorktree(worktreeRoot, branch string) RepoInfo {
+	r.WorktreeRoot = filepath.Clean(worktreeRoot)
+	r.Branch = branch
+	return r.WithSubpath(r.Subpath)
 }
 
 func DetectWorktree() (WorktreeInfo, error) {
@@ -80,7 +127,9 @@ func DetectWorktree() (WorktreeInfo, error) {
 }
 
 // InstanceName returns a Compose-safe, stable project name.
-func InstanceName(repoName, worktreeName, repoPath, worktreePath string) string {
+// subpath scopes the identity to a subproject within the worktree; an empty
+// subpath reproduces the historical repository-root name byte for byte.
+func InstanceName(repoName, worktreeName, repoPath, worktreePath, subpath string) string {
 	repo := slugify(repoName)
 	worktree := slugify(worktreeName)
 	if repo == "" {
@@ -88,6 +137,11 @@ func InstanceName(repoName, worktreeName, repoPath, worktreePath string) string 
 	}
 	if worktree == "" {
 		worktree = "worktree"
+	}
+
+	subpath = NormalizeSubpath(subpath)
+	if subpath != "" {
+		return subprojectInstanceName(repo, worktree, repoPath, worktreePath, subpath)
 	}
 
 	//hash repo + worktree to avoid duplicate project names.
@@ -101,6 +155,27 @@ func InstanceName(repoName, worktreeName, repoPath, worktreePath string) string 
 	repo = truncateSlug(repo, avail/2)
 	worktree = truncateSlug(worktree, avail-len(repo))
 	return repo + "-" + worktree + suffix
+}
+
+// subprojectInstanceName builds a three-segment identity for subproject
+// configs. The subpath participates in both the readable slug and the hash so
+// two subprojects in one worktree can never collide.
+func subprojectInstanceName(repo, worktree, repoPath, worktreePath, subpath string) string {
+	sub := slugify(strings.ReplaceAll(subpath, "/", "-"))
+	if sub == "" {
+		sub = "sub"
+	}
+	sum := sha1.Sum([]byte(repoPath + "\x00" + worktreePath + "\x00" + subpath))
+	suffix := "-" + hex.EncodeToString(sum[:])[:6]
+
+	avail := 64 - 2 - len(suffix)
+	repo = truncateSlug(repo, avail/3)
+	sub = truncateSlug(sub, avail/3)
+	if sub == "" {
+		sub = "x"
+	}
+	worktree = truncateSlug(worktree, avail-len(repo)-len(sub))
+	return repo + "-" + sub + "-" + worktree + suffix
 }
 
 func slugify(value string) string {

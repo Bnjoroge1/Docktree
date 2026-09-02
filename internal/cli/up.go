@@ -36,7 +36,7 @@ func runUp(ctx *Context) (any, int, error) {
 	if options.validate && options.dryRun {
 		return nil, output.ExitUsage, fmt.Errorf("--validate and --dry-run are mutually exclusive")
 	}
-	repo, cfg, instanceName, err := commonIdentity()
+	repo, cfg, instanceName, err := commonIdentity(ctx)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
@@ -50,7 +50,7 @@ func runUp(ctx *Context) (any, int, error) {
 	var createdWorktree string
 	var synced bool
 	if options.create != "" {
-		_, hadDocktreeConfig := os.Stat(filepath.Join(canonicalConfigRoot(repo), "docktree.yml"))
+		_, hadDocktreeConfig := os.Stat(filepath.Join(canonicalConfigRoot(repo), config.FileName))
 		scaffolded, err = config.Scaffold(canonicalConfigRoot(repo), cfg)
 		if err != nil {
 			return nil, output.ExitConfig, err
@@ -64,19 +64,19 @@ func runUp(ctx *Context) (any, int, error) {
 				steps.Done("Scaffolded docktree.yml")
 			}
 		}
-		if err := ensureCreateComposeInputsCommitted(repo.RepoRoot, repo.WorktreeRoot, cfg, options.file, hadDocktreeConfig == nil); err != nil {
+		if err := ensureCreateComposeInputsCommitted(repo, cfg, options.file, hadDocktreeConfig == nil); err != nil {
 			return nil, output.ExitConfig, err
 		}
-		createdWorktree, err = createPreparedWorktree(repo.RepoRoot, cfg, options.create, ctx.Stdout, ctx.Stderr)
+		createdWorktree, err = createPreparedWorktree(repo, cfg, options.create, ctx.Stdout, ctx.Stderr)
 		if err != nil {
 			return nil, output.ExitConfig, err
 		}
 		if steps != nil {
 			steps.Done("Created worktree " + tui.AccentS(options.create))
 		}
-		repo = dockgit.RepoInfo{RepoRoot: repo.RepoRoot, WorktreeRoot: createdWorktree, Branch: options.create}
+		repo = repo.WithWorktree(createdWorktree, options.create)
 
-		cfg, err = loadMergedConfig(repo, repo.WorktreeRoot)
+		cfg, err = loadMergedConfig(repo)
 		if err != nil {
 			return nil, output.ExitConfig, err
 		}
@@ -85,7 +85,7 @@ func runUp(ctx *Context) (any, int, error) {
 			return nil, output.ExitConfig, err
 		}
 	}
-	stateDir := state.StatePath(repo.WorktreeRoot, cfg.State.Directory)
+	stateDir := state.StatePath(repo.ProjectRoot, cfg.State.Directory)
 	inst, _ := state.LoadInstance(stateDir)
 	firstTime := inst == nil
 	var envWarnings []compose.Warning
@@ -103,23 +103,23 @@ func runUp(ctx *Context) (any, int, error) {
 				steps.Done("Scaffolded docktree.yml")
 			}
 		}
-		envWarnings, err = compose.CheckEnvFile(repo.WorktreeRoot)
+		envWarnings, err = compose.CheckEnvFile(repo.ProjectRoot)
 		if err != nil {
 			return nil, output.ExitConfig, err
 		}
 		if steps != nil {
 			steps.Done("Checked .env conflicts")
 		}
-		if err := ensureGitignore(repo.WorktreeRoot, cfg.State.Directory); err != nil {
+		if err := ensureGitignore(repo, cfg.State.Directory); err != nil {
 			return nil, output.ExitConfig, err
 		}
 	}
 	var staleCopies []string
 	if cfg != nil {
-		staleCopies = setup.StaleFiles(repo.RepoRoot, repo.WorktreeRoot, cfg)
+		staleCopies = setup.StaleFiles(repo.ConfigRoot, repo.ProjectRoot, cfg)
 	}
 	if options.sync && options.create == "" {
-		if err := setup.Prepare(setup.Options{SourceDir: repo.RepoRoot, TargetDir: repo.WorktreeRoot, Config: cfg, Stdout: ctx.Stdout, Stderr: ctx.Stderr}); err != nil {
+		if err := setup.Prepare(setup.Options{SourceDir: repo.ConfigRoot, TargetDir: repo.ProjectRoot, Config: cfg, Stdout: ctx.Stdout, Stderr: ctx.Stderr}); err != nil {
 			return nil, output.ExitConfig, err
 		}
 		synced = true
@@ -131,17 +131,17 @@ func runUp(ctx *Context) (any, int, error) {
 	if options.file != "" {
 		path := options.file
 		if !filepath.IsAbs(path) {
-			path = filepath.Join(repo.WorktreeRoot, path)
+			path = filepath.Join(repo.ProjectRoot, path)
 		}
 		files = []string{path}
 	} else {
-		files, err = composeFiles(repo.WorktreeRoot, cfg)
+		files, err = composeFiles(repo.ProjectRoot, cfg)
 		if err != nil {
 			return nil, output.ExitConfig, err
 		}
 	}
 	if len(cfg.Shared.Services) > 0 {
-		if err := state.EnsureStateDir(repo.WorktreeRoot, cfg.State.Directory); err != nil {
+		if err := state.EnsureStateDir(repo.ProjectRoot, cfg.State.Directory); err != nil {
 			return nil, output.ExitConfig, err
 		}
 		rawProj, _, lerr := compose.LoadFull(files)
@@ -156,7 +156,7 @@ func runUp(ctx *Context) (any, int, error) {
 		if err != nil {
 			return nil, output.ExitConfig, err
 		}
-		repoSlug := dockgit.RepoName(mainRoot)
+		repoSlug := platformSlug(mainRoot, repo.Subpath)
 		tenantDBs := make(map[string]map[string]string, len(cfg.Shared.Services))
 		for svcName, svc := range cfg.Shared.Services {
 			targets := svc.DatabaseTargets()
@@ -221,7 +221,7 @@ func runUp(ctx *Context) (any, int, error) {
 	cfg.Overrides.SkipServices = activeSkips
 
 	if len(activeSkips) > 0 || len(activeDrops) > 0 {
-		if err := state.EnsureStateDir(repo.WorktreeRoot, cfg.State.Directory); err != nil {
+		if err := state.EnsureStateDir(repo.ProjectRoot, cfg.State.Directory); err != nil {
 			return nil, output.ExitConfig, err
 		}
 		rawProj, _, lerr := compose.LoadFull(files)
@@ -260,7 +260,7 @@ func runUp(ctx *Context) (any, int, error) {
 	}
 
 	if len(options.skip) > 0 || options.skipClear {
-		localPath := config.LocalOverridesPath(repo.WorktreeRoot, cfg.State.Directory)
+		localPath := config.LocalOverridesPath(repo.ProjectRoot, cfg.State.Directory)
 		local, err := config.LoadLocalOverrides(localPath)
 		if err != nil {
 			return nil, output.ExitConfig, err
@@ -301,7 +301,7 @@ func runUp(ctx *Context) (any, int, error) {
 		return runDryRun(project, files, cfg, repo, instanceName, envWarnings, profiles)
 	}
 	knownEnvServices := serviceNames(project)
-	if _, err := pruneLocalEnvOverrides(repo.WorktreeRoot, cfg.State.Directory, knownEnvServices); err != nil {
+	if _, err := pruneLocalEnvOverrides(repo.ProjectRoot, cfg.State.Directory, knownEnvServices); err != nil {
 		return nil, output.ExitConfig, err
 	}
 	// Keep the in-memory merged view consistent with the persisted local
@@ -334,7 +334,7 @@ func runUp(ctx *Context) (any, int, error) {
 		return nil, output.ExitDocker, err
 	}
 	if len(cfg.Shared.Services) > 0 {
-		if _, _, platErr := ensurePlatformUp(ctx, repo.RepoRoot); platErr != nil {
+		if _, _, platErr := ensurePlatformUp(ctx, repo); platErr != nil {
 			return nil, output.ExitDocker, platErr
 		}
 		if steps != nil {
@@ -355,7 +355,7 @@ func runUp(ctx *Context) (any, int, error) {
 			_ = registry.Unlock()
 		}
 	}()
-	if err := state.EnsureStateDir(repo.WorktreeRoot, cfg.State.Directory); err != nil {
+	if err := state.EnsureStateDir(repo.ProjectRoot, cfg.State.Directory); err != nil {
 		return nil, output.ExitConfig, err
 	}
 	overrideFile := filepath.Join(stateDir, "generated", instanceName+".override.yml")
@@ -371,6 +371,7 @@ func runUp(ctx *Context) (any, int, error) {
 	inst.ProjectName = instanceName
 	inst.RepoRoot = repo.RepoRoot
 	inst.WorktreeRoot = repo.WorktreeRoot
+	inst.Subpath = repo.Subpath
 	inst.StateDirectory = stateDir
 	inst.Branch = repo.Branch
 	inst.LastActiveAt = now
@@ -431,7 +432,7 @@ func runUp(ctx *Context) (any, int, error) {
 			return nil, output.ExitConflict, err
 		}
 		locked = false
-		override, err := compose.GenerateOverride(project, instanceName, assignments, repoRootVolumesShare())
+		override, err := compose.GenerateOverride(project, instanceName, assignments, canonicalVolumesShare(repo))
 		if err != nil {
 			return nil, output.ExitConfig, err
 		}
@@ -501,7 +502,7 @@ func runUp(ctx *Context) (any, int, error) {
 	if len(options.skip) > 0 {
 		savedSkips = options.skip
 	}
-	return UpResult{Instance: inst, CreatedWorktree: createdWorktree, ComposeFiles: files, OverrideFile: overrideFile, ClearFile: clearFile, Ports: assignments, Services: serviceNames(project), SharedServices: sharedSvcNames, IsolatedVolumes: isolatedVolumes(project, repoRootVolumesShare()), EnvWarnings: envWarnings, Scaffolded: scaffolded, Synced: synced, StaleCopies: staleCopies, Hint: hint, Profiles: profiles, SkippedServices: cfg.Overrides.SkipServices, DroppedDependencies: cfg.Overrides.DropDependencies, SavedSkippedServices: savedSkips, SkipClearApplied: options.skipClear, NetworkPruned: networkPruned, NetworkCount: networkCount}, output.ExitOK, nil
+	return UpResult{Instance: inst, CreatedWorktree: createdWorktree, ComposeFiles: files, OverrideFile: overrideFile, ClearFile: clearFile, Ports: assignments, Services: serviceNames(project), SharedServices: sharedSvcNames, IsolatedVolumes: isolatedVolumes(project, canonicalVolumesShare(repo)), EnvWarnings: envWarnings, Scaffolded: scaffolded, Synced: synced, StaleCopies: staleCopies, Hint: hint, Profiles: profiles, SkippedServices: cfg.Overrides.SkipServices, DroppedDependencies: cfg.Overrides.DropDependencies, SavedSkippedServices: savedSkips, SkipClearApplied: options.skipClear, NetworkPruned: networkPruned, NetworkCount: networkCount}, output.ExitOK, nil
 }
 
 const networkPoolWarningThreshold = 24
@@ -590,8 +591,8 @@ func runValidate(project *compose.ComposeProject, files []string, cfg *config.Co
 		_ = registry.Release(instanceName)
 	}
 	_ = registry.Unlock()
-	isolated := isolatedVolumes(project, repoRootVolumesShare())
-	_, overrideErr := compose.GenerateOverride(project, instanceName, assignments, repoRootVolumesShare())
+	isolated := isolatedVolumes(project, canonicalVolumesShare(repo))
+	_, overrideErr := compose.GenerateOverride(project, instanceName, assignments, canonicalVolumesShare(repo))
 	if overrideErr != nil {
 		errs = append(errs, fmt.Sprintf("override generation failed: %v", overrideErr))
 	}
@@ -652,7 +653,7 @@ func runDryRun(project *compose.ComposeProject, files []string, cfg *config.Conf
 		}
 	}
 	_ = registry.Unlock()
-	override, err := compose.GenerateOverride(project, instanceName, assignments, repoRootVolumesShare())
+	override, err := compose.GenerateOverride(project, instanceName, assignments, canonicalVolumesShare(repo))
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
@@ -669,5 +670,5 @@ func runDryRun(project *compose.ComposeProject, files []string, cfg *config.Conf
 		}
 		clearPreview = string(clearYAML)
 	}
-	return DryRunResult{DryRun: true, InstanceName: instanceName, ComposeFiles: files, Services: serviceNames(project), Ports: assignments, IsolatedVolumes: isolatedVolumes(project, repoRootVolumesShare()), EnvWarnings: envWarnings, OverridePreview: string(overrideYAML), ClearPreview: clearPreview, Profiles: profiles, SkippedServices: cfg.Overrides.SkipServices, DroppedDependencies: cfg.Overrides.DropDependencies}, output.ExitOK, nil
+	return DryRunResult{DryRun: true, InstanceName: instanceName, ComposeFiles: files, Services: serviceNames(project), Ports: assignments, IsolatedVolumes: isolatedVolumes(project, canonicalVolumesShare(repo)), EnvWarnings: envWarnings, OverridePreview: string(overrideYAML), ClearPreview: clearPreview, Profiles: profiles, SkippedServices: cfg.Overrides.SkipServices, DroppedDependencies: cfg.Overrides.DropDependencies}, output.ExitOK, nil
 }

@@ -15,7 +15,6 @@ import (
 	"syscall"
 	"time"
 
-	dockgit "github.com/bnjoroge/docktree/internal/git"
 	"github.com/bnjoroge/docktree/internal/config"
 	"github.com/bnjoroge/docktree/internal/output"
 	"github.com/bnjoroge/docktree/internal/ports"
@@ -127,6 +126,9 @@ type TunnelState struct {
 }
 
 func tunnelStatePath(worktreeRoot, stateDir string) string {
+	if filepath.IsAbs(stateDir) {
+		return filepath.Join(stateDir, "tunnel.json")
+	}
 	if stateDir == "" {
 		stateDir = ".docktree"
 	}
@@ -284,8 +286,8 @@ type TunnelStatusResult struct {
 func runTunnel(ctx *Context) (any, int, error) {
 	// Load docktree.yml from the repo root for tunnel defaults.
 	var repoCfg *config.Config
-	if repo, err := dockgit.DetectRepo(); err == nil {
-		repoCfg, _ = config.Load(repo.RepoRoot)
+	if repo, err := resolveRepo(ctx.ConfigPath); err == nil {
+		repoCfg, _ = loadCanonicalConfig(repo)
 	}
 	options, err := parseTunnelOptions(ctx.Args[1:], repoCfg)
 	if err != nil {
@@ -309,29 +311,30 @@ func runTunnel(ctx *Context) (any, int, error) {
 	}
 }
 
-// detectCurrentWorktree returns worktreeRoot, stateDir, and instance for the cwd.
-func detectCurrentWorktree() (string, string, *state.Instance, error) {
-	repo, err := dockgit.DetectRepo()
+// detectCurrentWorktree returns the selected project's root, its state
+// directory, and its instance for the current working directory.
+func detectCurrentWorktree(ctx *Context) (string, string, *state.Instance, error) {
+	repo, err := resolveRepo(ctx.ConfigPath)
 	if err != nil {
 		return "", "", nil, err
 	}
-	cfg, err := loadConfigWithSharedWarnings(repo.RepoRoot, os.Stderr)
+	cfg, err := loadCanonicalConfigWithWarnings(repo, os.Stderr)
 	if err != nil {
 		return "", "", nil, err
 	}
 	stateDir := cfg.State.Directory
-	inst, err := state.LoadInstance(state.StatePath(repo.WorktreeRoot, stateDir))
+	inst, err := state.LoadInstance(state.StatePath(repo.ProjectRoot, stateDir))
 	if errors.Is(err, os.ErrNotExist) {
 		return "", "", nil, fmt.Errorf("not a docktree worktree (run `docktree up` first)")
 	}
 	if err != nil {
 		return "", "", nil, err
 	}
-	return repo.WorktreeRoot, stateDir, inst, nil
+	return repo.ProjectRoot, stateDir, inst, nil
 }
 
 func runTunnelStart(ctx *Context, options tunnelOptions) (any, int, error) {
-	worktreeRoot, stateDir, inst, err := detectCurrentWorktree()
+	worktreeRoot, stateDir, inst, err := detectCurrentWorktree(ctx)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
@@ -510,7 +513,7 @@ func runTunnelStart(ctx *Context, options tunnelOptions) (any, int, error) {
 }
 
 func runTunnelStop(ctx *Context) (any, int, error) {
-	worktreeRoot, stateDir, inst, err := detectCurrentWorktree()
+	worktreeRoot, stateDir, inst, err := detectCurrentWorktree(ctx)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
@@ -522,7 +525,6 @@ func runTunnelStop(ctx *Context) (any, int, error) {
 	if ts == nil {
 		return nil, output.ExitNoop, fmt.Errorf("no tunnel running for %s", inst.Name)
 	}
-
 
 	if ts.StartTime == "" || !processMatchesStr(ts.PID, ts.StartTime) {
 		_ = removeTunnelState(worktreeRoot, stateDir)
@@ -553,7 +555,7 @@ func runTunnelStop(ctx *Context) (any, int, error) {
 }
 
 func runTunnelStatus(ctx *Context) (any, int, error) {
-	worktreeRoot, stateDir, inst, err := detectCurrentWorktree()
+	worktreeRoot, stateDir, inst, err := detectCurrentWorktree(ctx)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
@@ -625,7 +627,7 @@ func runTunnelList(ctx *Context) (any, int, error) {
 
 	var entries []TunnelListEntry
 	for _, inst := range instances {
-		ts, _ := LoadTunnelState(inst.WorktreeRoot, inst.StateDirectory)
+		ts, _ := LoadTunnelState(instanceProjectRoot(&inst), state.InstanceStateDir(&inst))
 		if ts == nil {
 			continue
 		}
@@ -772,7 +774,6 @@ func scanLogForURL(logPath string) string {
 	return ""
 }
 
-
 func extractTunnelURL(line string) string {
 	// Find every https:// URL in the line and return the first one
 	// whose host matches a known provider domain.
@@ -781,7 +782,7 @@ func extractTunnelURL(line string) string {
 		for {
 			idx := strings.Index(line[start:], "https://")
 			if idx < 0 {
-					break
+				break
 			}
 			idx += start
 			// Find end of URL (delimiter or line end).

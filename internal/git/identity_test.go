@@ -7,8 +7,8 @@ import (
 )
 
 func TestInstanceNameStableAndSafe(t *testing.T) {
-	got := InstanceName("My Repo", "feature/auth", "/tmp/repo", "/tmp/repo-wt")
-	again := InstanceName("My Repo", "feature/auth", "/tmp/repo", "/tmp/repo-wt")
+	got := InstanceName("My Repo", "feature/auth", "/tmp/repo", "/tmp/repo-wt", "")
+	again := InstanceName("My Repo", "feature/auth", "/tmp/repo", "/tmp/repo-wt", "")
 	if got != again {
 		t.Fatalf("name changed across runs: %q != %q", got, again)
 	}
@@ -24,6 +24,7 @@ func TestInstanceNameTruncatesAt64CharsKeepingHash(t *testing.T) {
 		workName string
 		repoPath string
 		workPath string
+		subpath  string
 	}{
 		{
 			name:     "long worktree",
@@ -67,10 +68,26 @@ func TestInstanceNameTruncatesAt64CharsKeepingHash(t *testing.T) {
 			repoPath: "/tmp/trail",
 			workPath: "/tmp/trail-wt",
 		},
+		{
+			name:     "subproject with long segments",
+			repoName: strings.Repeat("repo-", 12),
+			workName: strings.Repeat("branch-", 12),
+			repoPath: "/tmp/mono",
+			workPath: "/tmp/mono-wt",
+			subpath:  strings.Repeat("services/api-", 8),
+		},
+		{
+			name:     "subproject trailing dash",
+			repoName: "repo",
+			workName: "main",
+			repoPath: "/tmp/mono2",
+			workPath: "/tmp/mono2-wt",
+			subpath:  "packages/a---",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := InstanceName(tt.repoName, tt.workName, tt.repoPath, tt.workPath)
+			got := InstanceName(tt.repoName, tt.workName, tt.repoPath, tt.workPath, tt.subpath)
 			if len(got) > 64 {
 				t.Fatalf("name too long: %d %q", len(got), got)
 			}
@@ -86,10 +103,76 @@ func TestInstanceNameTruncatesAt64CharsKeepingHash(t *testing.T) {
 }
 
 func TestInstanceNameHashesRepoPath(t *testing.T) {
-	a := InstanceName("repo", "feature/auth", "/tmp/one", "/tmp/one")
-	b := InstanceName("repo", "feature/auth", "/tmp/two", "/tmp/two")
+	a := InstanceName("repo", "feature/auth", "/tmp/one", "/tmp/one", "")
+	b := InstanceName("repo", "feature/auth", "/tmp/two", "/tmp/two", "")
 	if a == b {
 		t.Fatalf("same branch in different repos produced same name: %q", a)
+	}
+}
+
+// TestInstanceNameRootScopeUnchanged pins the pre-subproject naming scheme.
+// Existing worktrees must keep their Compose project names across upgrade, so
+// an empty subpath has to reproduce these bytes exactly.
+func TestInstanceNameRootScopeUnchanged(t *testing.T) {
+	tests := []struct {
+		repoName string
+		workName string
+		repoPath string
+		workPath string
+		want     string
+	}{
+		{"docktree", "main", "/repos/docktree", "/repos/docktree", "docktree-main-a7bf50"},
+		{"My Repo", "feature/auth", "/tmp/repo", "/tmp/repo-wt", "my-repo-feature-auth-1fd715"},
+	}
+	for _, tt := range tests {
+		got := InstanceName(tt.repoName, tt.workName, tt.repoPath, tt.workPath, "")
+		if got != tt.want {
+			t.Fatalf("InstanceName(%q, %q, %q, %q, \"\") = %q, want %q", tt.repoName, tt.workName, tt.repoPath, tt.workPath, got, tt.want)
+		}
+	}
+}
+
+// TestInstanceNameSubpathIsolatesSubprojects covers the core issue #61
+// requirement: two subprojects in one worktree must never share an identity,
+// and each must differ from the repository-root identity.
+func TestInstanceNameSubpathIsolatesSubprojects(t *testing.T) {
+	root := InstanceName("mono", "main", "/repos/mono", "/repos/mono", "")
+	a := InstanceName("mono", "main", "/repos/mono", "/repos/mono", "project-a")
+	b := InstanceName("mono", "main", "/repos/mono", "/repos/mono", "project-b")
+	nested := InstanceName("mono", "main", "/repos/mono", "/repos/mono", "project-a/packages/a1")
+	for i, pair := range [][2]string{{root, a}, {root, b}, {a, b}, {a, nested}} {
+		if pair[0] == pair[1] {
+			t.Fatalf("case %d: identities collided: %q", i, pair[0])
+		}
+	}
+	if !strings.Contains(a, "project-a") {
+		t.Fatalf("subproject slug missing from %q", a)
+	}
+	// The same subproject in a different worktree is still distinct.
+	other := InstanceName("mono", "feature", "/repos/mono", "/repos/mono-wt", "project-a")
+	if other == a {
+		t.Fatalf("same subproject in different worktrees collided: %q", a)
+	}
+}
+
+func TestNormalizeSubpath(t *testing.T) {
+	tests := map[string]string{
+		"":                    "",
+		".":                   "",
+		"/":                   "",
+		"project-a":           "project-a",
+		"/project-a/":         "project-a",
+		"project-a/packages/": "project-a/packages",
+		"project-a/./b":       "project-a/b",
+		"project-a/..":        "",
+		"project-a/../project-b": "project-b",
+		"foo/bar/../..":       "",
+		"  apps/api  ":        "apps/api",
+	}
+	for in, want := range tests {
+		if got := NormalizeSubpath(in); got != want {
+			t.Fatalf("NormalizeSubpath(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
 

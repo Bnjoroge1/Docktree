@@ -57,9 +57,13 @@ var rootCommands = map[string]commandSpec{
 }
 
 func Run(args []string, stdout, stderr io.Writer) int {
-	jsonMode, rest := parseGlobalFlags(args)
+	jsonMode, configPath, rest, err := parseGlobalFlags(args)
 	renderer := output.New(stdout, jsonMode)
-	ctx := &Context{Args: rest, Renderer: renderer, Stdout: stdout, Stderr: stderr}
+	if err != nil {
+		renderError(renderer, stderr, output.ExitUsage, err)
+		return output.ExitUsage
+	}
+	ctx := &Context{Args: rest, Renderer: renderer, Stdout: stdout, Stderr: stderr, ConfigPath: configPath}
 	if len(rest) == 0 {
 		renderer.Render(rootHelpDoc(), humanRenderer())
 		return output.ExitOK

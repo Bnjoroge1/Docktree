@@ -19,6 +19,9 @@ type Context struct {
 	Stdout   io.Writer
 	Stderr   io.Writer
 	Steps    *tui.StepPrinter
+	// ConfigPath is the global --config selector, empty when the subproject
+	// is discovered from the working directory.
+	ConfigPath string
 }
 
 type UpResult struct {

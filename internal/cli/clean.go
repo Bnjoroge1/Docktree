@@ -130,7 +130,7 @@ func staleReason(inst *state.Instance, stateFound bool, portCount int, resources
 		if inst.WorktreeRoot == "" {
 			return "missing worktree path"
 		}
-		if _, err := os.Stat(inst.WorktreeRoot); errors.Is(err, os.ErrNotExist) {
+		if _, err := os.Stat(instanceProjectRoot(inst)); errors.Is(err, os.ErrNotExist) {
 			return "worktree path gone"
 		}
 		if !inst.LastActiveAt.IsZero() && time.Since(inst.LastActiveAt) > 14*24*time.Hour {

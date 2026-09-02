@@ -7,9 +7,7 @@ import (
 	"io/fs"
 	"strings"
 
-	"github.com/bnjoroge/docktree/internal/config"
 	"github.com/bnjoroge/docktree/internal/docker"
-	dockgit "github.com/bnjoroge/docktree/internal/git"
 	"github.com/bnjoroge/docktree/internal/output"
 	"github.com/bnjoroge/docktree/internal/state"
 )
@@ -20,15 +18,15 @@ func runConfig(ctx *Context) (any, int, error) {
 		printConfigHelp(ctx.Stdout)
 		return nil, output.ExitOK, nil
 	}
-	repo, err := dockgit.DetectRepo()
+	repo, err := resolveRepo(ctx.ConfigPath)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	cfg, err := config.Load(repo.RepoRoot)
+	cfg, err := loadCanonicalConfig(repo)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	files, err := composeFiles(repo.WorktreeRoot, cfg)
+	files, err := composeFiles(repo.ProjectRoot, cfg)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
@@ -52,15 +50,15 @@ func runImages(ctx *Context) (any, int, error) {
 	if hasOutputShapingFlags(args) {
 		return runComposePassthrough(ctx, "images", args, true, printImagesHelp)
 	}
-	repo, err := dockgit.DetectRepo()
+	repo, err := resolveRepo(ctx.ConfigPath)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	cfg, err := config.Load(repo.RepoRoot)
+	cfg, err := loadCanonicalConfig(repo)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	stateDir := state.StatePath(repo.WorktreeRoot, cfg.State.Directory)
+	stateDir := state.StatePath(repo.ProjectRoot, cfg.State.Directory)
 	inst, err := state.LoadInstance(stateDir)
 	if err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
@@ -68,7 +66,7 @@ func runImages(ctx *Context) (any, int, error) {
 		}
 		return ImagesResult{Entries: []ImagesEntry{}}, output.ExitOK, nil
 	}
-	composeFiles := activeComposeFiles(repo.WorktreeRoot, cfg, inst)
+	composeFiles := activeComposeFiles(repo.ProjectRoot, cfg, inst)
 	cmd := docker.ComposeCommand{
 		ProjectName: inst.ProjectName,
 		Files:       composeFiles,
@@ -102,15 +100,15 @@ func runTop(ctx *Context) (any, int, error) {
 	if hasOutputShapingFlags(args) {
 		return runComposePassthrough(ctx, "top", args, true, printTopHelp)
 	}
-	repo, err := dockgit.DetectRepo()
+	repo, err := resolveRepo(ctx.ConfigPath)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	cfg, err := config.Load(repo.RepoRoot)
+	cfg, err := loadCanonicalConfig(repo)
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
-	stateDir := state.StatePath(repo.WorktreeRoot, cfg.State.Directory)
+	stateDir := state.StatePath(repo.ProjectRoot, cfg.State.Directory)
 	inst, err := state.LoadInstance(stateDir)
 	if err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
@@ -118,7 +116,7 @@ func runTop(ctx *Context) (any, int, error) {
 		}
 		return TopResult{Rows: nil}, output.ExitOK, nil
 	}
-	composeFiles := activeComposeFiles(repo.WorktreeRoot, cfg, inst)
+	composeFiles := activeComposeFiles(repo.ProjectRoot, cfg, inst)
 	cmd := docker.ComposeCommand{
 		ProjectName: inst.ProjectName,
 		Files:       composeFiles,

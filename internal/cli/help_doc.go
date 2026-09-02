@@ -100,9 +100,10 @@ func rootHelpDoc() HelpDoc {
 	return HelpDoc{
 		Command:  "",
 		Synopsis: "docktree coordinates Docker Compose services across git worktrees.",
-		Usage:    []string{"docktree [--json] <command>"},
+		Usage:    []string{"docktree [--json] [--config PATH] <command>"},
 		GlobalFlags: []HelpOption{
 			{Flags: []string{"--json"}, Description: "Emit machine-readable JSON instead of formatted text"},
+			{Flags: []string{"--config"}, Description: "Select a subproject docktree.yml explicitly instead of discovering the nearest one from the current directory"},
 		},
 		Subcommands: []HelpCmd{
 			{Name: "build", Description: "Pass through to docker compose build"},
@@ -182,7 +183,8 @@ func downHelpDoc() HelpDoc {
 		Usage:    []string{"docktree down [options] [service...]"},
 		Options: []HelpOption{
 			{Flags: []string{"-v", "--volumes"}, Description: "Drop per-worktree tenant databases and Docker volumes. Data is permanently deleted."},
-			{Flags: []string{"-a", "--all"}, Description: "Apply to all worktree instances in this repository. Combine with -v to drop volumes across all worktrees at once."},
+			{Flags: []string{"-a", "--all"}, Description: "Apply to all worktree instances of the selected project. Combine with -v to drop volumes across all worktrees at once."},
+			{Flags: []string{"--all-projects"}, Description: "Like --all, but across every subproject in the repository rather than only the selected one."},
 			{Flags: []string{"--dry-run"}, Description: "Show what would be stopped without making changes"},
 			{Flags: []string{"-h", "--help"}, Description: "Show this help text"},
 		},
