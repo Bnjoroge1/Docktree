@@ -3,6 +3,8 @@ package provision
 import (
 	"strings"
 	"testing"
+
+	dockgit "github.com/bnjoroge/docktree/internal/git"
 )
 
 func TestTenantName(t *testing.T) {
@@ -12,7 +14,7 @@ func TestTenantName(t *testing.T) {
 		{"myrepo", "myrepo-main-abc123", "myrepo_myrepo_main_abc123"},
 		{"cow-shared-services", "cow-main-a1b2c3", "cow_shared_services_cow_main_a1b2c3"},
 		{"Repo", "Branch-UPPER", "repo_branch_upper"},
-		{"r", strings.Repeat("x", 70), "r_" + strings.Repeat("x", 61)},
+		{"r", strings.Repeat("x", 70), "r_" + strings.Repeat("x", 54) + "_1c9b7d"},
 	}
 	for _, tc := range cases {
 		got := TenantName(tc.repo, tc.instance)
@@ -175,6 +177,21 @@ func TestTenantNameForDatabaseLogicalSuffixSurvivesTruncation(t *testing.T) {
 	}
 	if len(a) > 63 || len(b) > 63 {
 		t.Fatalf("exceeds 63 bytes: a=%d b=%d", len(a), len(b))
+	}
+}
+
+func TestTenantNameForDatabaseWorktreeDiscriminatorSurvivesTruncation(t *testing.T) {
+	repo := "backend-service-orchestration"
+	repoPath := "/home/u/work/" + repo
+	a := dockgit.InstanceName(repo, "feat-alpha", repoPath, repoPath+"/.wt/feat-alpha", "")
+	b := dockgit.InstanceName(repo, "feat-beta", repoPath, repoPath+"/.wt/feat-beta", "")
+	tenantA := TenantNameForDatabase("backend_service_orchestration", a, "app")
+	tenantB := TenantNameForDatabase("backend_service_orchestration", b, "app")
+	if tenantA == tenantB {
+		t.Fatalf("worktree instances collided after truncation: %q", tenantA)
+	}
+	if len(tenantA) > 63 || len(tenantB) > 63 {
+		t.Fatalf("exceeds 63 bytes: a=%d b=%d", len(tenantA), len(tenantB))
 	}
 }
 
