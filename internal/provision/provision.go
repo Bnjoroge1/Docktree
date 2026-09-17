@@ -5,6 +5,8 @@ package provision
 
 import (
 	"bytes"
+	"crypto/sha1"
+	"encoding/hex"
 	"fmt"
 	"os/exec"
 	"strconv"
@@ -481,7 +483,13 @@ func TenantNameForDatabase(repoSlug, instanceName, logicalDB string) string {
 	}
 	slug = strings.Trim(slug, "_")
 	if len(slug) > 63 {
-		slug = strings.TrimRight(slug[:63], "_")
+		// Keep a digest of the complete slug after truncation. The instance
+		// name carries the worktree discriminator at its end, so truncating
+		// only the prefix would make long repository names collide.
+		sum := sha1.Sum([]byte(slug))
+		suffix := hex.EncodeToString(sum[:])[:6]
+		prefix := strings.TrimRight(slug[:63-len(suffix)-1], "_")
+		slug = prefix + "_" + suffix
 	}
 	if slug == "" {
 		slug = "docktree"
