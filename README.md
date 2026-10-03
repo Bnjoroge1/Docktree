@@ -89,7 +89,7 @@ npx skills add Bnjoroge1/docktree -g           # globally
 npx skills add Bnjoroge1/docktree --list       # preview without installing
 ```
 
-See [`skills/`](./skills/) for the skill source.
+[`Full agent skills guide →`](https://github.com/Bnjoroge1/Docktree/tree/main/skills)
 
 ## Configuration
 
