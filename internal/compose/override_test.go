@@ -81,6 +81,7 @@ func TestGenerateOverride(t *testing.T) {
 		name          string
 		project       *ComposeProject
 		instance      string
+		repo          string
 		assignments   []ports.Assignment
 		sharedVolumes []string
 		check         func(t *testing.T, override *Override)
@@ -196,6 +197,37 @@ func TestGenerateOverride(t *testing.T) {
 			project:  nil,
 			instance: "repo-main-abc",
 			wantErr:  true,
+		},
+		{
+			name: "hyphenated_repo_keeps_full_label",
+			project: &ComposeProject{
+				Services: map[string]Service{
+					"web": {Image: "nginx:alpine"},
+				},
+				Networks: map[string]Network{
+					"platform-net": {Name: "docktree-platform-my-app-demo-net", External: true},
+				},
+				Volumes: map[string]Volume{
+					"db-data": {External: true},
+				},
+			},
+			instance: "my-app-demo-feature-1-2c1c6a",
+			repo:     "my-app-demo",
+			check: func(t *testing.T, o *Override) {
+				if got := o.Services["web"].Labels["docktree.repo"]; got != "my-app-demo" {
+					t.Fatalf("service docktree.repo = %q, want %q", got, "my-app-demo")
+				}
+				isoNet := o.Networks["my-app-demo-feature-1-2c1c6a-isolated"]
+				if got := isoNet.Labels["docktree.repo"]; got != "my-app-demo" {
+					t.Fatalf("isolated network docktree.repo = %q, want %q", got, "my-app-demo")
+				}
+				if got := o.Volumes["db-data"].Labels["docktree.repo"]; got != "my-app-demo" {
+					t.Fatalf("volume docktree.repo = %q, want %q", got, "my-app-demo")
+				}
+				if _, ok := o.Networks["platform-net"]; ok {
+					t.Fatal("platform network must not be rewritten")
+				}
+			},
 		},
 		{
 			name: "isolate_external_volumes",
@@ -390,7 +422,11 @@ func TestGenerateOverride(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			override, err := GenerateOverride(tt.project, tt.instance, tt.assignments, tt.sharedVolumes)
+			repo := tt.repo
+			if repo == "" {
+				repo = "repo"
+			}
+			override, err := GenerateOverride(tt.project, tt.instance, repo, tt.assignments, tt.sharedVolumes)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error")

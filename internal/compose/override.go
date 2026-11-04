@@ -11,9 +11,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func GenerateOverride(project *ComposeProject, instanceName string, assignments []ports.Assignment, sharedVolumes []string) (*Override, error) {
+func GenerateOverride(project *ComposeProject, instanceName, repoName string, assignments []ports.Assignment, sharedVolumes []string) (*Override, error) {
 	if project == nil {
 		return nil, fmt.Errorf("compose project is nil")
+	}
+	if repoName == "" {
+		return nil, fmt.Errorf("empty repo name")
 	}
 	byService := map[string][]ports.Assignment{}
 	for _, assignment := range assignments {
@@ -28,11 +31,11 @@ func GenerateOverride(project *ComposeProject, instanceName string, assignments 
 	override := &Override{
 		Services: map[string]ServiceOverride{},
 		Networks: map[string]NetworkOverride{
-			isoNet: {Driver: "bridge", Labels: docktreeResourceLabels(instanceName)},
+			isoNet: {Driver: "bridge", Labels: docktreeResourceLabels(instanceName, repoName)},
 		},
 		Volumes: map[string]VolumeOverride{},
 	}
-	platNet := "docktree-platform-" + repoPart(instanceName) + "-net"
+	platNet := PlatformNetworkName(repoName)
 	for netKey, netConfig := range project.Networks {
 		if netKey == "default" {
 			continue
@@ -47,7 +50,7 @@ func GenerateOverride(project *ComposeProject, instanceName string, assignments 
 			override.Networks[netKey] = NetworkOverride{
 				Name:     netConfig.Name + "-" + instanceName,
 				External: false,
-				Labels:   docktreeResourceLabels(instanceName),
+				Labels:   docktreeResourceLabels(instanceName, repoName),
 			}
 		}
 	}
@@ -69,7 +72,7 @@ func GenerateOverride(project *ComposeProject, instanceName string, assignments 
 		serviceOverride.Labels = map[string]string{
 			"docktree.managed":  "true",
 			"docktree.instance": instanceName,
-			"docktree.repo":     repoPart(instanceName),
+			"docktree.repo":     repoName,
 		}
 		// Add the isolated network when Compose can accept a networks override.
 		// Services using network_mode cannot also declare networks, and Docker
@@ -89,7 +92,7 @@ func GenerateOverride(project *ComposeProject, instanceName string, assignments 
 			override.Volumes[volName] = VolumeOverride{
 				Name:     instanceName + "-" + volName,
 				External: &external,
-				Labels:   docktreeResourceLabels(instanceName),
+				Labels:   docktreeResourceLabels(instanceName, repoName),
 			}
 		}
 	}
@@ -211,14 +214,6 @@ func sameHostIP(a, b string) bool {
 	return a == b || (a == "127.0.0.1" && b == "") || (a == "" && b == "127.0.0.1")
 }
 
-func repoPart(instanceName string) string {
-	parts := strings.Split(instanceName, "-")
-	if len(parts) == 0 {
-		return instanceName
-	}
-	return parts[0]
-}
-
 // docktreeResourceLabels returns the ownership labels stamped onto the
 // networks and volumes Docktree generates for a worktree instance. Compose
 // only labels containers by default; carrying the same `docktree.instance`
@@ -226,10 +221,10 @@ func repoPart(instanceName string) string {
 // resources by label rather than by name shape alone, so a foreign compose
 // project that happens to share the instance-name shape is never swept. A
 // fresh map is returned per call so callers never alias one another.
-func docktreeResourceLabels(instanceName string) map[string]string {
+func docktreeResourceLabels(instanceName, repoName string) map[string]string {
 	return map[string]string{
 		"docktree.managed":  "true",
 		"docktree.instance": instanceName,
-		"docktree.repo":     repoPart(instanceName),
+		"docktree.repo":     repoName,
 	}
 }

@@ -221,7 +221,7 @@ func regenerateEnvOverride(project *compose.ComposeProject, cfg *config.Config, 
 	if !ok {
 		return output.ExitConflict, fmt.Errorf("no existing port assignments for instance %q; run `docktree up` first", instanceName)
 	}
-	override, err := compose.GenerateOverride(project, instanceName, assignments, canonicalVolumesShare(repo))
+	override, err := compose.GenerateOverride(project, instanceName, dockgit.RepoName(repo.RepoRoot), assignments, canonicalVolumesShare(repo))
 	if err != nil {
 		return output.ExitConfig, err
 	}
