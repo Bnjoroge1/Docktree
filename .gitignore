@@ -41,3 +41,4 @@ Thumbs.db
 .cursor
 node_modules/
 /docktree
+.loopt/.cache/

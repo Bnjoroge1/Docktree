@@ -432,7 +432,7 @@ func runUp(ctx *Context) (any, int, error) {
 			return nil, output.ExitConflict, err
 		}
 		locked = false
-		override, err := compose.GenerateOverride(project, instanceName, assignments, canonicalVolumesShare(repo))
+		override, err := compose.GenerateOverride(project, instanceName, dockgit.RepoName(repo.RepoRoot), assignments, canonicalVolumesShare(repo))
 		if err != nil {
 			return nil, output.ExitConfig, err
 		}
@@ -592,7 +592,7 @@ func runValidate(project *compose.ComposeProject, files []string, cfg *config.Co
 	}
 	_ = registry.Unlock()
 	isolated := isolatedVolumes(project, canonicalVolumesShare(repo))
-	_, overrideErr := compose.GenerateOverride(project, instanceName, assignments, canonicalVolumesShare(repo))
+	_, overrideErr := compose.GenerateOverride(project, instanceName, dockgit.RepoName(repo.RepoRoot), assignments, canonicalVolumesShare(repo))
 	if overrideErr != nil {
 		errs = append(errs, fmt.Sprintf("override generation failed: %v", overrideErr))
 	}
@@ -653,7 +653,7 @@ func runDryRun(project *compose.ComposeProject, files []string, cfg *config.Conf
 		}
 	}
 	_ = registry.Unlock()
-	override, err := compose.GenerateOverride(project, instanceName, assignments, canonicalVolumesShare(repo))
+	override, err := compose.GenerateOverride(project, instanceName, dockgit.RepoName(repo.RepoRoot), assignments, canonicalVolumesShare(repo))
 	if err != nil {
 		return nil, output.ExitConfig, err
 	}
