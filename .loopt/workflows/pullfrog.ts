@@ -178,18 +178,6 @@ const workflow: JsonValue = {
           with: {
             prompt: "${{ inputs.prompt }}",
           },
-          env: {
-            ANTHROPIC_API_KEY: "${{ secrets.ANTHROPIC_API_KEY }}",
-            CLAUDE_CODE_OAUTH_TOKEN: "${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}",
-            OPENAI_API_KEY: "${{ secrets.OPENAI_API_KEY }}",
-            GOOGLE_GENERATIVE_AI_API_KEY: "${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}",
-            GEMINI_API_KEY: "${{ secrets.GEMINI_API_KEY }}",
-            XAI_API_KEY: "${{ secrets.XAI_API_KEY }}",
-            DEEPSEEK_API_KEY: "${{ secrets.DEEPSEEK_API_KEY }}",
-            MOONSHOT_API_KEY: "${{ secrets.MOONSHOT_API_KEY }}",
-            OPENROUTER_API_KEY: "${{ secrets.OPENROUTER_API_KEY }}",
-            OPENCODE_API_KEY: "${{ secrets.OPENCODE_API_KEY }}",
-          },
         },
       ],
     },

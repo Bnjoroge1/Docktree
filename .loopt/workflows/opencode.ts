@@ -172,9 +172,6 @@ const workflow: JsonValue = {
         {
           name: "Run opencode",
           uses: "anomalyco/opencode/github@77fc88c8ade8e5a620ebbe1197f3a572d29ae91a", // latest,
-          env: {
-            DEEPSEEK_API_KEY: "${{ secrets.DEEPSEEK_API_KEY }}",
-          },
           with: {
             model: "deepseek/deepseek-v4-pro",
           },
