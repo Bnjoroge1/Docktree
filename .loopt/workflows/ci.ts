@@ -209,6 +209,37 @@ const workflow: JsonValue = {
         },
       ],
     },
+
+    generated: {
+      name: "Generated workflows",
+      "runs-on": "ubuntu-latest",
+      steps: [
+        {
+          uses: "actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5", // v4
+        },
+        {
+          uses: "actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5", // v4
+          with: {
+            repository: "preloopdev/loopt",
+            path: "loopt-src",
+          },
+        },
+        {
+          uses: "dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8", // v1
+          with: {
+            toolchain: "1.97",
+          },
+        },
+        {
+          name: "Build loopt",
+          run: "cargo build --locked --manifest-path loopt-src/Cargo.toml -p loopt\n",
+        },
+        {
+          name: "Verify generated workflows",
+          run: "./loopt-src/target/debug/loopt gen --check\n",
+        },
+      ],
+    },
   },
 };
 
