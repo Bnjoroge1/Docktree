@@ -735,8 +735,8 @@ func serviceNameForPort(instanceName string, hostPort int) string {
 // Returns the captured URL or an empty string if the child exits first or
 // the poll window expires without a match.
 func captureTunnelURL(cmd *exec.Cmd, logPath, instanceName string, timeout time.Duration) string {
-	waitCh := make(chan error, 1)
-	go func() { waitCh <- cmd.Wait() }()
+	waitCh := make(chan struct{}, 1)
+	go func() { _ = cmd.Wait(); waitCh <- struct{}{} }()
 
 	deadline := time.After(timeout)
 	tick := time.NewTicker(250 * time.Millisecond)
