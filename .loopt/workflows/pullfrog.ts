@@ -167,14 +167,14 @@ const workflow: JsonValue = {
       steps: [
         {
           name: "Checkout code",
-          uses: "actions/checkout@v6",
+          uses: "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803", // v6,
           with: {
             "fetch-depth": 1,
           },
         },
         {
           name: "Run agent",
-          uses: "pullfrog/pullfrog@v0",
+          uses: "pullfrog/pullfrog@31e8ce51583f5e108ace8fb0bbb302e85cf38e04", // v0,
           with: {
             prompt: "${{ inputs.prompt }}",
           },

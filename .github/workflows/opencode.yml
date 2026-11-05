@@ -22,12 +22,12 @@ jobs:
       issues: read
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803"
         with:
           persist-credentials: false
 
       - name: Run opencode
-        uses: anomalyco/opencode/github@latest
+        uses: "anomalyco/opencode/github@77fc88c8ade8e5a620ebbe1197f3a572d29ae91a"
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         with:
