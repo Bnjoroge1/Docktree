@@ -23,7 +23,7 @@ permissions:
 jobs:
   test:
     name: Test
-    runs-on: [self-hosted, preloop-ubuntu-24.04-4vcpu-8gb]
+    runs-on: [self-hosted, preloop-ubuntu-24.04-2vcpu-4gb]
     steps:
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
     - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
@@ -54,7 +54,7 @@ jobs:
         version: latest
   generated:
     name: Generated workflows
-    runs-on: [self-hosted, preloop-ubuntu-24.04-4vcpu-16gb]
+    runs-on: [self-hosted, preloop-ubuntu-24.04-2vcpu-4gb]
     steps:
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
